@@ -2,12 +2,12 @@ import os
 
 import pytest
 
-from kypo.topology.definition.yaml import reader
+from kypo.topology.definition.yaml.models import TopologyDefinition
 
 
 @pytest.fixture
 def topology_definition():
-    return reader.read_topology_definition(os.path.join(os.path.dirname(__file__), 'assets/sandbox.yml'))
+    return TopologyDefinition.from_file(os.path.join(os.path.dirname(__file__), 'assets/sandbox.yml'))
 
 
 @pytest.mark.integration

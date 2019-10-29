@@ -129,6 +129,10 @@ class TopologyDefinition(Object):
         self.router_mappings = RouterMappingList()
         self.groups = GroupList()
 
+    @staticmethod
+    def from_file(file) -> 'TopologyDefinition':
+        return TopologyDefinition.load(open(file, mode='r'))
+
     # TODO -- generalize?
     def find_host_by_name(self, name) -> Host:
         if self._hosts_index is None:
