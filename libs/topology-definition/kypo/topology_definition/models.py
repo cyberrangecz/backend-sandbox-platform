@@ -8,9 +8,14 @@ class Provider(Enum):
     Vagrant = 2
 
 
+class BaseBox(Object):
+    image = Attribute(type=str)
+    man_user = Attribute(type=str, default='kypo-man')
+
+
 class Host(Object):
     name = Attribute(type=str)
-    base_box = Attribute(type=str)
+    base_box = Attribute(type=BaseBox)
     flavor = Attribute(type=str)
     block_internet = Attribute(type=bool, default=False)
 

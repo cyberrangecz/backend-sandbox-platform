@@ -3,12 +3,12 @@ provider: OpenStack
 name: small-sandbox
 hosts:
   - name: server
-    base_box: debian-9-x86_64
+    base_box: {image: debian-9-x86_64, man_user: debian}
     flavor: csirtmu.tiny1x2
     block_internet: True
 
   - name: home
-    base_box: debian-9-x86_64
+    base_box: {image: ubuntu-18_04-x86_64}
     flavor: csirtmu.tiny1x2
 
 routers:
