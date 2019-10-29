@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from kypo.topology.definition.yaml.models import TopologyDefinition
+from kypo.topology_definition.models import TopologyDefinition
 
 
 @pytest.fixture
