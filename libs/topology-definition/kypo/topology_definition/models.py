@@ -18,12 +18,16 @@ class Host(Object):
     base_box = Attribute(type=BaseBox)
     flavor = Attribute(type=str)
     block_internet = Attribute(type=bool, default=False)
+    hidden = Attribute(type=bool, default=False)
+    suspended = Attribute(type=bool, default=False)
 
-    def __init__(self, name, base_box, flavor, block_internet):
+    def __init__(self, name, base_box, flavor, block_internet, hidden, suspended):
         self.name = name
         self.base_box = base_box
         self.flavor = flavor
         self.block_internet = block_internet
+        self.hidden = hidden
+        self.suspended = suspended
 
 
 class HostList(Sequence):

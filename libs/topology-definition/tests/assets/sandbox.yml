@@ -6,10 +6,12 @@ hosts:
     base_box: {image: debian-9-x86_64, man_user: debian}
     flavor: csirtmu.tiny1x2
     block_internet: True
+    hidden: True
 
   - name: home
     base_box: {image: ubuntu-18_04-x86_64}
     flavor: csirtmu.tiny1x2
+    suspended: True
 
 routers:
   - name: server-router
