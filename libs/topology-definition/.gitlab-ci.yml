@@ -32,7 +32,8 @@ build:
     - python3 setup.py setopt --command=metadata --option=version --set-value=$VERSION
     - echo VERSION=$VERSION
     # Get package filename
-    - export PACKAGE=$(python3 setup.py --name)-$VERSION-$PYTHON_TAG-$ABI_TAG-$PLATFORM_TAG.$PACKAGE_EXTENSION
+    - export WHEEL_NAME=$(python3 setup.py --name | tr '-' '_')
+    - export PACKAGE=$WHEEL_NAME-$VERSION-$PYTHON_TAG-$ABI_TAG-$PLATFORM_TAG.$PACKAGE_EXTENSION
     - echo PACKAGE=$PACKAGE
     - python3 setup.py bdist_wheel
     - echo $PACKAGE > dist/.package-name
@@ -48,7 +49,6 @@ deploy:
   image: curlimages/curl:latest
   stage: deploy
   script:
-    - ls -la dist
     - export PACKAGE=$(cat dist/.package-name)
     - 'curl -u $PYPI_USER:$PYPI_PASSWORD -X POST "$PYPI_UPLOAD_URL" -H  "Content-Type: multipart/form-data" -F "pypi.asset=@dist/$PACKAGE"'
   dependencies:
