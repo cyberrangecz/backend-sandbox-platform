@@ -48,6 +48,7 @@ deploy:
   image: curlimages/curl:latest
   stage: deploy
   script:
+    - ls -la dist
     - export PACKAGE=$(cat dist/.package-name)
     - 'curl -u $PYPI_USER:$PYPI_PASSWORD -X POST "$PYPI_UPLOAD_URL" -H  "Content-Type: multipart/form-data" -F "pypi.asset=@dist/$PACKAGE"'
   dependencies:
