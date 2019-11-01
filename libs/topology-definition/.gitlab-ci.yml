@@ -1,55 +1,56 @@
-image: python35
+image: python:3.6
 
 variables:
-    PYTHON_TAG: py3
-    ABI_TAG: none
-    PLATFORM_TAG: any
-    PACKAGE_EXTENSION: whl
+  PYTHON_TAG: py3
+  ABI_TAG: none
+  PLATFORM_TAG: any
+  PACKAGE_EXTENSION: whl
 
 stages:
-    - unitTests
-    - build
-    - deploy
+  - unitTests
+  - build
+  - deploy
 
-before_script:
-    # Get version.
-    #     Variable CI_COMMIT_TAG is set only when tag was pushed.
+unitTests:
+  stage: unitTests
+  script:
+    - export LC_ALL=C.UTF-8
+    - export LANG=C.UTF-8
+    - pip3 install pipenv
+    - pipenv sync --dev
+    - pipenv run python -V
+    - pipenv run tox
+  only:
+    - branches
+    - tags
+
+build:
+  stage: build
+  script:
+    # Get version. Variable CI_COMMIT_TAG is set only when tag was pushed.
     - export VERSION=$(if [[ "$CI_COMMIT_TAG" == "" ]]; then echo 0.0.0; else echo $CI_COMMIT_TAG | cut -c 2-; fi)
     - python3 setup.py setopt --command=metadata --option=version --set-value=$VERSION
     - echo VERSION=$VERSION
     # Get package filename
     - export PACKAGE=$(python3 setup.py --name)-$VERSION-$PYTHON_TAG-$ABI_TAG-$PLATFORM_TAG.$PACKAGE_EXTENSION
     - echo PACKAGE=$PACKAGE
-
-unitTests:
-    stage: unitTests
-    script:
-        - export LC_ALL=C.UTF-8
-        - export LANG=C.UTF-8
-        - pip3 install pipenv
-        - pipenv sync --dev
-        - pipenv run python -V
-        - pipenv run tox
-    only:
-        - branches
-        - tags
-
-build:
-    stage: build
-    script:
-        - python3 setup.py bdist_wheel
-    only:
-        - branches
-        - tags
-    artifacts:
-        paths:
-            - dist
-        expire_in: 1 day
+    - python3 setup.py bdist_wheel
+    - echo $PACKAGE > dist/.package-name
+  only:
+    - branches
+    - tags
+  artifacts:
+    paths:
+      - dist
+    expire_in: 1 day
 
 deploy:
-    stage: deploy
-    script:
-        - 'curl -u $PYPI_USER:$PYPI_PASSWORD -X POST "$PYPI_UPLOAD_URL" -H  "Content-Type: multipart/form-data" -F "pypi.asset=@dist/$PACKAGE"'
-        - '$TRIGGER_PIPELINE'
-    only:
-        - tags
+  image: curlimages/curl:latest
+  stage: deploy
+  script:
+    - export PACKAGE=$(cat dist/.package-name)
+    - 'curl -u $PYPI_USER:$PYPI_PASSWORD -X POST "$PYPI_UPLOAD_URL" -H  "Content-Type: multipart/form-data" -F "pypi.asset=@dist/$PACKAGE"'
+  dependencies:
+    - build
+  only:
+    - tags
