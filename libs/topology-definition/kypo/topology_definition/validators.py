@@ -34,6 +34,12 @@ class TopologyValidation:
 
     @staticmethod
     def validate_groups(obj, groups):
+        duplicates = TopologyValidation.get_duplicates([g.name for g in groups])
+        if duplicates:
+            _msg = 'Uniqueness violation. The following name identifiers are not unique within the [groups] ' \
+                   'definition: {}. '
+            raise ValueError(_msg.format(duplicates))
+
         _msg = 'Invalid group with name "{}". Cannot find a node (host or router) with name "{}".'
         for group in groups:
             for node in group.nodes:
@@ -50,7 +56,8 @@ class TopologyValidation:
 
         duplicates = TopologyValidation.get_duplicates(a + b + c + d)
         if duplicates:
-            _msg = 'Naming clash. The following identifiers are not unique within the definition: {}.'
+            _msg = 'Uniqueness violation. The following name identifiers are not unique within the [name, hosts, ' \
+                   'routers, networks] definition: {}. '
             raise ValueError(_msg.format(duplicates))
 
         return True
