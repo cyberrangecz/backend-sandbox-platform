@@ -48,6 +48,21 @@ class TopologyValidation:
         return True
 
     @staticmethod
+    def validate_group_nodes(obj, nodes):
+        for node in nodes:
+            if not re.match(VALID_NAMES_REGEX, node):
+                _msg = 'Invalid name "{}" in Group.nodes. It does not match regex "{}".'
+                raise ValueError(_msg.format(node, VALID_NAMES_REGEX))
+
+        duplicates = TopologyValidation.get_duplicates(list(nodes))
+        if duplicates:
+            _msg = 'Uniqueness violation. The following name identifiers are not unique within the [Group.nodes] ' \
+                   'definition: {}. '
+            raise ValueError(_msg.format(duplicates))
+
+        return True
+
+    @staticmethod
     def validate_name_uniqueness(obj, networks):
         a = [obj.name]
         b = [h.name for h in obj.hosts]

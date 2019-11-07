@@ -96,7 +96,7 @@ class RouterMappingList(Sequence):
 
 class Group(Object):
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
-    nodes = Attribute(type=StrList)
+    nodes = Attribute(type=StrList, validator=TopologyValidation.validate_group_nodes)
 
     def __init__(self, name):
         self.name = name
