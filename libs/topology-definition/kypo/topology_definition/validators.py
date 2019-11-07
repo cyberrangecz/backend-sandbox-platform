@@ -1,4 +1,5 @@
 import re
+from typing import List
 
 VALID_NAMES_REGEX = r'^[a-z]([a-z0-9A-Z-])*$'
 
@@ -39,3 +40,32 @@ class TopologyValidation:
                 if not self.find_host_by_name(node) and not self.find_router_by_name(node):
                     raise ValueError(_msg.format(group.name, node))
         return True
+
+    @staticmethod
+    def validate_name_uniqueness(self, networks):
+        a = [self.name]
+        b = [h.name for h in self.hosts]
+        c = [r.name for r in self.routers]
+        d = [n.name for n in networks]
+
+        duplicates = TopologyValidation.get_duplicates(a + b + c + d)
+        if duplicates:
+            _msg = 'Naming clash. The following identifiers are not unique within the definition: {}.'
+            raise ValueError(_msg.format(duplicates))
+
+        return True
+
+    @staticmethod
+    def get_duplicates(elements: List) -> List:
+        result = set()
+
+        unique_elements = set(elements)
+
+        if len(elements) > len(unique_elements):
+            for element in elements:
+                if element not in unique_elements:
+                    result.add(element)
+                else:
+                    unique_elements.remove(element)
+
+        return list(result)

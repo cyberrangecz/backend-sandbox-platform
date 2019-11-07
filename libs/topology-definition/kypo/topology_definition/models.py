@@ -122,7 +122,8 @@ class TopologyDefinition(Object):
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
     hosts = Attribute(type=HostList)
     routers = Attribute(type=RouterList)
-    networks = Attribute(type=NetworkList)
+    networks = Attribute(type=NetworkList, validator=TopologyValidation.validate_name_uniqueness)
+    # the validation of networks ABOVE is also used to validate the names of the upper three elements
     net_mappings = Attribute(type=NetworkMappingList, validator=TopologyValidation.validate_net_mappings)
     router_mappings = Attribute(type=RouterMappingList, validator=TopologyValidation.validate_router_mappings)
     groups = Attribute(type=GroupList, validator=TopologyValidation.validate_groups)
