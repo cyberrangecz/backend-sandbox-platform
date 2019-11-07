@@ -2,6 +2,8 @@ from enum import Enum
 
 from yamlize import Sequence, Object, Attribute, Typed, StrList
 
+from kypo.topology_definition.validators import TopologyValidation
+
 
 class Provider(Enum):
     OpenStack = 1
@@ -14,7 +16,7 @@ class BaseBox(Object):
 
 
 class Host(Object):
-    name = Attribute(type=str)
+    name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
     base_box = Attribute(type=BaseBox)
     flavor = Attribute(type=str)
     block_internet = Attribute(type=bool, default=False)
@@ -35,7 +37,7 @@ class HostList(Sequence):
 
 
 class Router(Object):
-    name = Attribute(type=str)
+    name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
     cidr = Attribute(type=str)
 
     def __init__(self, name, cidr):
@@ -48,7 +50,7 @@ class RouterList(Sequence):
 
 
 class Network(Object):
-    name = Attribute(type=str)
+    name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
     cidr = Attribute(type=str)
     accessible_by_user = Attribute(type=bool, default=True)
 
@@ -93,7 +95,7 @@ class RouterMappingList(Sequence):
 
 
 class Group(Object):
-    name = Attribute(type=str)
+    name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
     nodes = Attribute(type=StrList)
 
     def __init__(self, name):
@@ -117,16 +119,18 @@ class TopologyDefinition(Object):
         )
     )
 
-    name = Attribute(type=str)
+    name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
     hosts = Attribute(type=HostList)
     routers = Attribute(type=RouterList)
     networks = Attribute(type=NetworkList)
-    net_mappings = Attribute(type=NetworkMappingList)
-    router_mappings = Attribute(type=RouterMappingList)
-    groups = Attribute(type=GroupList)
+    net_mappings = Attribute(type=NetworkMappingList, validator=TopologyValidation.validate_net_mappings)
+    router_mappings = Attribute(type=RouterMappingList, validator=TopologyValidation.validate_router_mappings)
+    groups = Attribute(type=GroupList, validator=TopologyValidation.validate_groups)
 
-    _hosts_index: dict = None
-    _networks_index: dict = None
+    _indexed: bool = False
+    _hosts_index: dict = {}
+    _routers_index: dict = {}
+    _networks_index: dict = {}
 
     def __init__(self, provider, name):
         self.provider = provider
@@ -142,16 +146,26 @@ class TopologyDefinition(Object):
     def from_file(file) -> 'TopologyDefinition':
         return TopologyDefinition.load(open(file, mode='r'))
 
-    # TODO -- generalize?
+    def index(self):
+        self._hosts_index = {h.name: h for h in self.hosts}
+        self._routers_index = {r.name: r for r in self.routers}
+        self._networks_index = {n.name: n for n in self.networks}
+        _indexed = True
+
     def find_host_by_name(self, name) -> Host:
-        if self._hosts_index is None:
-            self._hosts_index = {h.name: h for h in self.hosts}
-        return self._hosts_index[name]
+        if not self._indexed:
+            self.index()
+        return self._hosts_index.get(name, None)
+
+    def find_router_by_name(self, name) -> Router:
+        if not self._indexed:
+            self.index()
+        return self._routers_index.get(name, None)
 
     def find_network_by_name(self, name) -> Network:
-        if self._networks_index is None:
-            self._networks_index = {h.name: h for h in self.networks}
-        return self._networks_index[name]
+        if not self._indexed:
+            self.index()
+        return self._networks_index.get(name, None)
 
     def add_host(self, host):
         self.hosts.append(host)
