@@ -16,6 +16,7 @@ pytest-structlog = "*"
 [packages]
 yamlize = "*"
 structlog = "*"
+netaddr = "*"
 
 [requires]
 python_version = "3.6"
