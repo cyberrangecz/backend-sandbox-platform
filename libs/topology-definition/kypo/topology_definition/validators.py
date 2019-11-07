@@ -3,6 +3,7 @@ import re
 VALID_NAMES_REGEX = r'^[a-z]([a-z0-9A-Z-])*$'
 
 
+# TODO add IP and CIDR validations
 class TopologyValidation:
     @staticmethod
     def is_valid_ostack_name(self, name: str):
