@@ -35,9 +35,7 @@ class TopologyValidation:
 
     @staticmethod
     def validate_groups(obj, groups):
-        duplicates = TopologyValidation.get_duplicates([g.name for g in groups])
-        if duplicates:
-            raise ValueError(_UNIQ_MSG.format('groups', duplicates))
+        TopologyValidation.raise_if_not_unique('groups', [g.name for g in groups])
 
         _msg = 'Invalid group with name "{}". Cannot find a node (host or router) with name "{}".'
         for group in groups:
@@ -53,9 +51,7 @@ class TopologyValidation:
                 _msg = 'Invalid name "{}" in Group.nodes. It does not match regex "{}".'
                 raise ValueError(_msg.format(node, VALID_NAMES_REGEX))
 
-        duplicates = TopologyValidation.get_duplicates(list(nodes))
-        if duplicates:
-            raise ValueError(_UNIQ_MSG.format('Group.nodes', duplicates))
+        TopologyValidation.raise_if_not_unique('Group.nodes', list(nodes))
 
         return True
 
@@ -66,11 +62,15 @@ class TopologyValidation:
         c = [r.name for r in obj.routers]
         d = [n.name for n in networks]
 
-        duplicates = TopologyValidation.get_duplicates(a + b + c + d)
-        if duplicates:
-            raise ValueError(_UNIQ_MSG.format('name, hosts, routers, networks', duplicates))
+        TopologyValidation.raise_if_not_unique('name, hosts, routers, networks', a + b + c + d)
 
         return True
+
+    @staticmethod
+    def raise_if_not_unique(what_for: str, elements: List):
+        duplicates = TopologyValidation.get_duplicates(elements)
+        if duplicates:
+            raise ValueError(_UNIQ_MSG.format(what_for, duplicates))
 
     @staticmethod
     def get_duplicates(elements: List) -> List:
