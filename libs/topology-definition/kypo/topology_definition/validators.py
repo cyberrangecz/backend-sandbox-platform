@@ -2,6 +2,7 @@ import re
 from typing import List
 
 VALID_NAMES_REGEX = r'^[a-z]([a-z0-9A-Z-])*$'
+_UNIQ_MSG = 'Uniqueness violation. The following name identifiers are not unique within the [{}] definition: {}.'
 
 
 # TODO add IP and CIDR validations
@@ -36,9 +37,7 @@ class TopologyValidation:
     def validate_groups(obj, groups):
         duplicates = TopologyValidation.get_duplicates([g.name for g in groups])
         if duplicates:
-            _msg = 'Uniqueness violation. The following name identifiers are not unique within the [groups] ' \
-                   'definition: {}. '
-            raise ValueError(_msg.format(duplicates))
+            raise ValueError(_UNIQ_MSG.format('groups', duplicates))
 
         _msg = 'Invalid group with name "{}". Cannot find a node (host or router) with name "{}".'
         for group in groups:
@@ -56,9 +55,7 @@ class TopologyValidation:
 
         duplicates = TopologyValidation.get_duplicates(list(nodes))
         if duplicates:
-            _msg = 'Uniqueness violation. The following name identifiers are not unique within the [Group.nodes] ' \
-                   'definition: {}. '
-            raise ValueError(_msg.format(duplicates))
+            raise ValueError(_UNIQ_MSG.format('Group.nodes', duplicates))
 
         return True
 
@@ -71,9 +68,7 @@ class TopologyValidation:
 
         duplicates = TopologyValidation.get_duplicates(a + b + c + d)
         if duplicates:
-            _msg = 'Uniqueness violation. The following name identifiers are not unique within the [name, hosts, ' \
-                   'routers, networks] definition: {}. '
-            raise ValueError(_msg.format(duplicates))
+            raise ValueError(_UNIQ_MSG.format('name, hosts, routers, networks', duplicates))
 
         return True
 
