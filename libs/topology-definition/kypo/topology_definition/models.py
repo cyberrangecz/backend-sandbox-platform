@@ -38,10 +38,14 @@ class HostList(Sequence):
 
 class Router(Object):
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
+    base_box = Attribute(type=BaseBox)
+    flavor = Attribute(type=str)
     cidr = Attribute(type=str)
 
-    def __init__(self, name, cidr):
+    def __init__(self, name, base_box, flavor, cidr):
         self.name = name
+        self.base_box = base_box
+        self.flavor = flavor
         self.cidr = cidr
 
 
