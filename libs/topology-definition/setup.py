@@ -17,8 +17,6 @@ setup(
     author_email='tovarnak@ics.muni.cz',
     description='',
     long_description=read('README.md'),
-    license='MU',
-    url='https://gitlab.ics.muni.cz/kypo-crp/backend-python/kypo-topology-definition',
     packages=find_packages(exclude=['tests']),
     install_requires=[
         'yamlize',
