@@ -14,9 +14,9 @@ pytest-mock = "*"
 pytest-structlog = "*"
 
 [packages]
-yamlize = "*"
-structlog = "*"
-netaddr = "*"
+yamlize = ">=0.6"
+structlog = ">=19.2"
+netaddr = ">=0.7"
 
 [requires]
 python_version = "3.6"

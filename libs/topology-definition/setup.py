@@ -19,9 +19,9 @@ setup(
     long_description=read('README.md'),
     packages=find_packages(exclude=['tests']),
     install_requires=[
-        'yamlize',
-        'structlog',
-        'netaddr'
+        'yamlize>=0.6',
+        'structlog>=19.2',
+        'netaddr>=0.7'
     ],
     python_requires='>=3',
     zip_safe=False
