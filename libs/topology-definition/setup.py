@@ -21,6 +21,7 @@ setup(
     install_requires=[
         'yamlize',
         'structlog',
+        'netaddr'
     ],
     python_requires='>=3',
     zip_safe=False
