@@ -1,6 +1,6 @@
 import os
 
-from setuptools import setup, find_packages
+from setuptools import setup, find_namespace_packages
 
 
 # Utility function to read the README file.
@@ -17,7 +17,7 @@ setup(
     author_email='tovarnak@ics.muni.cz',
     description='',
     long_description=read('README.md'),
-    packages=find_packages(exclude=['tests']),
+    packages=find_namespace_packages(include=['kypo.*'], exclude=['tests']),
     install_requires=[
         'yamlize>=0.6',
         'structlog>=19.2',
