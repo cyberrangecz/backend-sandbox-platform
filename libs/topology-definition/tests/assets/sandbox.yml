@@ -11,7 +11,6 @@ hosts:
   - name: home
     base_box: {image: ubuntu-18_04-x86_64}
     flavor: csirtmu.tiny1x2
-    suspended: True
 
 routers:
   - name: server-router
