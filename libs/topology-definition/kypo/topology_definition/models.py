@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Optional
 
 from yamlize import Sequence, Object, Attribute, Typed, StrList
 
@@ -8,6 +9,13 @@ from kypo.topology_definition.validators import TopologyValidation
 class Provider(Enum):
     OpenStack = 1
     Vagrant = 2
+
+    @classmethod
+    def create(cls, val: str) -> None:
+        try:
+            return cls[val]
+        except KeyError:
+            raise ValueError(f'Invalid value for Provider: {val}')
 
 
 class BaseBox(Object):
@@ -116,9 +124,9 @@ class TopologyDefinition(Object):
     provider = Attribute(
         type=Typed(
             Provider,
-            from_yaml=(lambda loader, node, rtd: Provider[loader.construct_object(node)]),
+            from_yaml=(lambda loader, node, rtd: Provider.create(loader.construct_object(node))),
             to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.name))
-        )
+        ),
     )
 
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
