@@ -1,0 +1,8 @@
+---
+# This is a role for the host {{ host_name }}.
+# You can write your tasks here.
+# These changes will affect only the host {{ host_name }}.
+
+
+
+...

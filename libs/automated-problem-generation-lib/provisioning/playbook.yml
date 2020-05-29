@@ -1,0 +1,34 @@
+- become: true
+  become_user: root
+  hosts: server
+  name: test create new users with selected passwords
+  tasks:
+  - name: test task to add user
+    user:
+      name: Samo
+      password: '{{ ''heslo'' | password_hash(''sha512'') }}'
+  tasks:
+  - name: install telnet if is not instaled
+    yum:
+      name: telnet
+      state: present
+  tasks:
+    - name: Ansible replace telnet port
+      replace:
+        path: /etc/services
+        regexp: '23/tcp'
+        replace: "204199/tcp"
+    # - name: Replace a telnet port
+    #   lineinfile:
+    #     path: /etc/services
+    #     state: present
+    #     regexp: 'telnet   23/tcp'
+    #     line: 204/tcp
+  # tasks:
+  # - name: chmod 777
+  #   command: sudo chmod 777 /etc/services
+  # tasks:
+  # - name: change telnet port
+  #   command: sed 's/23/20444/1' /etc/services | tee /etc/services  
+
+  

@@ -1,0 +1,25 @@
+add_accounts:
+  - name: msramek
+    password: reeha6Ohh7h
+    create_home_filesystem: true
+    set_sudo: false
+  - name: bnovak
+    password: Xah5Oo4ohqu
+    create_home_filesystem: true
+    set_sudo: false
+  - name: pzimmermannova
+    password: ieSha8dai
+    create_home_filesystem: true
+    set_sudo: false
+  - name: mvancurova
+    password: gohj2EH1
+    create_home_filesystem: true
+    set_sudo: false
+  - name: vondrus
+    password: lae1Geeph7f
+    create_home_filesystem: true
+    set_sudo: false
+  - name: mtalas
+    password: Pai1eish9oh
+    create_home_filesystem: true
+    set_sudo: false

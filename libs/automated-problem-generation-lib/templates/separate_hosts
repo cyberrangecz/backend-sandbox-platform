@@ -1,0 +1,6 @@
+---
+# Role for the host {{ host_name }}
+
+- name: Add default path to router
+  command: route add default gw {{ router_ip }} {{ interface }}
+...

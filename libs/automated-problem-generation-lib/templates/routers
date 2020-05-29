@@ -1,0 +1,31 @@
+---
+# Configuration of all router devices
+
+- name: Enable IP forwarding
+  copy:
+    dest: "/etc/sysctl.conf"
+    content: "net.ipv4.ip_forward=1"
+
+- name: Restarting procps service
+  command: /etc/init.d/procps restart
+
+{% for host in hosts %}
+- name: Add {{ host.host_name }} alias
+  lineinfile:
+    path: /etc/hosts
+    line: {{ host.host_ip }} {{ host.host_name }}
+
+{% endfor %}
+{% for router in routers %}
+- name: Add {{ router.router_name }} alias
+  lineinfile:
+    path: /etc/hosts
+    line: {{ router.router_ip }} {{ router.router_name }}
+
+{% endfor %}
+- name: Delete default gateway
+  command: route del default
+
+- name: Add default path to border router
+  command: route add default gw {{ border_router_ip }} eth3
+...
