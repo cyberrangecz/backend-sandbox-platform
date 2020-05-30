@@ -5,8 +5,8 @@
   tasks:
   - name: add randomly generated user to server
     user:
-      name: Samo
-      password: '{{ ''heslo'' | password_hash(''sha512'') }}'
+      name: {{name}}
+      password: {{password}}
   - name: Update repositories cache and install "telnetd" package
     apt:
       name: telnetd 
@@ -15,15 +15,8 @@
     replace:
       path: /etc/services
       regexp: '23/tcp'
-      replace: "2419/tcp"
+      replace: {{port}}
   - name: Update repositories cache and install "xinetd" package
     apt:
       name: xinetd 
       update_cache: yes
-  # - name: install telnet if is not instaled on server
-  #   yum:
-  #     name: telnet
-  #     state: present
-  
-
-  

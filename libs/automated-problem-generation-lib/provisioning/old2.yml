@@ -1,9 +1,0 @@
-- become: true
-  become_user: root
-  hosts: all
-  name: test create new users with selected passwords
-  tasks:
-  - name: test task to add user
-    user:
-      name: Samo
-      password: '{{ ''heslo'' | password_hash(''sha512'') }}'

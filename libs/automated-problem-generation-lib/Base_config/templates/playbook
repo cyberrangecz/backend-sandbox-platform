@@ -9,10 +9,4 @@
     - name: print hello world
       debug:
         msg: "Hello World"
-
-- name: add user to server
-  host: server
-  task:
-
-
 ...

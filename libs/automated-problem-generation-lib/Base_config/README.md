@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Sandbox Creator
 
 Sandbox creator is a tool, which can generate portable input files for building lightweight virtual environments using Vagrant and Ansible from a simple YAML definition of topology. The combination of these three tools makes possible to build virtual machines connected with virtual networks even on a desktop computer.
@@ -56,7 +55,3 @@ Generate the files using the command `python create.py -l sandbox.yml`.
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-=======
-# Kosc-automated-problem-generation
-
->>>>>>> 0b0247e4b11a6e791ef159516b8e68aab3153106

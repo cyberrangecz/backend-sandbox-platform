@@ -4,28 +4,8 @@
 # vi: set ft=ruby :
 
 #config.vm.provision :shell, :inline => "python3 generator.py"
-system('python3 ./generator.py')
+#system('python3 ./generator.py')
 Vagrant.configure("2") do |config|
-
-  # device: server
-  config.vm.define "server" do |device|
-    device.vm.hostname = "server"
-    device.vm.box = "ubuntu/xenial64"
-    device.vm.network :private_network, ip: "10.10.20.5", virtualbox__intnet: "server-switch", netmask: "24"
-    device.vm.provider "virtualbox" do |vb|
-      vb.cpus = 2
-      vb.memory = 4096
-    end
-  end
-
-  # device: home
-  config.vm.define "home" do |device|
-    device.vm.hostname = "home"
-    device.vm.box = "ubuntu/xenial64"
-    device.vm.boot_timeout = 1000
-    device.vm.box_check_update = false
-    device.vm.network :private_network, ip: "10.10.30.5", virtualbox__intnet: "home-switch", netmask: "24"
-  end
 
   # device: router
   config.vm.define "router" do |device|
@@ -51,6 +31,28 @@ Vagrant.configure("2") do |config|
       vb.cpus = 1
     end
   end
+
+  # device: server
+  config.vm.define "server" do |device|
+    device.vm.hostname = "server"
+    device.vm.box = "ubuntu/xenial64"
+    device.vm.network :private_network, ip: "10.10.20.5", virtualbox__intnet: "server-switch", netmask: "24"
+    device.vm.provider "virtualbox" do |vb|
+      vb.cpus = 2
+      vb.memory = 4096
+    end
+  end
+
+  # device: home
+  config.vm.define "home" do |device|
+    device.vm.hostname = "home"
+    device.vm.box = "ubuntu/xenial64"
+    device.vm.boot_timeout = 1000
+    device.vm.box_check_update = false
+    device.vm.network :private_network, ip: "10.10.30.5", virtualbox__intnet: "home-switch", netmask: "24"
+  end
+
+  
 
   # basic ansible configuration of devices and networks
   config.vm.provision :ansible do |ansible|
