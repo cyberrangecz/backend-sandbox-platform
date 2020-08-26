@@ -1,0 +1,22 @@
+---
+
+- name: Add defined user accounts
+  user:
+    createhome: yes
+    shell: /bin/bash
+    state: present
+    name: "{{ item.name }}"
+    password: "{{ item.password | password_hash('sha512') }}"
+    update_password: always
+    groups: "{{ 'sudo' if (item.set_sudo is defined and item.set_sudo) else ''}}"
+  with_items: "{{ add_accounts }}"
+
+- name: Create fake filesystem to user home directories
+  unarchive:
+    src: accounts_filesystem.tar.gz
+    dest: "/home/{{ item.name }}"
+    owner: "{{ item.name }}"
+    group: "{{ item.name }}"
+    mode: u=rwX,g=rX,o=rX
+  when: item.create_home_filesystem
+  with_items: "{{ add_accounts }}"

@@ -1,0 +1,65 @@
+---
+name: big-broker
+hosts:
+  - name: web
+    base_box: generic/debian10
+    memory: 2048
+
+  - name: workstation
+    base_box: generic/debian10
+    memory: 2048
+
+  - name: database
+    base_box: generic/debian10
+    memory: 2048
+
+  - name: attacker
+    base_box: kalilinux/rolling-light
+    memory: 2048
+
+  - name: client
+    base_box: generic/debian10
+    memory: 2048
+
+routers:
+  - name: big-broker-router
+
+  - name: internet-router
+
+networks:
+  - name: big-broker
+    cidr: 172.18.1.0/24
+
+  - name: internet
+    cidr: 10.1.0.0/16
+
+net_mappings:
+  - host: web
+    network: big-broker
+    ip: 172.18.1.5
+
+  - host: workstation
+    network: big-broker
+    ip: 172.18.1.132
+
+  - host: database
+    network: big-broker
+    ip: 172.18.1.14
+
+  - host: attacker
+    network: internet
+    ip: 10.1.135.83
+
+  - host: client
+    network: internet
+    ip: 10.1.17.4
+
+router_mappings:
+  - router: big-broker-router
+    network: big-broker
+    ip: 172.18.1.1
+
+  - router: internet-router
+    network: internet
+    ip: 10.1.0.1
+...

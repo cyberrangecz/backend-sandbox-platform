@@ -1,0 +1,23 @@
+Metadata-Version: 2.1
+Name: generator-pkg-485652-Daniel-Kosc
+Version: 0.0.1
+Summary: Random generator of selected variables
+Home-page: https://gitlab.fi.muni.cz/kypolab/theses/kosc-automated-problem-generation
+Author: Daniel Kosc
+Author-email: 485652@mail.muni.cz
+License: UNKNOWN
+Description: Usage:
+        
+        1. Install ' python3.8 -m pip install <path>/generator-pkg-485652-Daniel-Kosc-0.0.1.tar.gz '
+        2. Run python ' python3 '
+        3. Import package >>> ' from generator import generate '
+        4. Print resut and return result >>> ' generate() ' 
+        
+        Return/Print value:
+        >>> ANSIBLE_ARGS='--extra-vars "telnet_port=39312 username=Alaster password=jWMRpDaQ "' vagrant up server
+Platform: UNKNOWN
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.6
+Description-Content-Type: text/markdown

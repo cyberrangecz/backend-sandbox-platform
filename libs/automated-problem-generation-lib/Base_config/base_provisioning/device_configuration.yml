@@ -1,0 +1,55 @@
+---
+# Basic configuration of all defined devices
+- name: Configuring all routers
+  hosts: router
+  become: yes
+  roles:
+    - routers
+
+- name: Configuring border router
+  hosts: br
+  become: yes
+  roles:
+    - br
+    
+- name: Configuring all hosts
+  hosts: server,home
+  become: yes
+  roles:
+    - hosts
+
+- name: Configuring host server separately
+  hosts: server
+  become: yes
+  roles:
+    - server
+
+- name: Configuring host home separately
+  hosts: home
+  become: yes
+  roles:
+    - home
+
+- name: Configuring host server
+  hosts: server
+  become: yes
+  tasks:
+  - name: Add gateway for 10.10.20.0/24
+    command: route add -net 10.10.20.0/24 gw 10.10.20.1 enp0s8
+  - name: Add gateway for 10.10.30.0/24
+    command: route add -net 10.10.30.0/24 gw 10.10.20.1 enp0s8
+  - name: Add gateway for 172.18.0.0/24
+    command: route add -net 172.18.0.0/24 gw 10.10.20.1 enp0s8
+
+- name: Configuring host home
+  hosts: home
+  become: yes
+  tasks:
+  - name: Add gateway for 10.10.20.0/24
+    command: route add -net 10.10.20.0/24 gw 10.10.30.1 enp0s8
+  - name: Add gateway for 10.10.30.0/24
+    command: route add -net 10.10.30.0/24 gw 10.10.30.1 enp0s8
+  - name: Add gateway for 172.18.0.0/24
+    command: route add -net 172.18.0.0/24 gw 10.10.30.1 enp0s8
+
+...

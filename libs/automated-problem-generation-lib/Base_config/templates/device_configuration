@@ -1,0 +1,40 @@
+---
+# Basic configuration of all defined devices
+
+- name: Configuring all hosts
+  hosts: {{ hosts|map(attribute='host_name')|unique|join(',') }}
+  become: yes
+  roles:
+    - hosts
+
+{% for host in hosts %}
+- name: Configuring host {{ host.host_name }} separately
+  hosts: {{ host.host_name }}
+  become: yes
+  roles:
+    - {{ host.host_name }}
+
+{% endfor %}
+{% for host in hosts %}
+- name: Configuring host {{ host.host_name }}
+  hosts: {{ host.host_name }}
+  become: yes
+  tasks:
+{% for network_ip in network_ips %}
+  - name: Add gateway for {{ network_ip }}
+    command: route add -net {{ network_ip }} gw {{ host.router_ip }} {{ host.interface }}
+{% endfor %}
+
+{% endfor %}
+- name: Configuring all routers
+  hosts: {{ routers|map(attribute='router_name')|unique|reject('eq', border_router_name)|join(',') }}
+  become: yes
+  roles:
+    - routers
+
+- name: Configuring border router
+  hosts: {{ border_router_name }}
+  become: yes
+  roles:
+    - br
+...

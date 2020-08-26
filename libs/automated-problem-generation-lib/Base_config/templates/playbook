@@ -1,0 +1,12 @@
+---
+# Main user ansible playbook
+# Write your custom configuration here:
+
+- name: Hello world
+  hosts: all
+  tasks:
+
+    - name: print hello world
+      debug:
+        msg: "Hello World"
+...

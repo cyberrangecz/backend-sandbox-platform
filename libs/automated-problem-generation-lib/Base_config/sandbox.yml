@@ -1,0 +1,39 @@
+name: small-sandbox
+hosts:
+  - name: server
+    base_box: ubuntu/xenial64
+    flavor: csirtmu.tiny1x4
+    cpus: 2
+
+  - name: home
+    base_box: ubuntu/xenial64
+    boot_timeout: 1000
+    box_check_update: false
+
+routers:
+  - name: router
+    cidr: 100.100.100.0/29
+
+networks:
+  - name: server-switch
+    cidr: 10.10.20.0/24
+
+  - name: home-switch
+    cidr: 10.10.30.0/24
+
+net_mappings:
+    - host: server
+      network: server-switch
+      ip: 10.10.20.5
+    - host: home
+      network: home-switch
+      ip: 10.10.30.5
+
+router_mappings:
+    - router: router
+      network: server-switch
+      ip: 10.10.20.1
+    - router: router
+      network: home-switch
+      ip: 10.10.30.1
+
