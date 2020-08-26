@@ -1,6 +1,0 @@
----
-# Role for the host server
-
-- name: Add default path to router
-  command: route add default gw 10.10.20.1 enp0s8
-...
