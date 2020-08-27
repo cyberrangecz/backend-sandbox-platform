@@ -1,5 +1,6 @@
 import yaml, string, random, os, sys
 
+
 class Variable:
 
     def __init__(self, name, type):
@@ -17,8 +18,10 @@ def get_variable_file():
     return sys.argv[1]
 
 
-def get_name_file():
-    if (len(sys.argv) <= 2):
+def get_name_file(name_file_path=""):
+    if len(name_file_path) != 0:
+        return name_file_path
+    elif (len(sys.argv) <= 2):
         raise Exception('You should type at least two arguments which is variable file and name file!')
     return sys.argv[2]
 
@@ -47,10 +50,13 @@ def get_random_password(length):
     return result_str
 
 
-def generate_randomized_arg(variables):
+def generate_randomized_arg(variables, arguments_list):
     for var in variables:
         if (var.type).lower() == 'username':
-            var.generated_value = get_random_name(get_cwd(get_name_file()))
+            path = ""
+            if len(arguments_list) > 1:
+                path = arguments_list[1]
+            var.generated_value = get_random_name(get_cwd(get_name_file(path)))
         elif (var.type).lower() == 'password':
             var.generated_value = get_random_password(8)
         elif (var.type).lower() == 'port':
@@ -58,8 +64,10 @@ def generate_randomized_arg(variables):
     return variables
 
 
-def parser_var_file():
-    with open(get_cwd(get_variable_file())) as file:
+def parser_var_file(path=""):
+    if len(path) == 0:
+        path = get_variable_file()
+    with open(get_cwd(path)) as file:
         var_list = yaml.load(file, Loader=yaml.FullLoader)
         var_objects = []
         for var in var_list.keys():
@@ -76,8 +84,11 @@ def print_result(objects):
     return res
 
 
-def generate():
-    list_of_generated_objects = generate_randomized_arg(parser_var_file())
+def generate(input_arguments = ""):
+    variables_file_path = ""
+    if len(input_arguments) > 0:
+        variables_file_path = (input_arguments.split())[0]
+    list_of_generated_objects = generate_randomized_arg(parser_var_file(variables_file_path), input_arguments.split())
     return list_of_generated_objects
 
 
@@ -85,4 +96,4 @@ def test():
     print_result(generate())
 
 
-test()
+
