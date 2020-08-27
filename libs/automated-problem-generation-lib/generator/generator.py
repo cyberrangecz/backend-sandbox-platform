@@ -95,5 +95,8 @@ def generate(input_arguments = ""):
 def test():
     print_result(generate())
 
+if len(sys.argv) > 1:
+    test()
+
 
 
