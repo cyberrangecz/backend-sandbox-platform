@@ -1,4 +1,4 @@
-from generator import generate
+from generator.var_generator import generate
 
 
 def print_result(objects):
@@ -9,5 +9,8 @@ def print_result(objects):
     print(res)
     return res
 
+def run_test():
+    print_result(generate("variables.yml names.txt"))
 
-print_result(generate("variables.yml names.txt"))
+
+

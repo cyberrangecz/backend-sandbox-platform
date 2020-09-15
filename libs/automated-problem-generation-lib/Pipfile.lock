@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "7283b2264fb8f5aab3ce505f3747f2da1f762687d5984f137ff1115e09c81f06"
+            "sha256": "e2eb3f125e376c198f94081e8fcc88ca867b3b5b2e7b2f49bb568097655b707f"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -17,8 +17,8 @@
     },
     "default": {
         "generator-pkg-485652-daniel-kosc": {
-            "editable": true,
-            "path": "."
+            "path": ".",
+            "version": "==0.0.1"
         },
         "pyyaml": {
             "hashes": [
