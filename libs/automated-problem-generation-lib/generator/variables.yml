@@ -1,0 +1,8 @@
+telnet_port:
+  - type: port
+
+username:
+  - type: userName
+
+password:
+  - type: password
