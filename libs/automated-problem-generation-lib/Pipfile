@@ -7,7 +7,7 @@ verify_ssl = true
 
 [packages]
 pyyaml = "*"
-generator-pkg-485652-daniel-kosc = {path = "."}
+generator-pkg-485652-daniel-kosc = {editable = true, path = "."}
 
 [requires]
 python_version = "3.8"
