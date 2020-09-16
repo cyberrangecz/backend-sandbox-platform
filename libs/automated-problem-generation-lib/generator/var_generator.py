@@ -19,14 +19,6 @@ def get_random_port():
     return str(35400 + random.randint(0, 4600))
 
 
-def get_name_file(name_file_path=""):
-    if len(name_file_path) != 0:
-        return name_file_path
-    elif (len(sys.argv) <= 2):
-        raise Exception('You should type at least two arguments which is variable file and name file!')
-    return sys.argv[2]
-
-
 def get_cwd(file):
     # cwd = os.getcwd()
     _ROOT = os.path.abspath(os.path.dirname(__file__))
@@ -43,7 +35,7 @@ def generate_randomized_arg(variables):
     for var in variables:
         if (var.type).lower() == 'username':
             path = name_file_path
-            var.generated_value = get_random_name(get_cwd(get_name_file(path)))
+            var.generated_value = get_random_name(get_cwd(name_file_path))
         elif (var.type).lower() == 'password':
             var.generated_value = get_random_password(8)
         elif (var.type).lower() == 'port':
