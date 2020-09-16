@@ -1,6 +1,11 @@
 from generator.load_var_from_file import parser_var_file
 import string, random, sys, os
 
+name_file_path = "names.txt"
+
+def set_name_file(path):
+    name_file_path = path
+
 
 def get_random_name(fname):
     l = []
@@ -34,12 +39,10 @@ def get_random_password(length):
     return result_str
 
 
-def generate_randomized_arg(variables, arguments_list):
+def generate_randomized_arg(variables):
     for var in variables:
         if (var.type).lower() == 'username':
-            path = ""
-            if len(arguments_list) > 1:
-                path = arguments_list[1]
+            path = name_file_path
             var.generated_value = get_random_name(get_cwd(get_name_file(path)))
         elif (var.type).lower() == 'password':
             var.generated_value = get_random_password(8)
@@ -48,13 +51,6 @@ def generate_randomized_arg(variables, arguments_list):
     return variables
 
 
-def get_variables(input_arguments=""):
-    variables_file_path = ""
-    if len(input_arguments) > 0:
-        variables_file_path = (input_arguments.split())[0]
-    return parser_var_file(variables_file_path)
-
-
-def generate(input_arguments=""):
-    list_of_generated_objects = generate_randomized_arg(get_variables(input_arguments), input_arguments.split())
+def generate(variable_list):
+    list_of_generated_objects = generate_randomized_arg(variable_list)
     return list_of_generated_objects
