@@ -1,4 +1,10 @@
-from generator.var_generator import generate
+from generator.var_generator import generate,parser_var_file
+
+def get_variables(input_arguments=""):
+    variables_file_path = ""
+    if len(input_arguments) > 0:
+        variables_file_path = (input_arguments.split())[0]
+    return parser_var_file(variables_file_path)
 
 
 def print_result(objects):
@@ -10,7 +16,8 @@ def print_result(objects):
     return res
 
 def run_test():
-    print_result(generate("variables.yml names.txt"))
+    variable_list = get_variables(("variables.yml"))
+    print_result(generate(variable_list))
 
 
 
