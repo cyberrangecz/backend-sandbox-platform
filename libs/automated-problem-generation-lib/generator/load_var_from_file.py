@@ -1,4 +1,4 @@
-from generator.var_object import Variable
+from .var_object import Variable
 import sys, os, yaml
 
 

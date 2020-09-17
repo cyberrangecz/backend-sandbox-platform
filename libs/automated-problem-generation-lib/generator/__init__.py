@@ -1,1 +1,1 @@
-from generator.var_generator import generate
+from .var_generator import generate

@@ -1,4 +1,4 @@
-from generator.load_var_from_file import parser_var_file
+from .load_var_from_file import parser_var_file
 import string, random, sys, os
 
 name_file_path = "names.txt"
