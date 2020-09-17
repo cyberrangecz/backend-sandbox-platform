@@ -19,5 +19,6 @@ def run_test():
     variable_list = get_variables(("variables.yml"))
     print_result(generate(variable_list))
 
+run_test()
 
 
