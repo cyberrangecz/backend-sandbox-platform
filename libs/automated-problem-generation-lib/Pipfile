@@ -10,4 +10,4 @@ pyyaml = "*"
 generator-pkg-485652-daniel-kosc = {editable = true, path = "."}
 
 [requires]
-python_version = "3.8"
+python_version = "2.7"
