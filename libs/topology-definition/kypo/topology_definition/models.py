@@ -1,9 +1,20 @@
 from enum import Enum
-from typing import Optional
 
 from yamlize import Sequence, Object, Attribute, Typed, StrList
 
 from kypo.topology_definition.validators import TopologyValidation
+
+
+class Protocol(Enum):
+    SSH = 1
+    WINRM = 2
+
+    @classmethod
+    def create(cls, val: str) -> None:
+        try:
+            return cls[val.upper()]
+        except KeyError:
+            raise ValueError(f'Invalid value for Protocol: {val}')
 
 
 class Provider(Enum):
@@ -21,6 +32,14 @@ class Provider(Enum):
 class BaseBox(Object):
     image = Attribute(type=str)
     man_user = Attribute(type=str, default='kypo-man')
+    mng_protocol = Attribute(
+        type=Typed(
+            Protocol,
+            from_yaml=(lambda loader, node, rtd: Protocol.create(loader.construct_object(node))),
+            to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.name))
+        ),
+        default=Protocol.SSH,
+    )
 
 
 class Host(Object):

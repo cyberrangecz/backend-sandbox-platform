@@ -9,7 +9,7 @@ hosts:
     hidden: True
 
   - name: home
-    base_box: {image: ubuntu-18_04-x86_64}
+    base_box: {image: windows-10-amd64, mng_protocol: winrm}
     flavor: csirtmu.tiny1x2
 
 routers:
