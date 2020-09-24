@@ -1,11 +1,11 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "1b009028a0386c5a9c0764d384c86ebb7acc172d265d8dbd0d6976d44f4464e2"
+            "sha256": "afd9ff2ce2ee70abb57fa69e9942b64ac3603f73abf02c7ec47cf5d16f172dd1"
         },
         "pipfile-spec": 6,
         "requires": {
-            "python_version": "2.7"
+            "python_version": "3.8"
         },
         "sources": [
             {
@@ -17,8 +17,11 @@
     },
     "default": {
         "generator-pkg-485652-daniel-kosc": {
-            "editable": true,
-            "path": "."
+            "hashes": [
+                "sha256:0fa05086efe0018059cb7c228e04fd680f4a8a283927c4effb1ed120d793e0ba"
+            ],
+            "path": "./dist/generator_pkg_485652_Daniel_Kosc-0.0.1-py3-none-any.whl",
+            "version": "==0.0.1"
         },
         "pyyaml": {
             "hashes": [
@@ -36,6 +39,10 @@
             ],
             "index": "pypi",
             "version": "==5.3.1"
+        },
+        "setuptools": {
+            "path": ".",
+            "version": "==0.0.1"
         }
     },
     "develop": {}

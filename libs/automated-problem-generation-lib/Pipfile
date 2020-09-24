@@ -7,7 +7,8 @@ verify_ssl = true
 
 [packages]
 pyyaml = "*"
-generator-pkg-485652-daniel-kosc = {editable = true, path = "."}
+generator-pkg-485652-daniel-kosc = {path = "./dist/generator-pkg-485652-Daniel-Kosc-0.0.1.tar.gz"}
+setuptools = {path = "."}
 
 [requires]
-python_version = "2.7"
+python_version = "3.8"
