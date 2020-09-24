@@ -1,7 +1,8 @@
-from .load_var_from_file import parser_var_file
+from generator.load_var_from_file import parser_var_file
 import string, random, sys, os
 
 name_file_path = "names.txt"
+
 
 def set_name_file(path):
     name_file_path = path
@@ -15,8 +16,51 @@ def get_random_name(fname):
         return l[random.randint(0, len(l) - 1)]
 
 
-def get_random_port():
-    return str(35400 + random.randint(0, 4600))
+def get_random_port(var_obj):
+    min = var_obj.min
+    max = var_obj.max
+    if min == None:
+        min = 35000
+    if max == None:
+        max = min + 4000
+
+    while True:
+        port = random.randint(min, max)
+        if not port in var_obj.prohibited:
+            return str(port)
+
+
+def get_random_IP(var_obj):
+    octet_list_min = (var_obj.min or " ").split(".")
+    octet_list_max = (var_obj.max or " ").split(".")
+
+    if len(octet_list_min) <= 3:
+        octet_list_min = [0, 0, 0, 0]
+    if len(octet_list_max) <= 3:
+        octet_list_min = [255, 255, 255, 255]
+
+    for i in range(4):
+        if int(octet_list_min[i]) > 255:
+            octet_list_min[i] = 255
+        else:
+            octet_list_min[i] = int(octet_list_min[i])
+        if int(octet_list_max[i]) > 255:
+            octet_list_max[i] = 255
+        else:
+            octet_list_max[i] = int(octet_list_max[i])
+
+    while True:
+        ip_dec = random.randint(octet_list_min[0] * 2 ** 24 + octet_list_min[1] * 2 ** 16 + octet_list_min[2] * 2 ** 8 +
+                                octet_list_min[3],
+                                octet_list_max[0] * 2 ** 24 + octet_list_max[1] * 2 ** 16 + octet_list_max[2] * 2 ** 8 +
+                                octet_list_max[3])
+        ip = ""
+        for i in range(4):
+            ip = str(ip_dec % 2 ** 8) + "." + ip
+            ip_dec //= 2 ** 8
+
+        if not ip in var_obj.prohibited:
+            return ip
 
 
 def get_cwd(file):
@@ -39,7 +83,9 @@ def generate_randomized_arg(variables):
         elif (var.type).lower() == 'password':
             var.generated_value = get_random_password(8)
         elif (var.type).lower() == 'port':
-            var.generated_value = get_random_port()
+            var.generated_value = get_random_port(var)
+        elif (var.type).lower() == 'ip' or (var.type).lower() == 'ipv4':
+            var.generated_value = get_random_IP(var)
     return variables
 
 
