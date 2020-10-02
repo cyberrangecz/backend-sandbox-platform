@@ -19,6 +19,6 @@ setup(
     long_description=read('README.md'),
     packages=find_namespace_packages(include=['./*.txt','./*.yml'], exclude=['tests']),
     install_requires=['pyYAML'],
-    python_requires='>=3.8',
+    python_requires='>=3.6',
     zip_safe=False
 )
