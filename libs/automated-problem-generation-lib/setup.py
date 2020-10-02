@@ -14,7 +14,7 @@ def read(filename):
 setup(
     name='generator-pkg-485652-Daniel-Kosc',
     author='Daniel Kosc',
-    author_email='tovarnak@ics.muni.cz',
+    author_email='485652@mail.muni.cz',
     description='',
     long_description=read('README.md'),
     packages=find_namespace_packages(include=['./*.txt','./*.yml'], exclude=['tests']),
