@@ -3,11 +3,16 @@ name = "pypi"
 url = "https://pypi.org/simple"
 verify_ssl = true
 
+[[source]]
+url = "https://__token__:u4jsLpYaMi7i7GwNNaK_@gitlab.fi.muni.cz/api/v4/projects/15129/packages/pypi/simple"
+name = "generator"
+verify_ssl = true
+
 [dev-packages]
 
 [packages]
 pyyaml = "*"
-generator-pkg-485652-daniel-kosc = {path = "./dist/generator-pkg-485652-Daniel-Kosc-0.0.1.tar.gz"}
+generator-pkg-485652-Daniel-Kosc = { index = "generator", version = ">=0.0.0" }
 setuptools = {path = "."}
 
 [requires]
