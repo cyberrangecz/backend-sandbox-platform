@@ -1,25 +1,24 @@
-import setuptools
+import os
 
-with open("README.md", "r") as fh:
-    long_description = fh.read()
+from setuptools import setup, find_namespace_packages
 
-setuptools.setup(
-    name="generator-pkg-485652-Daniel-Kosc",
-    version="0.0.1",
-    author="Daniel Kosc",
-    author_email="485652@mail.muni.cz",
-    description="Random generator of selected variables",
+
+# Utility function to read the README file.
+# Used for the long_description.  It's nice, because now 1) we have a top level
+# README file and 2) it's easier to type in the README file than to put a raw
+# string in below ...
+def read(filename):
+    return open(os.path.join(os.path.dirname(__file__), filename)).read()
+
+
+setup(
+    name='generator-pkg-485652-Daniel-Kosc',
+    author='Daniel Kosc',
+    author_email='tovarnak@ics.muni.cz',
+    description='',
+    long_description=read('README.md'),
+    packages=find_namespace_packages(include=['./*.txt','./*.yml'], exclude=['tests']),
     install_requires=['pyYAML'],
-    long_description=long_description,
-    long_description_content_type="text/markdown",
-    url="https://gitlab.fi.muni.cz/kypolab/theses/kosc-automated-problem-generation",
-    packages = setuptools.find_packages(),
-    package_dir={'generator': './generator'},
-    package_data={'generator': ['./*.txt','./*.yml']},
-    classifiers=[
-        "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License",
-        "Operating System :: OS Independent",
-    ],
     python_requires='>=3.8',
+    zip_safe=False
 )
