@@ -4,7 +4,7 @@ url = "https://pypi.org/simple"
 verify_ssl = true
 
 [[source]]
-url = "https://__token__:u4jsLpYaMi7i7GwNNaK_@gitlab.fi.muni.cz/api/v4/projects/15129/packages/pypi/simple"
+url = "https://__token__:<your_token>@gitlab.fi.muni.cz/api/v4/projects/15129/packages/pypi/simple"
 name = "generator"
 verify_ssl = true
 
