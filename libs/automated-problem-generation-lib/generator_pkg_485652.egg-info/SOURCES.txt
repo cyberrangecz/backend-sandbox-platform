@@ -1,8 +1,0 @@
-README.md
-setup.py
-generator_pkg_485652.egg-info/PKG-INFO
-generator_pkg_485652.egg-info/SOURCES.txt
-generator_pkg_485652.egg-info/dependency_links.txt
-generator_pkg_485652.egg-info/not-zip-safe
-generator_pkg_485652.egg-info/requires.txt
-generator_pkg_485652.egg-info/top_level.txt
