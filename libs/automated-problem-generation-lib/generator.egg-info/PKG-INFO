@@ -1,0 +1,33 @@
+Metadata-Version: 2.1
+Name: generator
+Version: 0.0.1
+Summary: Random generator of selected variables
+Home-page: https://gitlab.fi.muni.cz/kypolab/theses/kosc-automated-problem-generation
+Author: Daniel Kosc
+Author-email: 485652@mail.muni.cz
+License: UNKNOWN
+Description: To test generator type into terminal:
+        
+        1. $ pipenv install -e "git+ssh://git@gitlab.fi.muni.cz/kypolab/theses/kosc-automated-problem-generation.git@master#egg=generator"
+        2. $ pipenv shell
+        3. $ python3.8  
+        4. \>>> from generator.test import run_test
+        5. \>>> run_test() 
+        
+        You can change variables.yml file to set minimal or maximal generated values and set prohibited values too. (min/max/prohibited works only for port and IP)
+        
+        Structure of generator/variable.yml:
+        <variable_name>
+            - type: <variable_type>  // the only obligatory attribute
+              min: <value>
+              max: <value>
+              prohibited: [<value>,<value>,...]
+        
+        Print value should be in format:
+        \>>> ANSIBLE_ARGS='--extra-vars "telnet_port=4 username=Mariellen password=KRxxhcCg Server_IP=21.125.239.66. Client_IP=192.168.1.20. "' vagrant up server
+Platform: UNKNOWN
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.6
+Description-Content-Type: text/markdown
