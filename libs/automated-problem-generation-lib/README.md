@@ -1,19 +1,16 @@
-To test generator type into terminal:
+How to use generator?
+---
+---
+To test generator type follow README.md instructions from Kosc-automated-problem-generation-app.
 
-1. $ pipenv install -e "git+ssh://git@gitlab.fi.muni.cz/kypolab/theses/kosc-automated-problem-generation.git@master#egg=generator"
-2. $ pipenv shell
-3. $ python3.8  
-4. \>>> from generator.test import run_test
-5. \>>> run_test() 
+How it works
+---
+---
+generator pkg consists from `var_generator.py` where are all logical functions and `var_object.py` where is stored class `Variable`. 
 
-You can change variables.yml file to set minimal or maximal generated values and set prohibited values too. (min/max/prohibited works only for port and IP)
+`var_object.py` has constructor with all possible attributes that has impact on generation proces. The only mandarory arguments are `name` and `type`. 
 
-Structure of generator/variable.yml:
-<variable_name>
-    - type: <variable_type>  // the only obligatory attribute
-      min: <value>
-      max: <value>
-      prohibited: [<value>,<value>,...]
+`var_generator.py` has functions `generator(list_of_Variable)` with one argument that is list fill with `Variable` object. The result is that each object of `Variable` has been filled attribute `generated_value` with selected restrictions.
 
-Print value should be in format:
-\>>> ANSIBLE_ARGS='--extra-vars "telnet_port=4 username=Mariellen password=KRxxhcCg Server_IP=21.125.239.66. Client_IP=192.168.1.20. "' vagrant up server
+
+
