@@ -59,7 +59,7 @@ def get_random_IP(var_obj):
             ip_dec //= 2 ** 8
 
         if not ip in var_obj.prohibited:
-            return ip
+            return ip[:-1]
 
 
 def get_cwd(file):
