@@ -11,6 +11,10 @@ hosts:
   - name: home
     base_box: {image: windows-10-amd64, mng_protocol: winrm}
     flavor: csirtmu.tiny1x2
+    extra:
+      hello: yello
+      yello: 5
+      foo: True
 
 routers:
   - name: server-router

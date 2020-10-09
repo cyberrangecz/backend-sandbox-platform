@@ -26,8 +26,14 @@ class TestDummy:
         assert topology_definition is not None
         assert len(topology_definition.hosts) == 2
         assert not topology_definition.find_network_by_name('home-switch').accessible_by_user
-        assert topology_definition.find_host_by_name('server').base_box.mng_protocol == Protocol.SSH
-        assert topology_definition.find_host_by_name('home').base_box.mng_protocol == Protocol.WINRM
+        server = topology_definition.find_host_by_name('server')
+        assert server.base_box.mng_protocol == Protocol.SSH
+        assert server.extra is None
+        home = topology_definition.find_host_by_name('home')
+        assert home.base_box.mng_protocol == Protocol.WINRM
+        assert home.extra['hello'] == 'yello'
+        assert home.extra['yello'] == 5
+        assert home.extra['foo']
 
     def test_read_yaml_bad_provider(self, topology_definition):
         with open(SANDBOX_DEFINITION_PATH) as f:
