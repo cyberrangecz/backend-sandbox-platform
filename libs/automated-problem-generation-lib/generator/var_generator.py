@@ -87,6 +87,7 @@ def map_var_list_to_dict(var_list):
     var_dict = dict()
     for var in var_list:
         var_dict[var.name] = var.generated_value
+    return var_dict
 
 
 def generate(variable_list):
