@@ -1,6 +1,6 @@
 from enum import Enum
 
-from yamlize import Sequence, Object, Attribute, Typed, StrList
+from yamlize import Sequence, Object, Attribute, Typed, StrList, Map, Dynamic
 
 from kypo.topology_definition.validators import TopologyValidation
 
@@ -42,12 +42,18 @@ class BaseBox(Object):
     )
 
 
+class ExtraValues(Map):
+    key_type = Typed(str)
+    value_type = Dynamic
+
+
 class Host(Object):
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
     base_box = Attribute(type=BaseBox)
     flavor = Attribute(type=str)
     block_internet = Attribute(type=bool, default=False)
     hidden = Attribute(type=bool, default=False)
+    extra = Attribute(type=ExtraValues, default=None)
 
     def __init__(self, name, base_box, flavor, block_internet, hidden):
         self.name = name
