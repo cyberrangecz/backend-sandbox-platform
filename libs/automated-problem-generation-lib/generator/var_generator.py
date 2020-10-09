@@ -1,15 +1,11 @@
-import string, random, sys, os
+import string, random, os
 
 name_file_path = "names.txt"
 
 
-def set_name_file(path):
-    name_file_path = path
-
-
-def get_random_name(fname):
+def get_random_name(name_file):
     l = []
-    with open(fname, "r") as f:
+    with open(name_file, "r") as f:
         for name in f:
             l.append(name[:-1])
         return l[random.randint(0, len(l) - 1)]
@@ -63,7 +59,6 @@ def get_random_IP(var_obj):
 
 
 def get_cwd(file):
-    # cwd = os.getcwd()
     _ROOT = os.path.abspath(os.path.dirname(__file__))
     return os.path.join(_ROOT, file)
 
@@ -88,6 +83,12 @@ def generate_randomized_arg(variables):
     return variables
 
 
+def map_var_list_to_dict(var_list):
+    var_dict = dict()
+    for var in var_list:
+        var_dict[var.name] = var.generated_value
+
+
 def generate(variable_list):
     list_of_generated_objects = generate_randomized_arg(variable_list)
-    return list_of_generated_objects
+    return map_var_list_to_dict(list_of_generated_objects)
