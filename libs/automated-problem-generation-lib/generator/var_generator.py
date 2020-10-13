@@ -5,11 +5,11 @@ name_file_path = "names.txt"
 
 def get_random_name(name_file):
     '''
-    Function generate random name.
+    Function generates random name.
 
     Parameters
         ----------
-        file : corresponding file object
+        name_file : string
             path to file with names
 
     Returns
@@ -28,12 +28,12 @@ def get_random_name(name_file):
 
 def get_random_port(var_obj):
     '''
-        Function generate random port number with optional restrictions.
+        Function generates random port number with optional restrictions.
 
         Parameters
             ----------
             var_obj : Variable object
-                Variable object with setted restrictions for generation
+                Variable object with set restrictions for generation
 
         Returns
             -------
@@ -56,12 +56,12 @@ def get_random_port(var_obj):
 
 def get_random_IP(var_obj):
     '''
-    Function generate random IP address with optional restrictions.
+    Function generates random IP address with optional restrictions.
 
     Parameters
         ----------
         var_obj : Variable object
-            Variable object with setted restrictions for generation
+            Variable object with set restrictions for generation
 
     Returns
         -------
@@ -121,7 +121,7 @@ def get_cwd(file):
 
 def get_random_password(length):
     '''
-    Function generate random password.
+    Function generates random password.
 
     Parameters
         ----------
@@ -141,7 +141,7 @@ def get_random_password(length):
 
 def generate_randomized_arg(variables):
     '''
-    Functions fill each Variable object's attribute generated_value from argument with generated value.
+    Function fills each Variable object's attribute generated_value from argument with generated value.
 
 
     Parameters
@@ -152,7 +152,7 @@ def generate_randomized_arg(variables):
     Returns
         -------
         list of Variable objects
-            list of Variable objects filled with generate valued in dependece on restrictions
+            list of Variable objects filled with generate valued in dependence on restrictions
     '''
     for var in variables:
         if (var.type).lower() == 'username':
@@ -190,7 +190,7 @@ def map_var_list_to_dict(var_list):
 
 def generate(variable_list):
     '''
-    Main function to generate random values in dependece on setted restrictions.
+    Main function to generate random values in dependence on set restrictions.
 
     Parameters
         ----------

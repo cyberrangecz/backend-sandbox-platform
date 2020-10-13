@@ -2,6 +2,20 @@ from generator.var_object import Variable
 import yaml
 
 def parser_var_file(var_file):
+    '''
+        Main function to parse variable attributes from input.
+
+        Parameters
+            ----------
+            variables : corresponding file object
+                file with input data required for generating name, type and optional restrictions
+
+        Returns
+            -------
+            list
+                list of Variable objects
+
+        '''
     var_list = yaml.load(var_file, Loader=yaml.FullLoader)
     var_objects = []
     for var in var_list.keys():
