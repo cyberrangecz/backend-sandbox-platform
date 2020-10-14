@@ -17,6 +17,8 @@ build:
   only:
     - branches
     - tags
+  tags:
+    - shared-fi
   artifacts:
     paths:
       - dist
@@ -31,3 +33,5 @@ deploy:
     - build
   only:
     - tags
+  tags:
+    - shared-fi
