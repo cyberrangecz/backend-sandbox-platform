@@ -22,7 +22,9 @@ build:
     - echo "repository :$space https://gitlab.fi.muni.cz/api/v4/projects/14820/packages/pypi" >> ~/.pypirc
     - echo "username = __token__" >> ~/.pypirc
     - echo "password = $api_token" >> ~/.pypirc
-    - python3 generator/package_remover.py $api_token
+    - echo 'import requests,sys' >> remover.py
+    - echo "requests.delete('https://gitlab.fi.muni.cz/api/v4/projects/14820/packages/'+str(requests.get('https://gitlab.fi.muni.cz/api/v4/projects/14820/packages', headers={'PRIVATE-TOKEN':sys.argv[1],}).json()[-1]["id"]), headers={'PRIVATE-TOKEN':sys.argv[1],})" >> remover.py
+    - python3 remover.py
     - python -m twine upload --repository gitlab dist/*
   only:
     - branches
