@@ -22,6 +22,7 @@ build:
     - echo "repository :$space https://gitlab.fi.muni.cz/api/v4/projects/14820/packages/pypi" >> ~/.pypirc
     - echo "username = __token__" >> ~/.pypirc
     - echo "password = $api_token" >> ~/.pypirc
+    - curl --request DELETE --header "PRIVATE-TOKEN:$space $api_token" "https://gitlab.fi.muni.cz/api/v4/projects/14820/packages/55"
     - python -m twine upload --repository gitlab dist/*
   only:
     - branches
