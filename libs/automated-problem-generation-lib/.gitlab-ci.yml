@@ -18,7 +18,7 @@ build:
     - echo "[distutils]" >> ~/.pypirc
     - echo "index-servers = gitlab" >> ~/.pypirc
     - echo "[gitlab]" >> ~/.pypirc
-    - echo "repository: https://gitlab.fi.muni.cz/api/v4/projects/14820/packages/pypi" >> ~/.pypirc
+    - echo "repository https://gitlab.fi.muni.cz/api/v4/projects/14820/packages/pypi">> ~/.pypirc
     - echo "username = __token__" >> ~/.pypirc
     - echo "password = J-ny5gnsNvFmbisGH9WP" >> ~/.pypirc
     - python -m twine upload --repository gitlab dist/*
