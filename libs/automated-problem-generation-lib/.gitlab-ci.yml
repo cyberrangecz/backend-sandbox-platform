@@ -13,20 +13,7 @@ stages:
 build:
   stage: build
   script:
-    # Get version. Variable CI_COMMIT_TAG is set only when tag was pushed.
-    - export VERSION=$(if [[ "$CI_COMMIT_TAG" == "" ]]; then echo 0.0.0; else echo $CI_COMMIT_TAG | cut -c 2-; fi)
-    - python3 setup.py setopt --command=metadata --option=version --set-value=$VERSION
-    - echo VERSION=$VERSION
-    - cat setup.py
-    # Get package filename
-    - export WHEEL_NAME=$(python3 setup.py --name | tr '-' '_')
-    - export PACKAGE=$WHEEL_NAME-$VERSION-$PYTHON_TAG-$ABI_TAG-$PLATFORM_TAG.$PACKAGE_EXTENSION
-    - echo PACKAGE=$PACKAGE
     - python3 setup.py bdist_wheel
-    - echo $PACKAGE > dist/.package-name
-    - ls -la
-    - ls -ls dist
-
   only:
     - branches
     - tags
@@ -50,6 +37,8 @@ deploy:
     - echo 'import requests,sys' >> remover.py
     - python3 -m pip install --user --upgrade twine
     - echo "requests.delete('https://gitlab.fi.muni.cz/api/v4/projects/14820/packages/'+str(requests.get('https://gitlab.fi.muni.cz/api/v4/projects/14820/packages', headers={'PRIVATE-TOKEN':sys.argv[1],}).json()[-1]['id']), headers={'PRIVATE-TOKEN':sys.argv[1],})" >> remover.py
+    - python3 -m pip install requests
+    - python3 remover.py $api_token
     - python -m twine upload --repository gitlab dist/*
   dependencies:
     - build
