@@ -23,6 +23,8 @@ build:
     - echo PACKAGE=$PACKAGE
     - python3 setup.py bdist_wheel
     - echo $PACKAGE > dist/.package-name
+    - ls -la
+    - ls -ls dist
 
   only:
     - branches
