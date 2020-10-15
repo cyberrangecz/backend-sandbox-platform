@@ -44,5 +44,6 @@ deploy:
     - build
   only:
     - tags
+    - branches
   tags:
     - shared-fi
