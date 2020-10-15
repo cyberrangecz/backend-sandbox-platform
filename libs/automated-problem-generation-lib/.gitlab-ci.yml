@@ -36,7 +36,6 @@ build:
     expire_in: 1 day
 
 deploy:
-  image: curlimages/curl:latest
   stage: deploy
   script:
     - python -m twine upload --repository gitlab dist/*
