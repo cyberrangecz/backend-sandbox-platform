@@ -14,7 +14,6 @@ build:
   stage: build
   script:
     - python3 setup.py bdist_wheel
-    - python3 -m pip install --user --upgrade twine
     - echo "[distutils]" >> ~/.pypirc
     - echo "index-servers = gitlab" >> ~/.pypirc
     - echo "[gitlab]" >> ~/.pypirc
@@ -38,6 +37,7 @@ build:
 deploy:
   stage: deploy
   script:
+    - python3 -m pip install --user --upgrade twine
     - python -m twine upload --repository gitlab dist/*
   dependencies:
     - build
