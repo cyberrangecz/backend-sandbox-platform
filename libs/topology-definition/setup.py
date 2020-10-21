@@ -13,8 +13,7 @@ def read(filename):
 
 setup(
     name='kypo-topology-definition',
-    author='Daniel Tovarnak',
-    author_email='tovarnak@ics.muni.cz',
+    author='KYPO Team',
     description='',
     long_description=read('README.md'),
     packages=find_namespace_packages(include=['kypo.*'], exclude=['tests']),
