@@ -1,6 +1,30 @@
 import string, random, os
 
 name_file_path = "names.txt"
+text_file_path = "text.txt"
+
+
+def get_random_text(text_file):
+    '''
+    Function generates random sentence.
+
+    Parameters
+        ----------
+        name_file : string
+            path to file with names
+
+    Returns
+        -------
+        string
+            one of the sentences from text file
+
+    '''
+
+    l = []
+    with open(text_file, "r") as f:
+        for sentence in f:
+            l.append(sentence[:-1].split('"')[1])
+        return (l[random.randint(0, len(l) - 1)]).replace("'","\\'").replace(" ","\ ")
 
 
 def get_random_name(name_file):
@@ -160,6 +184,8 @@ def generate_randomized_arg(variables):
             var.generated_value = get_random_name(get_cwd(name_file_path))
         elif (var.type).lower() == 'password':
             var.generated_value = get_random_password(8)
+        elif (var.type).lower() == 'text':
+            var.generated_value = get_random_text(get_cwd(text_file_path))
         elif (var.type).lower() == 'port':
             var.generated_value = get_random_port(var)
         elif (var.type).lower() == 'ip' or (var.type).lower() == 'ipv4':
