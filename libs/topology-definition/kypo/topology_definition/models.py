@@ -161,6 +161,7 @@ class TopologyDefinition(Object):
     # the validation of networks ABOVE is also used to validate the names of the upper three elements
     net_mappings = Attribute(type=NetworkMappingList, validator=TopologyValidation.validate_net_mappings)
     router_mappings = Attribute(type=RouterMappingList, validator=TopologyValidation.validate_router_mappings)
+    # the validation of router_mappings is also used to validate CIDRs and IP addresses
     groups = Attribute(type=GroupList, validator=TopologyValidation.validate_groups)
 
     _indexed: bool = False
