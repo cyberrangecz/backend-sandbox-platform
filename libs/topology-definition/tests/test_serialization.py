@@ -4,6 +4,7 @@ import os
 import pytest
 
 from kypo.topology_definition.models import TopologyDefinition, Protocol
+from yamlize.yamlizing_error import YamlizingError
 
 SANDBOX_DEFINITION_PATH = os.path.join(os.path.dirname(__file__), 'assets/sandbox.yml')
 
@@ -52,3 +53,25 @@ class TestDummy:
 
         with pytest.raises(ValueError):
             TopologyDefinition.load(bad_topology_definition_string)
+
+    def test_cidr_overlaps(self):
+        with open(SANDBOX_DEFINITION_PATH) as f:
+            sb_def = f.read().replace('cidr: 100.100.100.0/29', 'cidr: 200.100.100.0/29')
+
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(sb_def)
+
+    def test_ip_not_in_network(self):
+        with open(SANDBOX_DEFINITION_PATH) as f:
+            sb_def = f.read().replace('ip: 10.10.20.5', 'ip: 10.10.40.5')
+
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(sb_def)
+
+    def test_ip_not_unique(self):
+        with open(SANDBOX_DEFINITION_PATH) as f:
+            sb_def = f.read().replace('ip: 10.10.20.5', 'ip: 10.10.20.1')
+
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(sb_def)
+
