@@ -24,7 +24,7 @@ def get_random_text(text_file):
     with open(text_file, "r") as f:
         for sentence in f:
             l.append(sentence[:-1].split('"')[1])
-        return (l[random.randint(0, len(l) - 1)]).replace("'","\\'").replace(" ","\ ").replace(";","\;").replace(",","")
+        return (l[random.randint(0, len(l) - 1)])
 
 
 def get_random_name(name_file):
