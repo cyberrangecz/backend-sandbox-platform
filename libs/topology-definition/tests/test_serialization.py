@@ -1,9 +1,10 @@
 import io
 import os
+from ruamel import yaml
 
 import pytest
 
-from kypo.topology_definition.models import TopologyDefinition, Protocol
+from kypo.topology_definition.models import TopologyDefinition, Protocol, BaseBox
 from yamlize.yamlizing_error import YamlizingError
 
 SANDBOX_DEFINITION_PATH = os.path.join(os.path.dirname(__file__), 'assets/sandbox.yml')
@@ -13,6 +14,12 @@ SANDBOX_DEFINITION_PATH = os.path.join(os.path.dirname(__file__), 'assets/sandbo
 def topology_definition_string():
     with open(SANDBOX_DEFINITION_PATH) as f:
         return f.read()
+
+
+@pytest.fixture
+def topology_definition_dict():
+    with open(SANDBOX_DEFINITION_PATH) as f:
+        return dict(yaml.safe_load(f))
 
 
 @pytest.fixture
@@ -28,10 +35,10 @@ class TestDummy:
         assert len(topology_definition.hosts) == 2
         assert not topology_definition.find_network_by_name('home-switch').accessible_by_user
         server = topology_definition.find_host_by_name('server')
-        assert server.base_box.mng_protocol == Protocol.SSH
+        assert server.base_box.mgmt_protocol == Protocol.SSH
         assert server.extra is None
         home = topology_definition.find_host_by_name('home')
-        assert home.base_box.mng_protocol == Protocol.WINRM
+        assert home.base_box.mgmt_protocol == Protocol.WINRM
         assert home.extra['hello'] == 'yello'
         assert home.extra['yello'] == 5
         assert home.extra['foo']
@@ -75,3 +82,28 @@ class TestDummy:
         with pytest.raises(YamlizingError):
             TopologyDefinition.load(sb_def)
 
+    def test_multi_protocol_base_box(self, topology_definition_dict):
+        server_base_box_dict = topology_definition_dict['hosts'][0]['base_box']
+        server_base_box_dict['mng_protocol'] = 'ssh'
+        server_base_box_dict['mgmt_protocol'] = 'ssh'
+
+        with pytest.raises(YamlizingError):
+            BaseBox.load(yaml.dump(server_base_box_dict))
+
+    def test_multi_user_base_box(self, topology_definition_dict):
+        server_base_box_dict = topology_definition_dict['hosts'][0]['base_box']
+        server_base_box_dict['man_user'] = 'debian'
+        server_base_box_dict['mgmt_user'] = 'debian'
+
+        with pytest.raises(YamlizingError):
+            BaseBox.load(yaml.dump(server_base_box_dict))
+
+    def test_deprecated_base_box_attributes(self, topology_definition_dict):
+        server_router_base_box_dict = topology_definition_dict['routers'][0]['base_box']
+
+        server_router_base_box = BaseBox.load(yaml.dump(server_router_base_box_dict))
+
+        assert not hasattr(server_router_base_box, 'man_user')
+        assert not hasattr(server_router_base_box, 'mng_protocol')
+        assert server_router_base_box.mgmt_user
+        assert server_router_base_box.mgmt_protocol

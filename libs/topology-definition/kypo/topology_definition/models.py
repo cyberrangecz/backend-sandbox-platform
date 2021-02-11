@@ -3,6 +3,7 @@ from enum import Enum
 from yamlize import Sequence, Object, Attribute, Typed, StrList, Map, Dynamic
 
 from kypo.topology_definition.validators import TopologyValidation
+from kypo.topology_definition.utils import rename_deprecated_attribute
 
 
 class Protocol(Enum):
@@ -31,8 +32,8 @@ class Provider(Enum):
 
 class BaseBox(Object):
     image = Attribute(type=str)
-    man_user = Attribute(type=str, default='kypo-man')
-    mng_protocol = Attribute(
+    mgmt_user = Attribute(type=str, default='kypo-man')
+    mgmt_protocol = Attribute(
         type=Typed(
             Protocol,
             from_yaml=(lambda loader, node, rtd: Protocol.create(loader.construct_object(node))),
@@ -40,6 +41,12 @@ class BaseBox(Object):
         ),
         default=Protocol.SSH,
     )
+
+    @classmethod
+    def from_yaml(cls, loader, node, _rtd=None):
+        rename_deprecated_attribute(node.value, 'man_user', 'mgmt_user')
+        rename_deprecated_attribute(node.value, 'mng_protocol', 'mgmt_protocol')
+        return super().from_yaml(loader, node, _rtd)
 
 
 class ExtraValues(Map):
