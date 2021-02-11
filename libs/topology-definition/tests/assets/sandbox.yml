@@ -3,13 +3,13 @@ provider: OpenStack
 name: small-sandbox
 hosts:
   - name: server
-    base_box: {image: debian-9-x86_64, man_user: debian}
+    base_box: {image: debian-9-x86_64, mgmt_user: debian}
     flavor: csirtmu.tiny1x2
     block_internet: True
     hidden: True
 
   - name: home
-    base_box: {image: windows-10-amd64, mng_protocol: winrm}
+    base_box: {image: windows-10-amd64, mgmt_protocol: winrm}
     flavor: csirtmu.tiny1x2
     extra:
       hello: yello
@@ -18,12 +18,12 @@ hosts:
 
 routers:
   - name: server-router
-    base_box: {image: debian-9-x86_64}
+    base_box: {image: debian-9-x86_64, man_user: debian, mng_protocol: ssh}
     flavor: csirtmu.tiny1x2
     cidr: 100.100.100.0/29
 
   - name: home-router
-    base_box: {image: debian-9-x86_64, man_user: debian}
+    base_box: {image: debian-9-x86_64}
     flavor: csirtmu.tiny1x2
     cidr: 200.100.100.0/29
 
