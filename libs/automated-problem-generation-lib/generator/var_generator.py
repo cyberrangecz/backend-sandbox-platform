@@ -3,6 +3,9 @@ import string, random, os
 name_file_path = "names.txt"
 text_file_path = "text.txt"
 
+def init_seed(s):
+    random.seed(s)
+
 def get_number_of_lines(path):
     """
         Function counts number of lines in text file.
@@ -48,7 +51,7 @@ def get_random_text(text_file):
                     return sentence[:-1].split('"')[1]
                 choosen_sentence -= 1
     except:
-        raise Exception("Missing or corrupted text.txt file in generator directorie.")
+        raise Exception("Missing or corrupted text.txt file in generator directory.")
 
 
 def get_random_name(name_file):
@@ -191,7 +194,7 @@ def get_random_password(length):
     return result_str
 
 
-def generate_randomized_arg(variables):
+def generate_randomized_arg(variables,player_seed):
     """
     Function fills each Variable object's attribute generated_value from argument with generated value.
 
@@ -206,7 +209,11 @@ def generate_randomized_arg(variables):
         list of Variable objects
             list of Variable objects filled with generate valued in dependence on restrictions
     """
+    step = 0
     for var in variables:
+        print("seed :" +str(player_seed))
+        init_seed(player_seed + step)
+        step += 1
         if var.type.lower() == 'username':
             var.generated_value = get_random_name(get_cwd(name_file_path))
         elif var.type.lower() == 'password':
@@ -241,7 +248,7 @@ def map_var_list_to_dict(var_list):
     return var_dict
 
 
-def generate(variable_list):
+def generate(variable_list,seed):
     """
     Main function to generate random values in dependence on set restrictions.
 
@@ -256,5 +263,5 @@ def generate(variable_list):
             dictionary with name of the variable as key and generate value as value
 
     """
-    list_of_generated_objects = generate_randomized_arg(variable_list)
+    list_of_generated_objects = generate_randomized_arg(variable_list,seed)
     return map_var_list_to_dict(list_of_generated_objects)
