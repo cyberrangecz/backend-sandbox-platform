@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="generator",
-    version="0.1.1",
+    version="0.1.2",
     author="Daniel Kosc",
     author_email="485652@mail.muni.cz",
     description="Random generator of selected variables",

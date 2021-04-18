@@ -211,7 +211,6 @@ def generate_randomized_arg(variables,player_seed):
     """
     step = 0
     for var in variables:
-        print("seed :" +str(player_seed))
         init_seed(player_seed + step)
         step += 1
         if var.type.lower() == 'username':
