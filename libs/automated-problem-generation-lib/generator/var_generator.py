@@ -3,8 +3,10 @@ import string, random, os
 name_file_path = "names.txt"
 text_file_path = "text.txt"
 
+
 def init_seed(s):
     random.seed(s)
+
 
 def get_number_of_lines(path):
     """
@@ -27,6 +29,7 @@ def get_number_of_lines(path):
         i += 1
     return i
 
+
 def get_random_text(text_file):
     """
     Function generates random sentence.
@@ -44,17 +47,17 @@ def get_random_text(text_file):
     """
 
     try:
-        choosen_sentence = random.randint(0, get_number_of_lines(text_file) - 1)
+        chosen_sentence = random.randint(0, get_number_of_lines(text_file) - 1)
         with open(text_file, "r") as f:
             for sentence in f:
-                if choosen_sentence == 0:
+                if chosen_sentence == 0:
                     return sentence[:-1].split('"')[1]
-                choosen_sentence -= 1
+                chosen_sentence -= 1
     except:
         raise Exception("Missing or corrupted text.txt file in generator directory.")
 
 
-def get_random_name(name_file):
+def get_random_name(name_file, var):
     """
     Function generates random name.
 
@@ -71,14 +74,20 @@ def get_random_name(name_file):
     """
 
     try:
-        choosen_sentence = random.randint(0, get_number_of_lines(name_file) - 1)
-        with open(name_file, "r") as f:
-            for sentence in f:
-                if choosen_sentence == 0:
-                    return sentence[:-1]
-                choosen_sentence -= 1
+        while True:
+            chosen_name = random.randint(0, get_number_of_lines(name_file) - 1)
+            with open(name_file, "r") as f:
+                for name in f:
+                    if chosen_name == 0:
+                        if name[:-1] not in var.prohibited:
+                            return name[:-1]
+                        else:
+                            break
+                    chosen_name -= 1
+
+
     except:
-        raise Exception("Missing or corrupted name.txt file in generator directorie.")
+        raise Exception("Missing or corrupted name.txt file in generator directory.")
 
 
 def get_random_port(var_obj):
@@ -174,7 +183,7 @@ def get_cwd(file):
     return os.path.join(_ROOT, file)
 
 
-def get_random_password(length):
+def get_random_password(length, var):
     """
     Function generates random password.
 
@@ -189,12 +198,14 @@ def get_random_password(length):
             generated password
 
     """
-    letters_and_digits = string.ascii_letters + string.digits
-    result_str = ''.join((random.choice(letters_and_digits) for i in range(length)))
-    return result_str
+    while True:
+        letters_and_digits = string.ascii_letters + string.digits
+        result_str = ''.join((random.choice(letters_and_digits) for i in range(length)))
+        if result_str not in var.prohibited:
+            return result_str
 
 
-def generate_randomized_arg(variables,player_seed):
+def generate_randomized_arg(variables, player_seed):
     """
     Function fills each Variable object's attribute generated_value from argument with generated value.
 
@@ -214,9 +225,9 @@ def generate_randomized_arg(variables,player_seed):
         init_seed(player_seed + step)
         step += 1
         if var.type.lower() == 'username':
-            var.generated_value = get_random_name(get_cwd(name_file_path))
+            var.generated_value = get_random_name(get_cwd(name_file_path), var)
         elif var.type.lower() == 'password':
-            var.generated_value = get_random_password(8)
+            var.generated_value = get_random_password(8, var)
         elif var.type.lower() == 'text':
             var.generated_value = get_random_text(get_cwd(text_file_path))
         elif var.type.lower() == 'port':
@@ -247,7 +258,7 @@ def map_var_list_to_dict(var_list):
     return var_dict
 
 
-def generate(variable_list,seed):
+def generate(variable_list, seed):
     """
     Main function to generate random values in dependence on set restrictions.
 
@@ -262,5 +273,5 @@ def generate(variable_list,seed):
             dictionary with name of the variable as key and generate value as value
 
     """
-    list_of_generated_objects = generate_randomized_arg(variable_list,seed)
+    list_of_generated_objects = generate_randomized_arg(variable_list, seed)
     return map_var_list_to_dict(list_of_generated_objects)
