@@ -139,7 +139,7 @@ def get_random_IP(var_obj):
     if len(octet_list_min) <= 3:
         octet_list_min = [0, 0, 0, 0]
     if len(octet_list_max) <= 3:
-        octet_list_min = [255, 255, 255, 255]
+        octet_list_max = [255, 255, 255, 255]
 
     for i in range(4):
         if int(octet_list_min[i]) > 255:
