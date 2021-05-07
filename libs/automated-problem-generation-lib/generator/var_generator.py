@@ -1,4 +1,5 @@
 import string, random, os
+from better_profanity import profanity
 
 name_file_path = "names.txt"
 text_file_path = "text.txt"
@@ -51,7 +52,7 @@ def get_random_text(text_file):
         with open(text_file, "r") as f:
             for sentence in f:
                 if chosen_sentence == 0:
-                    return sentence[:-1].split('"')[1]
+                    return profanity.censor(sentence[:-1].split('"')[1])
                 chosen_sentence -= 1
     except:
         raise Exception("Missing or corrupted text.txt file in generator directory.")

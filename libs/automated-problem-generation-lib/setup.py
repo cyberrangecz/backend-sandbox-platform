@@ -5,11 +5,11 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="generator",
-    version="0.1.5",
+    version="0.1.6",
     author="Daniel Kosc",
     author_email="485652@mail.muni.cz",
     description="Random generator of selected variables",
-    install_requires=['pyYAML'],
+    install_requires=['pyYAML', 'better_profanity'],
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://gitlab.fi.muni.cz/kypolab/theses/kosc-automated-problem-generation",
