@@ -1,11 +1,12 @@
 import io
 import os
-from ruamel import yaml
 
 import pytest
-
-from kypo.topology_definition.models import TopologyDefinition, Protocol, BaseBox
+from ruamel import yaml
 from yamlize.yamlizing_error import YamlizingError
+
+from kypo.topology_definition.models import TopologyDefinition, Protocol, BaseBox, Host, Router
+from kypo.topology_definition.image_naming import image_name_replace, image_name_strip
 
 SANDBOX_DEFINITION_PATH = os.path.join(os.path.dirname(__file__), 'assets/sandbox.yml')
 
@@ -55,7 +56,7 @@ class TestDummy:
         assert topology_definition.find_host_by_name('home') is not None
 
     def test_read_yaml_bad_protocol(self, topology_definition_string):
-        bad_topology_definition_string = topology_definition_string\
+        bad_topology_definition_string = topology_definition_string \
             .replace('winrm', 'InvalidProtocol')
 
         with pytest.raises(ValueError):
@@ -107,3 +108,30 @@ class TestDummy:
         assert not hasattr(server_router_base_box, 'mng_protocol')
         assert server_router_base_box.mgmt_user
         assert server_router_base_box.mgmt_protocol
+
+    def test_image_name_replace_1(self, topology_definition):
+        td = image_name_replace('w', 'X', topology_definition)
+
+        home: Host = td.find_host_by_name('home')
+        assert home.base_box.image == 'Xindows/windows-10-amd64'
+
+        home_router: Router = td.find_router_by_name('home-router')
+        assert home_router.base_box.image == 'debian/debian-9-x86_64'
+
+    def test_image_name_replace_2(self, topology_definition):
+        td = image_name_replace(r'.*/', 'kypo-', topology_definition)
+
+        home: Host = td.find_host_by_name('home')
+        assert home.base_box.image == 'kypo-windows-10-amd64'
+
+        home_router: Router = td.find_router_by_name('home-router')
+        assert home_router.base_box.image == 'kypo-debian-9-x86_64'
+
+    def test_image_name_strip(self, topology_definition):
+        td = image_name_strip('munikypo/', topology_definition)
+
+        home: Host = td.find_host_by_name('home')
+        assert home.base_box.image == 'windows/windows-10-amd64'
+
+        server_router: Router = td.find_router_by_name('server-router')
+        assert server_router.base_box.image == 'debian-9-x86_64'
