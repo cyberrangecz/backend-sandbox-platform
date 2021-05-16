@@ -52,7 +52,6 @@ arrow
 arthur
 asd
 asm
-asshole
 athena
 atmosphere
 aztecs
@@ -542,7 +541,6 @@ paula
 pencil
 penelope
 penguin
-penis
 peoria
 percolate
 persimmon
@@ -555,7 +553,6 @@ phone
 pierre
 pizza
 plane
-playboy
 plover
 pluto
 plymouth
@@ -643,7 +640,6 @@ serenity
 service
 sesame
 setup
-sex
 shannon
 sharc
 shark
@@ -761,7 +757,6 @@ urchin
 ursula
 util
 utility
-uucp
 valerie
 vasant
 venus
@@ -769,7 +764,6 @@ veronica
 vertigo
 vicky
 village
-virgin
 virginia
 visitor
 wargames

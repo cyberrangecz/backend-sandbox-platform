@@ -10,10 +10,11 @@ def parser_var_file(var_file):
             type = var_list[var]["type"]
             min = var_list[var].get("min")
             max = var_list[var].get("max")
+            length = var_list[var].get("length")
             prohibited = var_list[var].get("prohibited")
             if prohibited == None:
                 prohibited = []
-            var_objects.append(Variable(name, type, min, max, prohibited))
+            var_objects.append(Variable(name, type, min, max, prohibited, length))
         except:
             print("Error occure")
             return None

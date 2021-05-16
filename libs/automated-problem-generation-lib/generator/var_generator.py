@@ -75,16 +75,17 @@ def get_random_name(name_file, var):
     """
 
     try:
-        while True:
+        for _ in range(10 * get_number_of_lines(name_file)):
             chosen_name = random.randint(0, get_number_of_lines(name_file) - 1)
             with open(name_file, "r") as f:
                 for name in f:
-                    if chosen_name == 0:
+                    if chosen_name <= 0 and (var.length is None or var.length + 1 == len(name)):
                         if name[:-1] not in var.prohibited:
                             return name[:-1]
                         else:
                             break
                     chosen_name -= 1
+        return "username"
 
 
     except:
@@ -184,7 +185,7 @@ def get_cwd(file):
     return os.path.join(_ROOT, file)
 
 
-def get_random_password(length, var):
+def get_random_password(var):
     """
     Function generates random password.
 
@@ -199,9 +200,11 @@ def get_random_password(length, var):
             generated password
 
     """
+    if not var.length:
+        var.length = 8
     while True:
         letters_and_digits = string.ascii_letters + string.digits
-        result_str = ''.join((random.choice(letters_and_digits) for i in range(length)))
+        result_str = ''.join((random.choice(letters_and_digits) for _ in range(var.length)))
         if result_str not in var.prohibited:
             return result_str
 
@@ -228,7 +231,7 @@ def generate_randomized_arg(variables, player_seed):
         if var.type.lower() == 'username':
             var.generated_value = get_random_name(get_cwd(name_file_path), var)
         elif var.type.lower() == 'password':
-            var.generated_value = get_random_password(8, var)
+            var.generated_value = get_random_password(var)
         elif var.type.lower() == 'text':
             var.generated_value = get_random_text(get_cwd(text_file_path))
         elif var.type.lower() == 'port':
