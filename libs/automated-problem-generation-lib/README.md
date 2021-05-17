@@ -1,8 +1,8 @@
-# Welcome to generator library's documentation!
+# Welcome to the generator library's documentation!
 
 ---
 
-Generator library is a Python package that generates random data within set restrictions for you. When you need to generate random individual values into game for various players, this library is for you.
+A generator library is a Python package that generates random data within set restrictions for you. A generator library is a Python package that generates random data within set restrictions for you. When you need to generate random individual values into a game for various players, this library is for you.
 
 ---
 
@@ -58,15 +58,15 @@ Generator pkg consists of `var_generator.py` where all required logical function
 
 `var_generator.py` 
 ---
-has function `generator(list_of_Variable)` with one argument that is list filled with `Variable` object. The result is that each object of `Variable` has been filled attribute `generated_value` with selected restrictions.
+has function `generator(list_of_Variable)` with one argument that is a list filled with a `Variable` object. The result is that each object of `Variable` has been filled attribute `generated_value` with selected restrictions.
 
 `var_parser.py` 
 ---
-has function `parser_var_file(var_file)` that reads all input data from `var_file` the Python file object and fill them into `Variable` objects that are return as list. 
+has function `parser_var_file(var_file)` that reads all input data from `var_file` the Python file object and fill them into `Variable` objects that are returned as a list. 
 
 `var_object.py` 
 ---
-has constructor with all possible attributes that has impact on generation process. The only mandatory arguments are `name` and `type`. 
+has a constructor with all possible attributes that have an impact on the generation process. The only mandatory arguments are name and type.
 
 Supported variable types:
 ---
@@ -77,7 +77,7 @@ Supported variable types:
 * **port**     - randomly generated number
 * **text**     - randomly chosen sentence
 
-## How should variable in input file look like?
+## How should variable in the input file look like?
 
 ---
 ---
