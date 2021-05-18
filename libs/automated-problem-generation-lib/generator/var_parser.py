@@ -1,5 +1,5 @@
 #from generator.var_object import Variable
-from ..generator.var_object import Variable
+from generator.var_object import Variable
 import yaml
 
 def parser_var_file(var_file):

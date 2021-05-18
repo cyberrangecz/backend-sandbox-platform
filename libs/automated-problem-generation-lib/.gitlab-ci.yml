@@ -1,4 +1,9 @@
-image: python:3.7
+default:
+  image: python:3.7
+  before_script:
+    - apt-get update
+    - apt-get install -y python3-pip
+    - pip install -r requirements.txt
 
 variables:
   PYTHON_TAG: py3
