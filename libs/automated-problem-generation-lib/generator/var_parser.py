@@ -1,11 +1,12 @@
-from generator.var_object import Variable
+#from generator.var_object import Variable
+from ..generator.var_object import Variable
 import yaml
 
 def parser_var_file(var_file):
-    var_list = yaml.load(var_file, Loader=yaml.FullLoader)
-    var_objects = []
-    for var in var_list.keys():
-        try:
+    try:
+        var_list = yaml.load(var_file, Loader=yaml.FullLoader)
+        var_objects = []
+        for var in var_list.keys():
             name = var
             type = var_list[var]["type"]
             min = var_list[var].get("min")
@@ -15,7 +16,8 @@ def parser_var_file(var_file):
             if prohibited == None:
                 prohibited = []
             var_objects.append(Variable(name, type, min, max, prohibited, length))
-        except:
-            print("Error occure")
-            return None
+    except:
+        print("Error occure")
+        return None
+
     return var_objects
