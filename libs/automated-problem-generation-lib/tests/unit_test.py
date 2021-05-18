@@ -5,7 +5,6 @@ from generator.var_generator import generate
 
 
 class TryParser(TestCase):
-
     def test_run_parser(self):
         with open(os.path.join("tests", "variables.yml")) as file:
             parser_var_file(file)
@@ -96,3 +95,16 @@ class TryGenerator(TestCase):
         self.assertTrue(result[3].generated_value == "collins")
         self.assertTrue(result[4].generated_value == "5")
         self.assertTrue(result[5].generated_value == "192.168.1.142")
+
+class TryVariable_object(TestCase):
+    def test_object_print(self):
+        with open(os.path.join("tests", "variables.yml")) as file:
+            result = parser_var_file(file)
+            generate(result, 1234)
+            print(result)
+        self.assertTrue(str(result[0]).__contains__("level_1_flag=I always did something"))
+        self.assertTrue(str(result[1]) == "level_2_flag=38721")
+        self.assertTrue(str(result[2]) == "level_3_flag=IEVQ")
+        self.assertTrue(str(result[3]) == "level_4_flag=collins")
+        self.assertTrue(str(result[4]) == "level_5_flag=5")
+        self.assertTrue(str(result[5]) == "level_6_flag=192.168.1.142")
