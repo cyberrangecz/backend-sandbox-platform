@@ -22,7 +22,7 @@ test:
     - pip install pytest-cov
     - coverage run -m pytest
     - coverage report
-    - coverage html -d coverage_html
+
   only:
     - branches
     - tags

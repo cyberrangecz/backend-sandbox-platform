@@ -78,15 +78,13 @@ def get_random_name(name_file, var):
         for _ in range(10 * get_number_of_lines(name_file)):
             chosen_name = random.randint(0, get_number_of_lines(name_file) - 1)
             with open(name_file, "r") as f:
-                for name in f:
-                    if chosen_name <= 0 and (var.length is None or var.length + 1 == len(name)):
-                        if name[:-1] not in var.prohibited:
-                            return name[:-1]
-                        else:
-                            break
-                    chosen_name -= 1
+                for iteration in range(2):
+                    for name in f:
+                        if (chosen_name <= 0 or iteration) and (var.length is None or var.length + 1 == len(name)):
+                            if name[:-1] not in var.prohibited:
+                                return name[:-1]
+                        chosen_name -= 1
         return "username"
-
 
     except:
         raise Exception("Missing or corrupted name.txt file in generator directory.")

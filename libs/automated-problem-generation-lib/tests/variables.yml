@@ -9,11 +9,10 @@ level_2_flag:
 level_3_flag:
     type: password
     prohibited: ["easy"]
-    length: 4
 
 level_4_flag:
     type: username
-    prohibited: ["John", "Daniel"]
+    prohibited: ["John", "collins", "Daniel"]
     challenge_id: 5
     length: 7
 
@@ -26,7 +25,19 @@ level_5_flag:
 
 level_6_flag:
     type: ip
-    min: 192.168.1.0
-    max: 192.168.1.255
-    prohibited: ["192.168.1.10","192.168.1.1", "192.168.1.38"]
+    min: 192.168.0.365 # in purpose
+    max: 192.168.1.265 # in purpose
+    prohibited: ["192.168.1.10","192.168.1.1", "192.168.1.38","192.168.1.37"]
     challenge_id: 9
+
+level_7_flag:
+    type: ipv4
+
+level_8_flag:
+    type: ip
+    min: 192.168.0.2
+    max: 192.168.0.3
+
+level_9_flag:
+    type: username
+    length: 70
