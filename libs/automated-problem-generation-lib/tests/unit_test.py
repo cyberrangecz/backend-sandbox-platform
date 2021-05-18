@@ -1,7 +1,7 @@
 import os
 from unittest import TestCase
-from ..generator.var_parser import parser_var_file
-from ..generator.var_generator import generate
+from generator.var_parser import parser_var_file
+from generator.var_generator import generate
 
 class TryParser(TestCase):
     def test_run_parser(self):
