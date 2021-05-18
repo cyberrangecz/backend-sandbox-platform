@@ -23,3 +23,10 @@ level_5_flag:
     max: 10
     prohibited: [1,2,3,78,9]
     challenge_id: 15
+
+level_6_flag:
+    type: ip
+    min: 192.168.1.0
+    max: 192.168.1.255
+    prohibited: ["192.168.1.10","192.168.1.1", "192.168.1.38"]
+    challenge_id: 9

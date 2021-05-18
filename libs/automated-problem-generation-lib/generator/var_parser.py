@@ -1,4 +1,3 @@
-#from generator.var_object import Variable
 from generator.var_object import Variable
 import yaml
 

@@ -5,6 +5,7 @@ from generator.var_generator import generate
 
 
 class TryParser(TestCase):
+
     def test_run_parser(self):
         with open(os.path.join("tests", "variables.yml")) as file:
             parser_var_file(file)
@@ -19,7 +20,7 @@ class TryParser(TestCase):
         with open(os.path.join("tests", "variables.yml")) as file:
             result = parser_var_file(file)
         self.assertTrue(result != None)
-        self.assertTrue(len(result) == 5)
+        self.assertTrue(len(result) == 6)
 
         self.assertTrue(result[0].type == "text")
         self.assertTrue(result[0].name == "level_1_flag")
@@ -94,3 +95,4 @@ class TryGenerator(TestCase):
         self.assertTrue(result[2].generated_value == "IEVQ")
         self.assertTrue(result[3].generated_value == "collins")
         self.assertTrue(result[4].generated_value == "5")
+        self.assertTrue(result[5].generated_value == "192.168.1.142")

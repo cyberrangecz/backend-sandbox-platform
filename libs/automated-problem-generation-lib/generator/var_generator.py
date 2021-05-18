@@ -163,7 +163,7 @@ def get_random_IP(var_obj):
             ip = str(ip_dec % 2 ** 8) + "." + ip
             ip_dec //= 2 ** 8
 
-        if ip not in var_obj.prohibited:
+        if ip[:-1] not in var_obj.prohibited:
             return ip[:-1]
 
 
