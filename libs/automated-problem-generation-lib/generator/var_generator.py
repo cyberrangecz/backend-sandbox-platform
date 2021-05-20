@@ -1,12 +1,27 @@
-import string, random, os
+import string
+import random
+import os
 from better_profanity import profanity
 
-name_file_path = "names.txt"
-text_file_path = "text.txt"
+NAME_FILE_PATH = "names.txt"
+TEXT_FILE_PATH = "text.txt"
 
 
-def init_seed(s):
-    random.seed(s)
+def init_seed(seed):
+    """
+        Function to initialize random generator.
+
+        Parameters
+            ----------
+            seed : int
+                initial seed
+
+        Returns
+            -------
+            None
+
+    """
+    random.seed(seed)
 
 
 def get_number_of_lines(path):
@@ -15,7 +30,7 @@ def get_number_of_lines(path):
 
         Parameters
             ----------
-            path : string
+            path : String
                 path to file with text
 
         Returns
@@ -23,12 +38,13 @@ def get_number_of_lines(path):
             int
                 number of newlines
 
-        """
-    with open(path, "r") as f:
-        for i, l in enumerate(f):
+    """
+    with open(path, "r") as source_file:
+        line_num = 0
+        for line_num, _ in enumerate(source_file):
             pass
-        i += 1
-    return i
+        line_num += 1
+    return line_num
 
 
 def get_random_text(text_file):
@@ -37,23 +53,24 @@ def get_random_text(text_file):
 
     Parameters
         ----------
-        text_file : string
+        text_file : String
             path to file with names
 
     Returns
         -------
-        string
+        String
             one of the sentences from text file
 
     """
 
     try:
         chosen_sentence = random.randint(0, get_number_of_lines(text_file) - 1)
-        with open(text_file, "r") as f:
-            for sentence in f:
+        with open(text_file, "r") as source_file:
+            for sentence in source_file:
                 if chosen_sentence == 0:
                     return profanity.censor(sentence[:-1].split('"')[1])
                 chosen_sentence -= 1
+        return "Empty!"
     except:
         raise Exception("Missing or corrupted text.txt file in generator directory.")
 
@@ -64,26 +81,26 @@ def get_random_name(name_file, var):
 
     Parameters
         ----------
-        name_file : string
+        name_file : String
             path to file with names
 
     Returns
         -------
-        string
+        String
             one of the names from text file
 
     """
 
     try:
-        for _ in range(10 * get_number_of_lines(name_file)):
-            chosen_name = random.randint(0, get_number_of_lines(name_file) - 1)
-            with open(name_file, "r") as f:
-                for iteration in range(2):
-                    for name in f:
-                        if (chosen_name <= 0 or iteration) and (var.length is None or var.length + 1 == len(name)):
-                            if name[:-1] not in var.prohibited:
-                                return name[:-1]
-                        chosen_name -= 1
+        chosen_name = random.randint(0, get_number_of_lines(name_file) - 1)
+        with open(name_file, "r") as source_file:
+            for _ in range(2):
+                source_file.seek(0)
+                for name in source_file:
+                    if chosen_name <= 0 and (var.length is None or var.length + 1 == len(name)):
+                        if name[:-1] not in var.prohibited:
+                            return name[:-1]
+                    chosen_name -= 1
         return "username"
 
     except:
@@ -105,20 +122,21 @@ def get_random_port(var_obj):
                 Variable object with filled generated_value attribute
 
     """
-    min = var_obj.min
-    max = var_obj.max
-    if min is None:
-        min = 35000
-    if max is None:
-        max = min + 4000
+    v_min = var_obj.min
+    v_max = var_obj.max
+    if v_min is None:
+        v_min = 35000
+    if v_max is None:
+        v_max = v_min + 4000
 
-    while True:
-        port = random.randint(min, max)
+    for _ in range(4000):
+        port = random.randint(v_min, v_max)
         if port not in var_obj.prohibited:
             return str(port)
+    return "0"
 
 
-def get_random_IP(var_obj):
+def get_random_ip(var_obj):
     """
     Function generates random IP address with optional restrictions.
 
@@ -144,25 +162,30 @@ def get_random_IP(var_obj):
     for i in range(4):
         if int(octet_list_min[i]) > 255:
             octet_list_min[i] = 255
+        elif int(octet_list_min[i]) < 0:
+            octet_list_min[i] = 0
         else:
             octet_list_min[i] = int(octet_list_min[i])
         if int(octet_list_max[i]) > 255:
             octet_list_max[i] = 255
+        elif int(octet_list_max[i]) < 0:
+            octet_list_max[i] = 0
         else:
             octet_list_max[i] = int(octet_list_max[i])
 
-    while True:
-        ip_dec = random.randint(octet_list_min[0] * 2 ** 24 + octet_list_min[1] * 2 ** 16 + octet_list_min[2] * 2 ** 8 +
-                                octet_list_min[3],
-                                octet_list_max[0] * 2 ** 24 + octet_list_max[1] * 2 ** 16 + octet_list_max[2] * 2 ** 8 +
-                                octet_list_max[3])
-        ip = ""
+    for _ in range(4000):
+        ip_dec = random.randint(octet_list_min[0] * 2 ** 24 + octet_list_min[1] * 2 ** 16 +
+                                octet_list_min[2] * 2 ** 8 + octet_list_min[3],
+                                octet_list_max[0] * 2 ** 24 + octet_list_max[1] * 2 ** 16 +
+                                octet_list_max[2] * 2 ** 8 + octet_list_max[3])
+        ip_add = ""
         for i in range(4):
-            ip = str(ip_dec % 2 ** 8) + "." + ip
+            ip_add = str(ip_dec % 2 ** 8) + "." + ip_add
             ip_dec //= 2 ** 8
 
-        if ip[:-1] not in var_obj.prohibited:
-            return ip[:-1]
+        if ip_add[:-1] not in var_obj.prohibited:
+            return ip_add[:-1]
+    return "0.0.0.0"
 
 
 def get_cwd(file):
@@ -171,16 +194,16 @@ def get_cwd(file):
 
     Parameters
         ----------
-        file : string
+        file : String
             relative path to file
     Returns
         -------
-        string
+        String
             absolut path to the file
 
     """
-    _ROOT = os.path.abspath(os.path.dirname(__file__))
-    return os.path.join(_ROOT, file)
+    abs_from_root = os.path.abspath(os.path.dirname(__file__))
+    return os.path.join(abs_from_root, file)
 
 
 def get_random_password(var):
@@ -194,7 +217,7 @@ def get_random_password(var):
 
     Returns
         -------
-        string
+        String
             generated password
 
     """
@@ -209,13 +232,17 @@ def get_random_password(var):
 
 def generate_randomized_arg(variables, player_seed):
     """
-    Function fills each Variable object's attribute generated_value from argument with generated value.
+    Function fills each Variable object's attribute generated_value
+    from argument with generated value.
 
 
     Parameters
         ----------
         variables : list
             list of Variable objects
+
+        player_seed : int
+            initial random seed
 
     Returns
         -------
@@ -227,15 +254,15 @@ def generate_randomized_arg(variables, player_seed):
         init_seed(player_seed + step)
         step += 1
         if var.type.lower() == 'username':
-            var.generated_value = get_random_name(get_cwd(name_file_path), var)
+            var.generated_value = get_random_name(get_cwd(NAME_FILE_PATH), var)
         elif var.type.lower() == 'password':
             var.generated_value = get_random_password(var)
         elif var.type.lower() == 'text':
-            var.generated_value = get_random_text(get_cwd(text_file_path))
+            var.generated_value = get_random_text(get_cwd(TEXT_FILE_PATH))
         elif var.type.lower() == 'port':
             var.generated_value = get_random_port(var)
         elif var.type.lower() == 'ip' or var.type.lower() == 'ipv4':
-            var.generated_value = get_random_IP(var)
+            var.generated_value = get_random_ip(var)
     return variables
 
 
@@ -268,6 +295,9 @@ def generate(variable_list, seed):
         ----------
         variable_list : list
             list of Variable objects
+
+        seed : int
+            initial seed
 
     Returns
         -------

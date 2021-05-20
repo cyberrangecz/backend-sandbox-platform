@@ -1,6 +1,6 @@
 import copy
 import os
-from unittest import TestCase, main
+from unittest import TestCase
 from generator.var_parser import parser_var_file
 from generator.var_generator import generate
 
