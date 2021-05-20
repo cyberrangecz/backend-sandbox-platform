@@ -28,10 +28,10 @@ def parser_var_file(var_file):
             v_max = var_list[var].get("max")
             v_length = var_list[var].get("length")
             v_prohibited = var_list[var].get("prohibited")
-            if prohibited is None:
-                prohibited = []
+            if v_prohibited is None:
+                v_prohibited = []
             var_objects.append(Variable(v_name, v_type, v_min, v_max, v_prohibited, v_length))
-    except:
+    except Exception as e:
         print("Error occure")
         return None
 

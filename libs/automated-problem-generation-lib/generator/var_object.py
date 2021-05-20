@@ -5,25 +5,25 @@ class Variable:
 
                 Attributes
                 ----------
-                name : String
+                v_name : String
                     variable name
 
-                type : String
+                v_type : String
                     variable type
 
-                generated_value : String
+                v_generated_value : String
                     final variable value
 
-                min : <value>
+                v_min : <value>
                     minimal possible value
 
-                max : <value>
+                v_max : <value>
                     maximal possible value
 
-                length : int
+                v_length : int
                     specified String length of final value
 
-                prohibited : list
+                v_prohibited : list
                     list of values which cannot be used as final value
 
                 Methods
