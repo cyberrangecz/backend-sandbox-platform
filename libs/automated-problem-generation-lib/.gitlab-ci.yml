@@ -26,6 +26,7 @@ test:
     - ls -la
   artifacts:
     when: always
+    name: report.xml
     reports:
       junit: "dist"
 
