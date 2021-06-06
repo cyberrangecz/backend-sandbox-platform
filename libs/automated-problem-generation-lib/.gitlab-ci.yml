@@ -38,7 +38,7 @@ pytest:
     - pwd
   artifacts:
     paths:
-      - ./
+      - report.xml
     when: always
 
 
