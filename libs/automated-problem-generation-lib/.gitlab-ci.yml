@@ -25,11 +25,11 @@ test:
     - pytest --junitxml=report.xml
   artifacts:
     paths:
-      - report.xml
+      - /builds/kypolab/theses/apg/kosc-automated-problem-generation-lib/report.xml
     when: always
     reports:
       junit:
-      - report.xml
+      - /builds/kypolab/theses/apg/kosc-automated-problem-generation-lib/report.xml
 
 
 
