@@ -16,20 +16,30 @@ stages:
   - build
   - deploy
 
-test:
+#test:
+#  stage: test
+#  script:
+#    - pip install pytest-cov
+#    - coverage run -m pytest
+#    - coverage report
+#    - pytest --junitxml=report.xml
+#  artifacts:
+#    paths:
+#      - /builds/kypolab/theses/apg/kosc-automated-problem-generation-lib/report.xml
+#    when: always
+#    reports:
+#      junit:
+#      - /builds/kypolab/theses/apg/kosc-automated-problem-generation-lib/report.xml
+
+pytest:
   stage: test
   script:
-    - pip install pytest-cov
-    - coverage run -m pytest
-    - coverage report
     - pytest --junitxml=report.xml
   artifacts:
-    paths:
-      - /builds/kypolab/theses/apg/kosc-automated-problem-generation-lib/report.xml
     when: always
     reports:
-      junit:
-      - /builds/kypolab/theses/apg/kosc-automated-problem-generation-lib/report.xml
+      junit: report.xml
+
 
 
 
