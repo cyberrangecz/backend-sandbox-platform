@@ -23,9 +23,7 @@ test:
     - coverage run -m pytest
     - coverage report
     - pytest --junitxml=dist
-    - cp report.xml rep
     - ls -la
-    - ls -la rep
   artifacts:
     when: always
     reports:
