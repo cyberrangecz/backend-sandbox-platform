@@ -23,10 +23,10 @@ test:
     - coverage run -m pytest
     - coverage report
     - pytest --junitxml=report.xml
-      artifacts:
-        when: always
-        reports:
-          junit: report.xml
+  artifacts:
+    when: always
+    reports:
+        junit: report.xml
 
 
   only:
