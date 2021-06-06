@@ -31,15 +31,16 @@ stages:
 #      junit:
 #      - /builds/kypolab/theses/apg/kosc-automated-problem-generation-lib/report.xml
 
-pytest:
+run tests:
   stage: test
+  image: python:3
   script:
-    - pytest --junitxml=report.xml
-    - pwd
+    - pip install pytest pytest-cov
+    - pytest --cov=src/ tests.py
+    - coverage xml
   artifacts:
-    when: always
     reports:
-      junit: "report.xml"
+      cobertura: coverage.xml
 
 
 
