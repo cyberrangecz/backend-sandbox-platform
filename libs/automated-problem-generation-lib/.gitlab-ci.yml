@@ -22,6 +22,10 @@ test:
     - pip install pytest-cov
     - coverage run -m pytest
     - coverage xml
+    - pwd
+    - ls -la
+    - cd ..
+    - ls -la
   artifacts:
     when: always
     reports:
