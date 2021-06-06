@@ -24,10 +24,12 @@ test:
     - coverage report
     - pytest --junitxml=report.xml
   artifacts:
+    paths:
+      - report.xml
     when: always
     reports:
-      junit: report.xml
-    paths: report.xml
+      junit:
+      - report.xml
 
 
 
