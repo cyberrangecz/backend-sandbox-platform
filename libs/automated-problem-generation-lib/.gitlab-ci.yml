@@ -19,9 +19,9 @@ stages:
 test:
   stage: test
   script:
-    - pip install pytest-cov
-    - coverage run -m pytest
-    - coverage report
+#    - pip install pytest-cov
+#    - coverage run -m pytest
+#    - coverage report
     - pytest --junitxml=report.xml
   artifacts:
     when: always
