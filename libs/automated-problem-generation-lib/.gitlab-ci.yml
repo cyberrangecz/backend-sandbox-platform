@@ -22,15 +22,14 @@ test:
     - pip install pytest-cov
     - coverage run -m pytest
     - coverage report
-    - pytest --junitxml=report.xml
-    - mkdir dist
+    - pytest --junitxml=dist
     - cp report.xml rep
     - ls -la
     - ls -la rep
   artifacts:
     when: always
     reports:
-      junit: "../report.xml"
+      junit: "dist"
 
   only:
     - branches
