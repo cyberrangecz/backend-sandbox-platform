@@ -20,9 +20,9 @@ test:
   stage: test
   script:
     - pip install pytest-cov
-#    - coverage run -m pytest
+    - coverage run -m pytest
 #    - coverage report
-    - pytest --cov=src/ tests/unit_test.py
+#    - pytest --cov=src/ tests/unit_test.py
     - coverage xml
   artifacts:
     reports:
