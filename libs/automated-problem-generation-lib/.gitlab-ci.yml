@@ -22,7 +22,7 @@ test:
     - pip install pytest-cov
 #    - coverage run -m pytest
 #    - coverage report
-    - pytest --cov=src/ tests.py
+    - pytest --cov=src/ unit_test.py
     - coverage xml
   artifacts:
     reports:
