@@ -21,18 +21,14 @@ test:
   script:
     - pip install pytest-cov
     - coverage run -m pytest
-    - coverage xml
+    - coverage report
+    - pytest --junitxml=report.xml
     - mkdir dist
-    - cp coverage.xml dist
-    - pwd
-    - ls -la
-    - cd ..
-    - ls -la
-
+    - cp report.xml dist
   artifacts:
     when: always
     reports:
-      cobertura: dist/
+      junit: dist/
 
 
 
@@ -50,8 +46,6 @@ build:
   stage: build
   script:
     - python3 setup.py bdist_wheel
-    - pwd
-    - ls -la
   only:
     - branches
     - tags
