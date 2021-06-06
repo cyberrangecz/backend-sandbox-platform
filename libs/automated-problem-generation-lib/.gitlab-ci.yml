@@ -37,10 +37,9 @@ pytest:
     - pytest --junitxml=report.xml
     - pwd
   artifacts:
-    -pwd
     when: always
     reports:
-      junit: .
+      junit: "report.xml"
 
 
 
