@@ -21,12 +21,12 @@ test:
   script:
     - pip install pytest-cov
     - coverage run -m pytest
-#    - coverage report
-#    - pytest --cov=src/ tests/unit_test.py
-    - coverage xml
+    - coverage report
+    - pytest --junitxml=report.xml
   artifacts:
+    when: always
     reports:
-      cobertura: coverage.xml
+      junit: report.xml
 
 
   only:
