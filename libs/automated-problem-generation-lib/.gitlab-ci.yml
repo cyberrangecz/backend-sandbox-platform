@@ -25,6 +25,8 @@ test:
     - pytest --junitxml=report.xml
     - mkdir dist
     - mv report.xml dist
+    - ls -la
+    - ls -la dist
   artifacts:
     when: always
     reports:
