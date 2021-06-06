@@ -31,8 +31,8 @@ test:
     - shared-fi
   artifacts:
     when: always
-      reports:
-        junit: report.xml
+    reports:
+      junit: report.xml
     paths:
       - dist
     expire_in: 1 day
