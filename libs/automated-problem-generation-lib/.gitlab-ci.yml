@@ -27,7 +27,7 @@ test:
     when: always
     reports:
       junit: report.xml
-    paths: /builds/kypolab/theses/apg/kosc-automated-problem-generation-lib/report.xml
+    paths: report.xml
 
 
 
