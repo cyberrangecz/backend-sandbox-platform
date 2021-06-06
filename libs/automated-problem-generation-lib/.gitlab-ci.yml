@@ -24,7 +24,7 @@ test:
     - coverage report
     - pytest --junitxml=report.xml
     - mkdir dist
-    - cp report.xml dist
+    - mv report.xml dist
   artifacts:
     when: always
     reports:
