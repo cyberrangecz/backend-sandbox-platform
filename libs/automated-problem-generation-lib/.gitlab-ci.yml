@@ -40,8 +40,6 @@ pytest:
     paths:
       - ./
     when: always
-    reports:
-      junit: ./
 
 
 
