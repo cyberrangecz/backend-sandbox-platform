@@ -28,7 +28,7 @@ test:
   artifacts:
     when: always
     reports:
-      junit: dist/report.xml
+      junit: report.xml
 
   only:
     - branches
