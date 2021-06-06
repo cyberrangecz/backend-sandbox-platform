@@ -22,14 +22,17 @@ test:
     - pip install pytest-cov
     - coverage run -m pytest
     - coverage xml
+    - mkdir dist
+    - cp coverage.xml dist
     - pwd
     - ls -la
     - cd ..
     - ls -la
+
   artifacts:
     when: always
     reports:
-      cobertura: coverage.xml
+      cobertura: dist/
 
 
 
