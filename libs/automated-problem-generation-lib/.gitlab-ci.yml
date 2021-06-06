@@ -24,13 +24,13 @@ test:
     - coverage report
     - pytest --junitxml=report.xml
     - mkdir dist
-    - mv report.xml dist
+    - cp report.xml rep
     - ls -la
-    - ls -la dist
+    - ls -la rep
   artifacts:
     when: always
     reports:
-      junit: "reportt.xml"
+      junit: "../report.xml"
 
   only:
     - branches
