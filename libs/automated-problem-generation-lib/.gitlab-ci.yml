@@ -29,10 +29,10 @@ test:
     - ls -la dist
   artifacts:
     paths:
-      - report.xml
+      - reportt.xml
     when: always
     reports:
-      junit: report.xml
+      junit: reportt.xml
 
   only:
     - branches
