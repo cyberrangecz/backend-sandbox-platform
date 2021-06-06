@@ -19,14 +19,14 @@ stages:
 test:
   stage: test
   script:
-#    - pip install pytest-cov
+    - pip install pytest-cov
 #    - coverage run -m pytest
 #    - coverage report
-    - pytest --junitxml=report.xml
+    - pytest --cov=src/ tests.py
+    - coverage xml
   artifacts:
-    when: always
     reports:
-        junit: report.xml
+      cobertura: coverage.xml
 
 
   only:
