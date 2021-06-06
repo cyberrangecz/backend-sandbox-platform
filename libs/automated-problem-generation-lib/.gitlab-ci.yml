@@ -28,6 +28,8 @@ test:
     - ls -la
     - ls -la dist
   artifacts:
+    paths:
+      - report.xml
     when: always
     reports:
       junit: report.xml
