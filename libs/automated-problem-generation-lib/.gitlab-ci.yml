@@ -69,7 +69,7 @@ deploy:
     #- echo "requests.delete('https://gitlab.fi.muni.cz/api/v4/projects/14820/packages/'+str(requests.get('https://gitlab.fi.muni.cz/api/v4/projects/14820/packages', headers={'PRIVATE-TOKEN':sys.argv[1],}).json()[-1]['id']), headers={'PRIVATE-TOKEN':sys.argv[1],})" >> remover.py
     #- python3 -m pip install requests
     #- python3 remover.py $api_token
-    - python -m twine upload --repository gitlab dist/*
+    - python -m twine upload --repository gitlab dist/generator-*-py3-none-any.whl
   dependencies:
     - build
   only:
