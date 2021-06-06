@@ -35,11 +35,11 @@ pytest:
   stage: test
   script:
     - pytest --junitxml=report.xml
-    - pwd
   artifacts:
-    paths:
-      - report.xml
     when: always
+    reports:
+      junit: report.xml
+
 
 
 
