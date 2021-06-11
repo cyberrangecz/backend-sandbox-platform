@@ -44,13 +44,6 @@ class TestDummy:
         assert home.extra['yello'] == 5
         assert home.extra['foo']
 
-    def test_read_yaml_bad_provider(self, topology_definition):
-        with open(SANDBOX_DEFINITION_PATH) as f:
-            sb_def = f.read().replace('provider: OpenStack', 'provider: Invalid')
-        strio = io.StringIO(sb_def)
-        with pytest.raises(ValueError):
-            TopologyDefinition.load(strio)
-
     def test_indexes(self, topology_definition):
         assert topology_definition.find_host_by_name('server') is not None
         assert topology_definition.find_host_by_name('home') is not None
