@@ -18,18 +18,6 @@ class Protocol(Enum):
             raise ValueError(f'Invalid value for Protocol: {val}')
 
 
-class Provider(Enum):
-    OpenStack = 1
-    Vagrant = 2
-
-    @classmethod
-    def create(cls, val: str) -> None:
-        try:
-            return cls[val]
-        except KeyError:
-            raise ValueError(f'Invalid value for Provider: {val}')
-
-
 class BaseBox(Object):
     image = Attribute(type=str)
     mgmt_user = Attribute(type=str, default='kypo-man')
@@ -153,14 +141,6 @@ class GroupList(Sequence):
 
 
 class TopologyDefinition(Object):
-    provider = Attribute(
-        type=Typed(
-            Provider,
-            from_yaml=(lambda loader, node, rtd: Provider.create(loader.construct_object(node))),
-            to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.name))
-        ),
-    )
-
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
     hosts = Attribute(type=HostList)
     routers = Attribute(type=RouterList)
@@ -176,8 +156,7 @@ class TopologyDefinition(Object):
     _routers_index: dict = {}
     _networks_index: dict = {}
 
-    def __init__(self, provider, name):
-        self.provider = provider
+    def __init__(self, name):
         self.name = name
         self.hosts = HostList()
         self.routers = RouterList()
