@@ -4,7 +4,7 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="generator",
+    name="automated-problem-generation-lib",
     author="Daniel Kosc",
     author_email="485652@mail.muni.cz",
     description="Random generator of selected variables",
