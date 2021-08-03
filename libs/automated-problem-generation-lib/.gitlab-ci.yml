@@ -22,30 +22,27 @@ test:
     - pip install pytest-cov
     - coverage run -m pytest
     - coverage report
-    - pytest --junitxml=report.xml
 
   only:
     - branches
     - tags
-  tags:
-    - shared-fi
-  artifacts:
-    when: always
-    reports:
-      junit: report.xml
-    paths:
-      - dist
-    expire_in: 1 day
 
 build:
   stage: build
   script:
+    # Get version. Variable CI_COMMIT_TAG is set only when tag was pushed.
+    - export VERSION=$(if [[ "$CI_COMMIT_TAG" == "" ]]; then echo 0.0.0; else echo $CI_COMMIT_TAG | cut -c 2-; fi)
+    - python3 setup.py setopt --command=metadata --option=version --set-value=$VERSION
+    - echo VERSION=$VERSION
+    # Get package filename
+    - export WHEEL_NAME=$(python3 setup.py --name | tr '-' '_')
+    - export PACKAGE=$WHEEL_NAME-$VERSION-$PYTHON_TAG-$ABI_TAG-$PLATFORM_TAG.$PACKAGE_EXTENSION
+    - echo PACKAGE=$PACKAGE
     - python3 setup.py bdist_wheel
+    - echo $PACKAGE > dist/.package-name
   only:
     - branches
     - tags
-  tags:
-    - shared-fi
   artifacts:
     paths:
       - dist
@@ -53,24 +50,14 @@ build:
 
 deploy:
   stage: deploy
+  variables:
+    TWINE_PASSWORD: '$CI_CUSTOM_REGISTRY_PASSWORD'
+    TWINE_USERNAME: '$CI_CUSTOM_REGISTRY_USER'
   script:
-    - echo "[distutils]" >> ~/.pypirc
-    - echo "index-servers = gitlab" >> ~/.pypirc
-    - echo "[gitlab]" >> ~/.pypirc
-    - space=" "
-    - echo "repository :$space https://gitlab.fi.muni.cz/api/v4/projects/14820/packages/pypi" >> ~/.pypirc
-    - echo "username = __token__" >> ~/.pypirc
-    - echo "password = $api_token" >> ~/.pypirc
-    - python3 -m pip install --user --upgrade twine
-    #- echo 'import requests,sys' >> remover.py
-    #- echo "requests.delete('https://gitlab.fi.muni.cz/api/v4/projects/14820/packages/'+str(requests.get('https://gitlab.fi.muni.cz/api/v4/projects/14820/packages', headers={'PRIVATE-TOKEN':sys.argv[1],}).json()[-1]['id']), headers={'PRIVATE-TOKEN':sys.argv[1],})" >> remover.py
-    #- python3 -m pip install requests
-    #- python3 remover.py $api_token
-    - python -m twine upload --repository gitlab dist/*
+    - export PACKAGE=$(cat dist/.package-name)
+    - pip3 install twine
+    - python3 -m twine upload --repository-url $KYPO_PYPI_UPLOAD_URL dist/$PACKAGE
   dependencies:
     - build
   only:
     - tags
-    - branches
-  tags:
-    - shared-fi
