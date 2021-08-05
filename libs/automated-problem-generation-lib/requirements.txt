@@ -1,3 +1,0 @@
-better_profanity
-pytest-cov
-PyYAML

@@ -12,9 +12,9 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://gitlab.fi.muni.cz/kypolab/theses/kosc-automated-problem-generation",
-    packages = setuptools.find_packages(),
+    packages=setuptools.find_packages(),
     package_dir={'generator': './generator'},
-    package_data={'generator': ['./*.txt','./*.yml']},
+    package_data={'generator': ['./*.txt', './*.yml']},
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

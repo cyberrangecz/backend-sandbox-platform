@@ -1,9 +1,4 @@
-default:
-  image: python:3.7
-  before_script:
-    - apt-get update
-    - apt-get install -y python3-pip
-    - pip install -r requirements.txt
+image: python:3.8
 
 variables:
   PYTHON_TAG: py3
@@ -19,9 +14,9 @@ stages:
 test:
   stage: test
   script:
-    - pip install pytest-cov
-    - coverage run -m pytest
-    - coverage report
+    - pip3 install pipenv
+    - pipenv sync
+    - pipenv run coverage run -m pytest
 
   only:
     - branches
