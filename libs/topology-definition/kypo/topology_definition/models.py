@@ -66,13 +66,11 @@ class Router(Object):
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
     base_box = Attribute(type=BaseBox)
     flavor = Attribute(type=str)
-    cidr = Attribute(type=str)
 
-    def __init__(self, name, base_box, flavor, cidr):
+    def __init__(self, name, base_box, flavor):
         self.name = name
         self.base_box = base_box
         self.flavor = flavor
-        self.cidr = cidr
 
 
 class RouterList(Sequence):
@@ -88,6 +86,15 @@ class Network(Object):
         self.name = name
         self.cidr = cidr
         self.accessible_by_user = accessible_by_user
+
+
+class WAN(Object):
+    name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
+    cidr = Attribute(type=str)
+
+    def __init__(self, name, cidr):
+        self.name = name
+        self.cidr = cidr
 
 
 class NetworkList(Sequence):
@@ -144,8 +151,9 @@ class TopologyDefinition(Object):
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
     hosts = Attribute(type=HostList)
     routers = Attribute(type=RouterList)
+    wan = Attribute(type=WAN, default=WAN('wan', '100.100.100.0/24'))
     networks = Attribute(type=NetworkList, validator=TopologyValidation.validate_name_uniqueness)
-    # the validation of networks ABOVE is also used to validate the names of the upper three elements
+    # the validation of networks ABOVE is also used to validate the names of the upper four elements
     net_mappings = Attribute(type=NetworkMappingList, validator=TopologyValidation.validate_net_mappings)
     router_mappings = Attribute(type=RouterMappingList, validator=TopologyValidation.validate_router_mappings)
     # the validation of router_mappings is also used to validate CIDRs and IP addresses
@@ -156,10 +164,11 @@ class TopologyDefinition(Object):
     _routers_index: dict = {}
     _networks_index: dict = {}
 
-    def __init__(self, name):
+    def __init__(self, name, wan):
         self.name = name
         self.hosts = HostList()
         self.routers = RouterList()
+        self.wan = wan
         self.networks = NetworkList()
         self.net_mappings = NetworkMappingList()
         self.router_mappings = RouterMappingList()
