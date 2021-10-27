@@ -42,12 +42,11 @@ class TopologyValidation:
 
     @staticmethod
     def validate_cidrs_and_ips(obj, router_mappings):
-        routers = [r for r in obj.routers]
-        networks = [n for n in obj.networks]
+        networks = [n for n in obj.networks] + [obj.wan]
         net_mappings = [n for n in obj.net_mappings]
         router_mappings_list = [r for r in router_mappings]
 
-        TopologyValidation.raise_if_overlaps(routers + networks)
+        TopologyValidation.raise_if_overlaps(networks)
 
         TopologyValidation.raise_if_not_in_network(obj.net_mappings, obj.networks)
         TopologyValidation.raise_if_not_in_network(router_mappings, obj.networks)
@@ -109,8 +108,10 @@ class TopologyValidation:
         b = [h.name for h in obj.hosts]
         c = [r.name for r in obj.routers]
         d = [n.name for n in networks]
+        e = [obj.wan.name]
 
-        TopologyValidation.raise_if_not_unique('name, hosts, routers, networks', a + b + c + d)
+        TopologyValidation.raise_if_not_unique('name, hosts, routers, networks, wan',
+                                               a + b + c + d + e)
 
         return True
 
