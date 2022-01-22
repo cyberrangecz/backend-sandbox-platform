@@ -1,0 +1,18 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[[source]]
+url = "$KYPO_PYPI_DOWNLOAD_URL"
+name = "kypo"
+verify_ssl = true
+
+[packages]
+kypo-topology-definition = { index = "kypo", version = "==0.5.0" }
+kypo-openstack-lib = { index = "kypo", version = "==0.37.1" }
+
+[dev-packages]
+
+[requires]
+python_version = "3.8"
