@@ -1,17 +1,18 @@
-import os, subprocess, shutil
+import os
+import shutil
+import subprocess
+import json
 from enum import Enum
-
-from kypo.commons.cloud_client_abstract import KypoCloudClient
-
-# Available cloud clients
-from kypo.openstack_driver import KypoOpenStackClient
 
 from kypo.topology_definition.models import TopologyDefinition
 
-from kypo.terraform_driver.topology_instance import TopologyInstance
+from kypo.commons import KypoCloudClientBase, TopologyInstance, TransformationConfiguration
+# Available cloud clients
+from kypo.openstack_driver import KypoOpenStackClient
 
 STACKS_DIR = '/var/tmp/kypo/terraform-stacks/'
 TEMPLATE_FILE_NAME = 'deploy.tf'
+TERRAFORM_STATE_FILE_NAME = 'terraform.tfstate'
 
 
 class AvailableCloudLibraries(Enum):
@@ -23,12 +24,13 @@ class KypoTerraformClient:
     Client used as an interface providing functions of this Terraform library
     """
 
-    def __init__(self, cloud_client: AvailableCloudLibraries, stacks_dir: str = None,
-                 template_file_name: str = None, *args, **kwargs):
-        self.cloud_client: KypoCloudClient = cloud_client.value(*args, **kwargs)
+    def __init__(self, cloud_client: AvailableCloudLibraries, trc: TransformationConfiguration,
+                 stacks_dir: str = None, template_file_name: str = None, *args, **kwargs):
+        self.cloud_client: KypoCloudClientBase = cloud_client.value(trc=trc, *args, **kwargs)
         self.stacks_dir = stacks_dir if stacks_dir else STACKS_DIR
         self.template_file_name = template_file_name if template_file_name else TEMPLATE_FILE_NAME
         self._create_directories(self.stacks_dir)
+        self.trc = trc
 
     @staticmethod
     def _create_directories(dir_path: str) -> None:
@@ -54,20 +56,22 @@ class KypoTerraformClient:
 
     # create_stack
     def create_stack(self, stack_name: str, topology_definition: TopologyDefinition,
-                     key_pair_name_ssh: str, key_pair_name_cert: str = None, *args, **kwargs):
+                     key_pair_name_ssh: str, key_pair_name_cert: str = None, dry_run: bool = False,
+                     *args, **kwargs):
         terraform_template = self.create_terraform_template(topology_definition,
                                                             key_pair_name_ssh=key_pair_name_ssh,
                                                             key_pair_name_cert=key_pair_name_cert,
-                                                            *args, **kwargs)
+                                                            resource_prefix=stack_name, *args,
+                                                            **kwargs)
         stack_dir = self._get_stack_dir(stack_name)
         self._create_directories(stack_dir)
-        self._init_terraform(stack_dir)
         self._create_file(os.path.join(stack_dir, self.template_file_name), terraform_template)
+        self._init_terraform(stack_dir)
         command = subprocess.Popen(['terraform', 'apply', '-auto-approve'], cwd=stack_dir,
                                    stdout=subprocess.PIPE)
 
         while command.poll() is None:
-            print(command.stdout.read().decode())
+            print(command.stdout.readline().rstrip().decode())
 
     def create_terraform_template(self, topology_definition: TopologyDefinition, *args, **kwargs):
         return self.cloud_client.create_terraform_template(topology_definition, *args, **kwargs)
@@ -77,7 +81,7 @@ class KypoTerraformClient:
         command = subprocess.Popen(['terraform', 'destroy', '-auto-approve'], cwd=stack_dir,
                                    stdout=subprocess.PIPE)
         while command.poll() is None:
-            print(command.stdout.readline().strip().decode())
+            print(command.stdout.readline().rstrip().decode())
 
         if command.returncode:
             raise Exception(f"Return code of destroy was {command.returncode}")
@@ -91,13 +95,28 @@ class KypoTerraformClient:
         return os.listdir(self.stacks_dir)
 
     def get_stack_status(self, stack_name: str):
-        pass
+        pass  # TODO: not used by sandbox-service
 
-    def get_topology_instance(self, *args, **kwargs):
-        pass
+    def get_topology_instance(self, topology_definition: TopologyDefinition) -> TopologyInstance:
+        return TopologyInstance(topology_definition, self.trc)
 
-    def get_enriched_topology_instance(self, *args, **kwargs):
-        pass
+    def get_enriched_topology_instance(self, stack_name: str,
+                                       topology_definition: TopologyDefinition) -> TopologyInstance:
+        topology_instance = self.get_topology_instance(topology_definition)
+        topology_instance.name = stack_name
+
+        list_or_resources = self.list_stack_resources(stack_name)
+        resources_dict = {res['name']: res for res in list_or_resources}
+
+        man_out_port_dict = resources_dict[f'{stack_name}-{self.trc.man_out_port}']
+        topology_instance.ip = man_out_port_dict['instances'][0]['attributes']['all_fixed_ips'][0]
+
+        for link in topology_instance.get_links():
+            port_dict = resources_dict[f'{stack_name}-{link.name}']
+            link.ip = port_dict['instances'][0]['attributes']['all_fixed_ips'][0]
+            link.mac = port_dict['instances'][0]['attributes']['mac_address']
+
+        return topology_instance
 
     def suspend_node(self, stack_name, node_name, *args, **kwargs):
         # get resource id and call nova
@@ -123,8 +142,10 @@ class KypoTerraformClient:
     def list_stack_events(self, stack_name, *args, **kwargs):
         pass
 
-    def list_stack_resources(self, stack_name: str, *args, **kwargs):
-        pass
+    def list_stack_resources(self, stack_name: str):
+        stack_dir = self._get_stack_dir(stack_name)
+        with open(os.path.join(stack_dir, TERRAFORM_STATE_FILE_NAME), 'r') as file:
+            return list(filter(lambda res: res['mode'] == 'managed', json.load(file)['resources']))
 
     def create_keypair(self, name: str, public_key: str = None, key_type: str = 'ssh'):
         return self.cloud_client.create_keypair(name, public_key, key_type)
