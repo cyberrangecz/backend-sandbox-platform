@@ -100,13 +100,17 @@ class KypoTerraformClient:
     def get_topology_instance(self, topology_definition: TopologyDefinition) -> TopologyInstance:
         return TopologyInstance(topology_definition, self.trc)
 
+    def _get_resource_dict(self, stack_name):
+        list_of_resources = self.list_stack_resources(stack_name)
+        return {res['name']: res['instances'] for res in list_of_resources}
+
     def get_enriched_topology_instance(self, stack_name: str,
                                        topology_definition: TopologyDefinition) -> TopologyInstance:
         topology_instance = self.get_topology_instance(topology_definition)
         topology_instance.name = stack_name
 
-        list_or_resources = self.list_stack_resources(stack_name)
-        resources_dict = {res['name']: res for res in list_or_resources}
+        list_of_resources = self.list_stack_resources(stack_name)
+        resources_dict = {res['name']: res for res in list_of_resources}
 
         man_out_port_dict = resources_dict[f'{stack_name}-{self.trc.man_out_port}']
         topology_instance.ip = man_out_port_dict['instances'][0]['attributes']['all_fixed_ips'][0]
@@ -118,17 +122,22 @@ class KypoTerraformClient:
 
         return topology_instance
 
-    def suspend_node(self, stack_name, node_name, *args, **kwargs):
-        # get resource id and call nova
+    def suspend_node(self, stack_name, node_name):
+        # SUSPEND will brake terraform state.. DO NOT USE
+        # resource_dict = self._get_resource_dict(stack_name)
+        # resource_id = resource_dict[f'{stack_name}-{node_name}'][0]['attributes']['id']
+        # self.cloud_client.suspend_node(resource_id)
         pass
 
-    def resume_node(self, stack_name, node_name, *args, **kwargs):
-        # get resource id and call nova
-        pass
+    def resume_node(self, stack_name, node_name):
+        resource_dict = self._get_resource_dict(stack_name)
+        resource_id = resource_dict[f'{stack_name}-{node_name}'][0]['attributes']['id']
+        self.cloud_client.resume_node(resource_id)
 
     def reboot_node(self, stack_name, node_name, *args, **kwargs):
-        # get resource id and call nova
-        pass
+        resource_dict = self._get_resource_dict(stack_name)
+        resource_id = resource_dict[f'{stack_name}-{node_name}'][0]['attributes']['id']
+        self.cloud_client.reboot_node(resource_id)
 
     def get_node(self, stack_name, node_name, *args, **kwargs):
         # get resource id and call nova
