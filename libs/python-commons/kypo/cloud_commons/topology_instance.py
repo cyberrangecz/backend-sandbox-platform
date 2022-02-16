@@ -6,10 +6,10 @@ from kypo.topology_definition.models \
     import TopologyDefinition, NetworkMappingList, RouterList, RouterMappingList, \
     Group, Network, Host, Router
 
-from kypo.commons.transformation_configuration \
+from kypo.cloud_commons.transformation_configuration \
     import TransformationConfiguration
-from kypo.commons.exceptions import KypoException
-from kypo.commons.topology_elements \
+from kypo.cloud_commons.exceptions import KypoException
+from kypo.cloud_commons.topology_elements \
     import MAN, Node, Link, NodeToNodeLinkPair, SecurityGroups
 
 MAN_NAME = 'man'  # Management Node
