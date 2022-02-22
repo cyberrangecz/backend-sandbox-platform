@@ -6,9 +6,12 @@ from enum import Enum
 
 from kypo.topology_definition.models import TopologyDefinition
 
-from kypo.commons import KypoCloudClientBase, TopologyInstance, TransformationConfiguration
+from kypo.cloud_commons import KypoCloudClientBase, TopologyInstance, TransformationConfiguration,\
+    Image, Limits, QuotaSet, HardwareUsage, KypoException
 # Available cloud clients
 from kypo.openstack_driver import KypoOpenStackClient
+
+from kypo.terraform_driver.terraform_client_elements import TerraformInstance
 
 STACKS_DIR = '/var/tmp/kypo/terraform-stacks/'
 TEMPLATE_FILE_NAME = 'deploy.tf'
@@ -47,9 +50,18 @@ class KypoTerraformClient:
         shutil.rmtree(dir_path)
 
     @staticmethod
-    def _init_terraform(stack_dir: str) -> None:
-        print('init of terraform', stack_dir)
-        subprocess.run('terraform init', cwd=stack_dir, shell=True)
+    def _execute_command(cmd, cwd):
+        popen = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, text=True)
+        for stdout_line in iter(popen.stdout.readline, ""):
+            yield stdout_line
+
+        popen.stdout.close()
+        return_code = popen.wait()
+        if return_code:
+            raise KypoException(return_code, cmd)
+
+    def _init_terraform(self, stack_dir: str) -> None:
+        list(self._execute_command(['terraform', 'init'], stack_dir))
 
     def _get_stack_dir(self, stack_name: str) -> str:
         return os.path.join(self.stacks_dir, stack_name)
@@ -67,25 +79,20 @@ class KypoTerraformClient:
         self._create_directories(stack_dir)
         self._create_file(os.path.join(stack_dir, self.template_file_name), terraform_template)
         self._init_terraform(stack_dir)
-        command = subprocess.Popen(['terraform', 'apply', '-auto-approve'], cwd=stack_dir,
-                                   stdout=subprocess.PIPE)
-
-        while command.poll() is None:
-            print(command.stdout.readline().rstrip().decode())
+        return self._execute_command(['terraform', 'apply', '-auto-approve', '-no-color'], stack_dir)
 
     def create_terraform_template(self, topology_definition: TopologyDefinition, *args, **kwargs):
         return self.cloud_client.create_terraform_template(topology_definition, *args, **kwargs)
 
+    def validate_topology_definition(self, topology_definition):
+        self.create_terraform_template(topology_definition)
+
     def delete_stack(self, stack_name):
         stack_dir = self._get_stack_dir(stack_name)
-        command = subprocess.Popen(['terraform', 'destroy', '-auto-approve'], cwd=stack_dir,
-                                   stdout=subprocess.PIPE)
-        while command.poll() is None:
-            print(command.stdout.readline().rstrip().decode())
+        return self._execute_command(['terraform', 'destroy', '-auto-approve', '-no-color'], stack_dir)
 
-        if command.returncode:
-            raise Exception(f"Return code of destroy was {command.returncode}")
-
+    def delete_stack_directory(self, stack_name):
+        stack_dir = self._get_stack_dir(stack_name)
         self._remove_directory(stack_dir)
 
     def list_images(self):
@@ -122,6 +129,9 @@ class KypoTerraformClient:
 
         return topology_instance
 
+    def get_image(self, image_id) -> Image:
+        return self.cloud_client.get_image(image_id)
+
     def suspend_node(self, stack_name, node_name):
         # SUSPEND will brake terraform state.. DO NOT USE
         # resource_dict = self._get_resource_dict(stack_name)
@@ -134,22 +144,45 @@ class KypoTerraformClient:
         resource_id = resource_dict[f'{stack_name}-{node_name}'][0]['attributes']['id']
         self.cloud_client.resume_node(resource_id)
 
-    def reboot_node(self, stack_name, node_name, *args, **kwargs):
+    def start_node(self, stack_name, node_name):
+        resource_dict = self._get_resource_dict(stack_name)
+        resource_id = resource_dict[f'{stack_name}-{node_name}'][0]['attributes']['id']
+        self.cloud_client.start_node(resource_id)
+
+    def reboot_node(self, stack_name, node_name):
         resource_dict = self._get_resource_dict(stack_name)
         resource_id = resource_dict[f'{stack_name}-{node_name}'][0]['attributes']['id']
         self.cloud_client.reboot_node(resource_id)
 
-    def get_node(self, stack_name, node_name, *args, **kwargs):
-        # get resource id and call nova
-        pass
+    def get_node(self, stack_name, node_name):
+        resource_dict = self._get_resource_dict(stack_name)
+        resource_dict = resource_dict[f'{stack_name}-{node_name}'][0]['attributes']
+        image_id = resource_dict['image_id']
+        image = self.get_image(image_id)
 
-    def get_console_url(self, stack_name, node_name, *args, **kwargs):
-        # get resource id and call nova
-        pass
+        instance = TerraformInstance(name=node_name, instance_id=resource_dict['id'],
+                                     status=resource_dict['power_state'], image=image,
+                                     flavor_name=resource_dict['flavor_name'])
+
+        for network in resource_dict['network']:
+            name = network['name']
+            link = {key: value for key, value in network.items() if key != 'name'}
+            instance.add_link(name, link)
+
+        return instance
+
+    def get_console_url(self, stack_name, node_name, console_type: str):
+        node = self.get_node(stack_name, node_name)
+        if node.status != 'active':
+            raise KypoException(f'Cannot get {console_type} console from inactive machine')
+
+        resource_dict = self._get_resource_dict(stack_name)
+        resource_id = resource_dict[f'{stack_name}-{node_name}'][0]['attributes']['id']
+        return self.cloud_client.get_console_url(resource_id, console_type)
 
     # list stack events
     def list_stack_events(self, stack_name, *args, **kwargs):
-        pass
+        pass  # TODO: delete, wont be used, event will be stored in `output` just like ansible stage
 
     def list_stack_resources(self, stack_name: str):
         stack_dir = self._get_stack_dir(stack_name)
@@ -165,18 +198,20 @@ class KypoTerraformClient:
     def delete_keypair(self, name: str):
         return self.cloud_client.delete_keypair(name)
 
-    def get_quota_set(self):
-        return self.cloud_client.get_quota_set()  # TODO: create QuotaSet here
+    def get_quota_set(self) -> QuotaSet:
+        return self.cloud_client.get_quota_set()
 
     def get_project_name(self):
         return self.cloud_client.get_project_name()
 
-    # TODO: both hardware usage methods should be implemented in this project
     def validate_hardware_usage_of_stacks(self, topology_instance: TopologyInstance, count: int):
-        return self.cloud_client.validate_hardware_usage_of_stacks(topology_instance, count)
+        quota_set = self.get_quota_set()
+        hardware_usage = self.get_hardware_usage(topology_instance) * count
 
-    def get_hardware_usage(self, topology_instance: TopologyInstance):
+        quota_set.check_limits(hardware_usage)
+
+    def get_hardware_usage(self, topology_instance: TopologyInstance) -> HardwareUsage:
         return self.cloud_client.get_hardware_usage(topology_instance)
 
-    def get_project_limits(self, *args, **kwargs):
+    def get_project_limits(self) -> Limits:
         return self.cloud_client.get_project_limits()
