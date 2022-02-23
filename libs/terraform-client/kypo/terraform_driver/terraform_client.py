@@ -7,7 +7,7 @@ from enum import Enum
 from kypo.topology_definition.models import TopologyDefinition
 
 from kypo.cloud_commons import KypoCloudClientBase, TopologyInstance, TransformationConfiguration,\
-    Image, Limits, QuotaSet, HardwareUsage, KypoException
+    Image, Limits, QuotaSet, HardwareUsage, KypoException, StackNotFound
 # Available cloud clients
 from kypo.openstack_driver import KypoOpenStackClient
 
@@ -47,13 +47,19 @@ class KypoTerraformClient:
 
     @staticmethod
     def _remove_directory(dir_path: str) -> None:
-        shutil.rmtree(dir_path)
+        try:
+            shutil.rmtree(dir_path)
+        except FileNotFoundError as exc:
+            raise StackNotFound(exc)
 
     @staticmethod
     def _execute_command(cmd, cwd):
-        popen = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, text=True)
-        for stdout_line in iter(popen.stdout.readline, ""):
-            yield stdout_line
+        try:
+            popen = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, text=True)
+            for stdout_line in iter(popen.stdout.readline, ""):
+                yield stdout_line
+        except FileNotFoundError as exc:
+            raise StackNotFound(exc)
 
         popen.stdout.close()
         return_code = popen.wait()
