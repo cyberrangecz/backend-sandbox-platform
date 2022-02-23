@@ -24,6 +24,13 @@ class StackCreationFailed(StackException):
     pass
 
 
+class StackNotFound(StackException):
+    """
+    This exception is raised if Terraform stack directory is not found.
+    """
+    pass
+
+
 class InvalidTopologyDefinition(KypoException):
     """
     This exception is raised if topology definition cannot be transformed.
