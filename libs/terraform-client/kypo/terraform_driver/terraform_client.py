@@ -66,6 +66,16 @@ class KypoTerraformClient:
         if return_code:
             raise KypoException(return_code, cmd)
 
+    @staticmethod
+    def get_process_output(process):
+        for stdout_line in iter(process.stdout.readline, ''):
+            yield stdout_line
+
+        # process.stdout.close()
+        # return_code = process.wait()
+        # if return_code:
+        #     raise KypoException(return_code)
+
     def _init_terraform(self, stack_dir: str) -> None:
         list(self._execute_command(['terraform', 'init'], stack_dir))
 
@@ -85,7 +95,8 @@ class KypoTerraformClient:
         self._create_directories(stack_dir)
         self._create_file(os.path.join(stack_dir, self.template_file_name), terraform_template)
         self._init_terraform(stack_dir)
-        return self._execute_command(['terraform', 'apply', '-auto-approve', '-no-color'], stack_dir)
+        return subprocess.Popen(['terraform', 'apply', '-auto-approve', '-no-color'], cwd=stack_dir,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     def create_terraform_template(self, topology_definition: TopologyDefinition, *args, **kwargs):
         return self.cloud_client.create_terraform_template(topology_definition, *args, **kwargs)
@@ -95,7 +106,9 @@ class KypoTerraformClient:
 
     def delete_stack(self, stack_name):
         stack_dir = self._get_stack_dir(stack_name)
-        return self._execute_command(['terraform', 'destroy', '-auto-approve', '-no-color'], stack_dir)
+        return subprocess.Popen(['terraform', 'destroy', '-auto-approve', '-no-color'],
+                                cwd=stack_dir, stdout=subprocess.PIPE, text=True)
+        # return self._execute_command(['terraform', 'destroy', '-auto-approve', '-no-color'], stack_dir)
 
     def delete_stack_directory(self, stack_name):
         stack_dir = self._get_stack_dir(stack_name)
