@@ -71,10 +71,18 @@ class KypoTerraformClient:
         for stdout_line in iter(process.stdout.readline, ''):
             yield stdout_line
 
-        # process.stdout.close()
-        # return_code = process.wait()
-        # if return_code:
-        #     raise KypoException(return_code)
+    @staticmethod
+    def wait_for_process(process):
+        return_code = process.wait()
+        if return_code:
+            raise KypoException(f'Command failed, return code: {return_code}')
+
+        if process.stdout:
+            process.stdout.close()
+        if process.stderr:
+            process.stderr.close()
+        if process.stdin:
+            process.stdin.close()
 
     def _init_terraform(self, stack_dir: str) -> None:
         list(self._execute_command(['terraform', 'init'], stack_dir))
