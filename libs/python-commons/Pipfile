@@ -10,7 +10,6 @@ verify_ssl = true
 
 [packages]
 kypo-topology-definition = { index = "kypo", version = "==0.5.0" }
-pyyaml = "*"
 
 [dev-packages]
 
