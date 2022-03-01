@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import List
 
-from kypo.topology_definition.models import TopologyDefinition
 from kypo.cloud_commons.cloud_client_elements import Image, QuotaSet, HardwareUsage, Limits
+from kypo.cloud_commons.topology_instance import TopologyInstance
 
 
 class KypoCloudClientBase(ABC):
@@ -10,12 +10,12 @@ class KypoCloudClientBase(ABC):
     Base class for KYPO cloud clients.
     """
     @abstractmethod
-    def create_terraform_template(self, topology_definition: TopologyDefinition, *args, **kwargs)\
+    def create_terraform_template(self, topology_instance: TopologyInstance, *args, **kwargs)\
             -> str:
         """
         Create terraform template that will be deployed.
 
-        :param topology_definition: TopologyDefinition instance used to create template
+        :param topology_instance: TopologyInstance used to create template
         :keyword key_pair_name_ssh: The name of SSH key pair in the cloud
         :keyword key_pair_name_cert: The name of certificate key pair in the cloud
         :keyword resource_prefix: The prefix of all resources
@@ -35,7 +35,7 @@ class KypoCloudClientBase(ABC):
         pass
 
     @abstractmethod
-    def get_image(self, image_id: int) -> Image:
+    def get_image(self, image_id: str) -> Image:
         """
         Get Image object based on its ID.
 
@@ -45,7 +45,7 @@ class KypoCloudClientBase(ABC):
         pass
 
     @abstractmethod
-    def resume_node(self, node_id: int) -> None:
+    def resume_node(self, node_id: str) -> None:
         """
         Resume node.
 
@@ -56,7 +56,7 @@ class KypoCloudClientBase(ABC):
         pass
 
     @abstractmethod
-    def start_node(self, node_id: int) -> None:
+    def start_node(self, node_id: str) -> None:
         """
         Start node.
 
@@ -67,7 +67,7 @@ class KypoCloudClientBase(ABC):
         pass
 
     @abstractmethod
-    def reboot_node(self, node_id: int) -> None:
+    def reboot_node(self, node_id: str) -> None:
         """
         Reboot node.
 

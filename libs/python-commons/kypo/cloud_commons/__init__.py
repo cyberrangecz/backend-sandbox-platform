@@ -1,9 +1,7 @@
-from kypo.cloud_commons.cloud_client_base import KypoCloudClientBase
-from kypo.cloud_commons.topology_instance import TopologyInstance
-from kypo.cloud_commons.transformation_configuration import TransformationConfiguration
-from kypo.cloud_commons.exceptions import KypoException, StackException, StackCreationFailed,\
-    InvalidTopologyDefinition
-from kypo.cloud_commons.topology_elements import MAN, SecurityGroups, Link, NodeToNodeLinkPair
-from kypo.cloud_commons.exceptions import KypoException, StackException, StackCreationFailed,\
+from .cloud_client_base import KypoCloudClientBase
+from .cloud_client_elements import Image, Limits, QuotaSet, Quota, HardwareUsage
+from .exceptions import KypoException, StackException, StackCreationFailed, \
     InvalidTopologyDefinition, StackNotFound
-from kypo.cloud_commons.cloud_client_elements import Image, Limits, QuotaSet, HardwareUsage
+from .topology_elements import MAN, SecurityGroups, Link, NodeToNodeLinkPair
+from .topology_instance import TopologyInstance, MAN_NAME, MAN_NET_NAME
+from .transformation_configuration import TransformationConfiguration
