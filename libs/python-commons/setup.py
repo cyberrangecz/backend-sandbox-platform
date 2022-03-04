@@ -19,6 +19,6 @@ setup(
     install_requires=[
         'kypo-topology-definition==0.5.0',
     ],
-    python_requires='>=3.8',
+    python_requires='>=3',
     zip_safe=False
 )
