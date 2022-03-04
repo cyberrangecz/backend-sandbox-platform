@@ -1,12 +1,12 @@
-from typing import List
 from enum import Enum
+from typing import List
 
-from kypo.topology_definition.models import TopologyDefinition
-
-from kypo.cloud_commons import KypoCloudClientBase, TopologyInstance, TransformationConfiguration,\
+from kypo.cloud_commons import KypoCloudClientBase, TopologyInstance, TransformationConfiguration, \
     Image, Limits, QuotaSet, HardwareUsage
 # Available cloud clients
 from kypo.openstack_driver import KypoOpenStackClient
+
+from kypo.topology_definition.models import TopologyDefinition
 
 from kypo.terraform_driver.terraform_client_elements import TerraformInstance
 from kypo.terraform_driver.terraform_client_manager import KypoTerraformClientManager
@@ -47,8 +47,9 @@ class KypoTerraformClient:
         """
         self.client_manager.wait_for_process(process)
 
-    def create_stack(self, stack_name: str, topology_definition: TopologyDefinition,
-                     key_pair_name_ssh: str, key_pair_name_cert: str = None, dry_run: bool = False,
+    def create_stack(self, topology_definition: TopologyDefinition, stack_name: str = 'stack-name',
+                     key_pair_name_ssh: str = 'kypo-dummy-ssh-key-pair',
+                     key_pair_name_cert: str = 'kypo-dummy-cert-key-pair', dry_run: bool = False,
                      *args, **kwargs):
         """
         Create Terraform stack on the cloud.
@@ -62,7 +63,8 @@ class KypoTerraformClient:
         :return: The process that is executing the creation
         :raise KypoException: Stack creation has failed
         """
-        return self.client_manager.create_stack(stack_name, topology_definition, dry_run,
+        topology_instance = self.get_topology_instance(topology_definition)
+        return self.client_manager.create_stack(topology_instance, dry_run, stack_name,
                                                 key_pair_name_ssh, key_pair_name_cert, *args,
                                                 **kwargs)
 
@@ -76,7 +78,8 @@ class KypoTerraformClient:
         :return: Rendered Terraform template
         :raise KypoException: Invalid template of attributes.
         """
-        return self.client_manager.create_terraform_template(topology_definition, *args, **kwargs)
+        topology_instance = self.get_topology_instance(topology_definition)
+        return self.client_manager.create_terraform_template(topology_instance, *args, **kwargs)
 
     def validate_topology_definition(self, topology_definition: TopologyDefinition) -> None:
         """

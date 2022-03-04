@@ -1,1 +1,2 @@
-from kypo.terraform_driver.terraform_client import KypoTerraformClient, AvailableCloudLibraries
+from .terraform_client import KypoTerraformClient, AvailableCloudLibraries
+from .terraform_client_elements import TerraformInstance

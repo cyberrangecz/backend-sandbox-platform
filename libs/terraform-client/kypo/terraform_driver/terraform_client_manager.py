@@ -1,11 +1,11 @@
-import os
 import json
+import os
 import shutil
 import subprocess
 from typing import List
 
 from kypo.cloud_commons import StackNotFound, KypoException, Image, TopologyInstance
-from kypo.topology_definition.models import TopologyDefinition
+
 from kypo.terraform_driver.terraform_client_elements import TerraformInstance
 
 STACKS_DIR = '/var/tmp/kypo/terraform-stacks/'
@@ -113,34 +113,33 @@ class KypoTerraformClientManager:
         process = subprocess.Popen(['terraform', 'init'], cwd=stack_dir, stdout=subprocess.PIPE)
         self.wait_for_process(process)
 
-    def create_terraform_template(self, topology_definition: TopologyDefinition, *args, **kwargs)\
+    def create_terraform_template(self, topology_instance: TopologyInstance, *args, **kwargs)\
             -> str:
         """
         Create Terraform template.
 
-        :param topology_definition: The TopologyDefinition from which the template is created
+        :param topology_instance: The TopologyDefinition from which the template is created
         :param args, kwargs: Can contain other attributes required for rendering of template
         :return: Rendered Terraform template
         :raise KypoException: Invalid template of attributes.
         """
-        return self.cloud_client.create_terraform_template(topology_definition, *args, **kwargs)
+        return self.cloud_client.create_terraform_template(topology_instance, *args, **kwargs)
 
-    def create_stack(self, stack_name: str, topology_definition: TopologyDefinition, dry_run,
-                     key_pair_name_ssh: str, key_pair_name_cert: str = None,  # TODO: implement dry_run
-                     *args, **kwargs):
+    def create_stack(self, topology_instance: TopologyInstance, dry_run, stack_name: str,
+                     key_pair_name_ssh: str, key_pair_name_cert: str, *args, **kwargs):
         """
         Create Terraform stack on the cloud.
 
+        :param topology_instance: TopologyInstance from which is the stack created
+        :param dry_run: Create only Terraform plan without allocation
         :param stack_name: The name of the stack
-        :param topology_definition: TopologyDefinition from which is the stack created
         :param key_pair_name_ssh: Name of the SSH key pair
         :param key_pair_name_cert: Name of the certificate key pair
-        :param dry_run: Create only Terraform plan without allocation
         :param args, kwargs: Can contain other attributes required for rendering of template
         :return: The process that is executing the creation
         :raise KypoException: Stack creation has failed
         """
-        terraform_template = self.create_terraform_template(topology_definition,
+        terraform_template = self.create_terraform_template(topology_instance,
                                                             key_pair_name_ssh=key_pair_name_ssh,
                                                             key_pair_name_cert=key_pair_name_cert,
                                                             resource_prefix=stack_name, *args,
@@ -149,8 +148,14 @@ class KypoTerraformClientManager:
         self.create_directories(stack_dir)
         self.create_file(os.path.join(stack_dir, self.template_file_name), terraform_template)
         self.init_terraform(stack_dir)  # TODO: Can fail
-        return subprocess.Popen(['terraform', 'apply', '-auto-approve', '-no-color'], cwd=stack_dir,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        if dry_run:
+            return subprocess.Popen(['terraform', 'plan'], cwd=stack_dir, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
+        else:
+            return subprocess.Popen(['terraform', 'apply', '-auto-approve', '-no-color'],
+                                    cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=True)
 
     def delete_stack(self, stack_name):
         """
