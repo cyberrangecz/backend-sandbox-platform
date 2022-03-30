@@ -18,6 +18,7 @@ setup(
     packages=find_namespace_packages(include=['kypo.*'], exclude=['tests']),
     install_requires=[
         'kypo-python-commons==0.1.2',
+        'kypo-openstack-lib==0.38.*',
     ],
     python_requires='>=3',
     zip_safe=False
