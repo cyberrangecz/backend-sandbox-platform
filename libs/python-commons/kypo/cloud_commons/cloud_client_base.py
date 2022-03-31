@@ -10,6 +10,15 @@ class KypoCloudClientBase(ABC):
     Base class for KYPO cloud clients.
     """
     @abstractmethod
+    def get_terraform_provider(self) -> str:
+        """
+        Get OpenStack Terraform provider
+        :return: Terraform provider template
+        :raise InvalidTopologyDefinition: Terraform provider template is incorrect
+        """
+        pass
+
+    @abstractmethod
     def create_terraform_template(self, topology_instance: TopologyInstance, *args, **kwargs)\
             -> str:
         """
