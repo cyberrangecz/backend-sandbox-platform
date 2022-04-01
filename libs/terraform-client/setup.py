@@ -16,6 +16,7 @@ setup(
     description='KYPO Terraform Client',
     long_description=read('README.md'),
     packages=find_namespace_packages(include=['kypo.*'], exclude=['tests']),
+    package_data={'kypo.terraform_driver': ['templates/*']},
     install_requires=[
         'kypo-python-commons==0.1.*',
         'kypo-openstack-lib==0.38.*',
