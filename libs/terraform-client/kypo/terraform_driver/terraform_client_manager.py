@@ -77,8 +77,10 @@ class KypoTerraformClientManager:
         :param stack_dir: The path to the stack directory
         :return: None
         """
-        process = subprocess.Popen(['terraform', 'state', 'pull', '>', TERRAFORM_STATE_FILE_NAME],
-                                   cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        terraform_state_file_path = os.path.join(stack_dir, TERRAFORM_STATE_FILE_NAME)
+        terraform_state_file = open(terraform_state_file_path, 'w')
+        process = subprocess.Popen(['terraform', 'state', 'pull'], cwd=stack_dir,
+                                   stdout=terraform_state_file, stderr=subprocess.PIPE)
         self.wait_for_process(process)
 
     @staticmethod
@@ -130,7 +132,6 @@ class KypoTerraformClientManager:
         return_code = process.wait()
         if return_code:
             raise KypoException(f'Command failed, return code: {return_code}')
-
         if process.stdout:
             process.stdout.close()
         if process.stderr:
