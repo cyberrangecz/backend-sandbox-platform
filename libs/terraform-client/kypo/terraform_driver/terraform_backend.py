@@ -27,7 +27,7 @@ class KypoTerraformBackend:
             return TERRAFORM_STATE_FILE_NAME
 
         if self.db_configuration is None:
-            raise KypoException(f'Cannot use backend "{self.backend_type.value()}" without'
+            raise KypoException(f'Cannot use backend "{self.backend_type.value}" without'
                                 f' specifying database configuration.')
 
         try:
@@ -43,6 +43,6 @@ class KypoTerraformBackend:
         """
         template = self.template_environment.get_template(TERRAFORM_BACKEND_FILE_NAME)
         return template.render(
-            tf_backend=self.backend_type,
+            tf_backend=self.backend_type.value,
             tf_state_file_location=self._get_state_file_location(),
         )
