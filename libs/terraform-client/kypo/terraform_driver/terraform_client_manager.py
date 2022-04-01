@@ -70,6 +70,17 @@ class KypoTerraformClientManager:
 
         self.init_terraform(stack_dir, stack_name)
 
+    def _pull_terraform_state(self, stack_dir: str) -> None:
+        """
+        Pull Terraform state from remote backend.
+
+        :param stack_dir: The path to the stack directory
+        :return: None
+        """
+        process = subprocess.Popen(['terraform', 'state', 'pull', '>', TERRAFORM_STATE_FILE_NAME],
+                                   cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.wait_for_process(process)
+
     @staticmethod
     def create_directories(dir_path: str) -> None:
         """
@@ -268,6 +279,7 @@ class KypoTerraformClientManager:
         :return: The list of dictionaries containing resources
         """
         stack_dir = self.get_stack_dir(stack_name)
+        self._pull_terraform_state(stack_dir)
         with open(os.path.join(stack_dir, TERRAFORM_WORKSPACE_PATH.format(stack_name)), 'r')\
                 as file:
             return list(filter(lambda res: res['mode'] == 'managed', json.load(file)['resources']))
