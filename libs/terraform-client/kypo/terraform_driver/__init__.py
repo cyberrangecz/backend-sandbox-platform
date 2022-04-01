@@ -1,2 +1,2 @@
-from .terraform_client import KypoTerraformClient, AvailableCloudLibraries
+from .terraform_client import KypoTerraformClient, AvailableCloudLibraries, KypoTerraformBackendType
 from .terraform_client_elements import TerraformInstance

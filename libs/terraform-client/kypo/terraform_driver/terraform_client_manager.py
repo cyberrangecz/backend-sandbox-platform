@@ -14,6 +14,7 @@ STACKS_DIR = '/var/tmp/kypo/terraform-stacks/'
 TEMPLATE_FILE_NAME = 'deploy.tf'
 TERRAFORM_BACKEND_FILE_NAME = 'backend.tf'
 TERRAFORM_PROVIDER_FILE_NAME = 'provider.tf'
+TERRAFORM_WORKSPACE_PATH = 'terraform.tfstate.d/{}/' + TERRAFORM_STATE_FILE_NAME
 
 
 class KypoTerraformClientManager:
@@ -267,7 +268,8 @@ class KypoTerraformClientManager:
         :return: The list of dictionaries containing resources
         """
         stack_dir = self.get_stack_dir(stack_name)
-        with open(os.path.join(stack_dir, TERRAFORM_STATE_FILE_NAME), 'r') as file:
+        with open(os.path.join(stack_dir, TERRAFORM_WORKSPACE_PATH.format(stack_name)), 'r')\
+                as file:
             return list(filter(lambda res: res['mode'] == 'managed', json.load(file)['resources']))
 
     def get_resource_dict(self, stack_name) -> dict:
