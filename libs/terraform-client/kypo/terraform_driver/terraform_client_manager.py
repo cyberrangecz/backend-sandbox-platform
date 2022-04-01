@@ -281,7 +281,7 @@ class KypoTerraformClientManager:
         """
         stack_dir = self.get_stack_dir(stack_name)
         self._pull_terraform_state(stack_dir)
-        with open(os.path.join(stack_dir, TERRAFORM_WORKSPACE_PATH.format(stack_name)), 'r')\
+        with open(os.path.join(stack_dir, TERRAFORM_STATE_FILE_NAME), 'r')\
                 as file:
             return list(filter(lambda res: res['mode'] == 'managed', json.load(file)['resources']))
 
