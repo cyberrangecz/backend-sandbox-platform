@@ -83,6 +83,18 @@ class KypoTerraformClientManager:
                                    stdout=terraform_state_file, stderr=subprocess.PIPE)
         self.wait_for_process(process)
 
+    def _switch_terraform_workspace(self, workspace: str, stack_dir: str) -> None:
+        """
+        Switch Terraform workspace.
+
+        :param workspace: The name of the workspace.
+        :param stack_dir: The path to the stack directory
+        :return: None
+        """
+        process = subprocess.Popen(['terraform', 'workspace', 'select', workspace], cwd=stack_dir,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.wait_for_process(process)
+
     @staticmethod
     def create_directories(dir_path: str) -> None:
         """
@@ -239,7 +251,7 @@ class KypoTerraformClientManager:
         except TerraformInitFailed:
             return None
         except TerraformWorkspaceFailed:
-            pass
+            self._switch_terraform_workspace(stack_name, stack_dir)
 
         return subprocess.Popen(['terraform', 'destroy', '-auto-approve', '-no-color'],
                                 cwd=stack_dir, stdout=subprocess.PIPE, text=True)
