@@ -31,7 +31,7 @@ class KypoTerraformBackend:
                                 f' specifying database configuration.')
 
         try:
-            return 'postgres://{0[user]}:{0[password]}@{0[host]}/{0[name]}'\
+            return 'postgres://{0[user]}:{0[password]}@{0[host]}/{0[name]}?sslmode=disable'\
                 .format(self.db_configuration)
         except KeyError as exc:
             raise KypoException(f'Database configuration is incomplete. Error: "{exc}"')
