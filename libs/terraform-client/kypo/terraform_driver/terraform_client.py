@@ -5,10 +5,11 @@ from kypo.cloud_commons import KypoCloudClientBase, TopologyInstance, Transforma
     Image, Limits, QuotaSet, HardwareUsage
 # Available cloud clients
 from kypo.openstack_driver import KypoOpenStackClient
-
 from kypo.topology_definition.models import TopologyDefinition
 
-from kypo.terraform_driver.terraform_client_elements import TerraformInstance
+from kypo.terraform_driver.terraform_backend import KypoTerraformBackend
+from kypo.terraform_driver.terraform_client_elements import TerraformInstance, \
+    KypoTerraformBackendType
 from kypo.terraform_driver.terraform_client_manager import KypoTerraformClientManager
 
 
@@ -22,10 +23,14 @@ class KypoTerraformClient:
     """
 
     def __init__(self, cloud_client: AvailableCloudLibraries, trc: TransformationConfiguration,
-                 stacks_dir: str = None, template_file_name: str = None, *args, **kwargs):
+                 stacks_dir: str = None, template_file_name: str = None,
+                 backend_type: KypoTerraformBackendType = KypoTerraformBackendType('local'),
+                 db_configuration=None, *args, **kwargs):
         self.cloud_client: KypoCloudClientBase = cloud_client.value(trc=trc, *args, **kwargs)
+        terraform_backend = KypoTerraformBackend(backend_type=backend_type,
+                                                 db_configuration=db_configuration)
         self.client_manager = KypoTerraformClientManager(stacks_dir, self.cloud_client, trc,
-                                                         template_file_name)
+                                                         template_file_name, terraform_backend)
         self.trc = trc
 
     def get_process_output(self, process):

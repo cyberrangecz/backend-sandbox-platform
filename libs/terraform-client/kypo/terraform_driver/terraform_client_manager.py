@@ -7,10 +7,13 @@ from typing import List
 from kypo.cloud_commons import StackNotFound, KypoException, Image, TopologyInstance
 
 from kypo.terraform_driver.terraform_client_elements import TerraformInstance
+from kypo.terraform_driver.terraform_backend import KypoTerraformBackend, TERRAFORM_STATE_FILE_NAME
+from kypo.terraform_driver.terraform_exceptions import TerraformInitFailed, TerraformWorkspaceFailed
 
 STACKS_DIR = '/var/tmp/kypo/terraform-stacks/'
 TEMPLATE_FILE_NAME = 'deploy.tf'
-TERRAFORM_STATE_FILE_NAME = 'terraform.tfstate'
+TERRAFORM_BACKEND_FILE_NAME = 'backend.tf'
+TERRAFORM_PROVIDER_FILE_NAME = 'provider.tf'
 
 
 class KypoTerraformClientManager:
@@ -18,12 +21,53 @@ class KypoTerraformClientManager:
     Manager class for KypoTerraformClient
     """
 
-    def __init__(self, stacks_dir, cloud_client, trc, template_file_name):
+    def __init__(self, stacks_dir, cloud_client, trc, template_file_name,
+                 terraform_backend: KypoTerraformBackend):
         self.cloud_client = cloud_client
         self.stacks_dir = stacks_dir if stacks_dir else STACKS_DIR
         self.template_file_name = template_file_name if template_file_name else TEMPLATE_FILE_NAME
         self.trc = trc
         self.create_directories(self.stacks_dir)
+        self.terraform_backend = terraform_backend
+
+    def _create_terraform_backend_file(self, stack_dir: str) -> None:
+        """
+        Create backend.tf file containing configuration for Terraform backend.
+
+        :param stack_dir: The path to the stack directory
+        :return: None
+        """
+        template = self.terraform_backend.template
+
+        self.create_file(os.path.join(stack_dir, TERRAFORM_BACKEND_FILE_NAME), template)
+
+    def _create_terraform_provider(self, stack_dir) -> None:
+        """
+        Create file with Terraform provider configuration.
+        :param stack_dir: The path to the stack directory
+        :return: None
+        """
+        provider = self.cloud_client.get_terraform_provider()
+
+        self.create_file(os.path.join(stack_dir, TERRAFORM_PROVIDER_FILE_NAME), provider)
+
+    def _initialize_stack_dir(self, stack_name: str, terraform_template: str = None) -> None:
+        """
+
+        :param stack_name: The name of Terraform stack.
+        :param terraform_template: Terraform template specifying resources of the stack.
+        :return: None
+        :raise KypoException: If should_raise is True and Terraform command fails.
+        """
+        stack_dir = self.get_stack_dir(stack_name)
+        self.create_directories(stack_dir)
+        self._create_terraform_backend_file(stack_dir)
+        self._create_terraform_provider(stack_dir)
+
+        if terraform_template:
+            self.create_file(os.path.join(stack_dir, self.template_file_name), terraform_template)
+
+        self.init_terraform(stack_dir, stack_name)
 
     @staticmethod
     def create_directories(dir_path: str) -> None:
@@ -102,16 +146,29 @@ class KypoTerraformClientManager:
         """
         return os.path.join(self.stacks_dir, stack_name)
 
-    def init_terraform(self, stack_dir: str) -> None:
+    def init_terraform(self, stack_dir: str, stack_name: str) -> None:
         """
         Initialize Terraform properties in stack directory.
 
         :param stack_dir: Path to the stack directory
+        :param stack_name: The name of Terraform stack
         :return: None
-        :raise KypoException: Terraform initialization failed
+        :raise TerraformInitFailed: The 'terraform init' command fails.
+        :raise TerraformWorkspaceFailed: Could not create new workspace.
         """
-        process = subprocess.Popen(['terraform', 'init'], cwd=stack_dir, stdout=subprocess.PIPE)
-        self.wait_for_process(process)
+        try:
+            process = subprocess.Popen(['terraform', 'init'], cwd=stack_dir, stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE)
+            self.wait_for_process(process)
+        except KypoException as exc:
+            raise TerraformInitFailed(exc)
+
+        try:
+            process = subprocess.Popen(['terraform', 'workspace', 'new', stack_name], cwd=stack_dir,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.wait_for_process(process)
+        except KypoException as exc:
+            raise TerraformWorkspaceFailed(exc)
 
     def create_terraform_template(self, topology_instance: TopologyInstance, *args, **kwargs)\
             -> str:
@@ -145,9 +202,7 @@ class KypoTerraformClientManager:
                                                             resource_prefix=stack_name, *args,
                                                             **kwargs)
         stack_dir = self.get_stack_dir(stack_name)
-        self.create_directories(stack_dir)
-        self.create_file(os.path.join(stack_dir, self.template_file_name), terraform_template)
-        self.init_terraform(stack_dir)  # TODO: Can fail
+        self._initialize_stack_dir(stack_name, terraform_template)
 
         if dry_run:
             return subprocess.Popen(['terraform', 'plan'], cwd=stack_dir, stdout=subprocess.PIPE,
@@ -166,6 +221,13 @@ class KypoTerraformClientManager:
         :raise KypoException: Stack deletion has failed
         """
         stack_dir = self.get_stack_dir(stack_name)
+        try:
+            self._initialize_stack_dir(stack_name)
+        except TerraformInitFailed:
+            return None
+        except TerraformWorkspaceFailed:
+            pass
+
         return subprocess.Popen(['terraform', 'destroy', '-auto-approve', '-no-color'],
                                 cwd=stack_dir, stdout=subprocess.PIPE, text=True)
 

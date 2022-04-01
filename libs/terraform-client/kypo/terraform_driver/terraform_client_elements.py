@@ -1,5 +1,12 @@
-from typing import List, Union, Dict
+from enum import Enum
+from typing import Union, Dict
+
 from kypo.cloud_commons.cloud_client_elements import Image
+
+
+class KypoTerraformBackendType(Enum):
+    LOCAL = 'local'
+    POSTGRES = 'pg'
 
 
 class TerraformInstance:
