@@ -77,7 +77,10 @@ class KypoTerraformClientManager:
         :param stack_name: The name of Terraform stack.
         :return: None
         """
-        self._initialize_stack_dir(stack_name)
+        try:
+            self._initialize_stack_dir(stack_name)
+        except TerraformWorkspaceFailed:
+            pass
         stack_dir = self.get_stack_dir(stack_name)
         terraform_state_file_path = os.path.join(stack_dir, TERRAFORM_STATE_FILE_NAME)
         terraform_state_file = open(terraform_state_file_path, 'w')
@@ -295,10 +298,7 @@ class KypoTerraformClientManager:
         :param stack_name: The name of stack
         :return: The list of dictionaries containing resources
         """
-        try:
-            self._pull_terraform_state(stack_name)
-        except TerraformWorkspaceFailed:
-            pass
+        self._pull_terraform_state(stack_name)
         stack_dir = self.get_stack_dir(stack_name)
         with open(os.path.join(stack_dir, TERRAFORM_STATE_FILE_NAME), 'r')\
                 as file:
