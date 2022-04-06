@@ -77,11 +77,8 @@ class KypoTerraformClientManager:
         :param stack_name: The name of Terraform stack.
         :return: None
         """
-        try:
-            self._initialize_stack_dir(stack_name)
-        except TerraformWorkspaceFailed:
-            pass
         stack_dir = self.get_stack_dir(stack_name)
+        self._switch_terraform_workspace(stack_name, stack_dir)
         terraform_state_file_path = os.path.join(stack_dir, TERRAFORM_STATE_FILE_NAME)
         terraform_state_file = open(terraform_state_file_path, 'w')
         process = subprocess.Popen(['terraform', 'state', 'pull'], cwd=stack_dir,
