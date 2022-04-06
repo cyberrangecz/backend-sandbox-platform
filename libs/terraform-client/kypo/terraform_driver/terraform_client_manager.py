@@ -84,6 +84,8 @@ class KypoTerraformClientManager:
         process = subprocess.Popen(['terraform', 'state', 'pull'], cwd=stack_dir,
                                    stdout=terraform_state_file, stderr=subprocess.PIPE)
         self.wait_for_process(process)
+        terraform_state_file.flush()
+        terraform_state_file.close()
 
     def _switch_terraform_workspace(self, workspace: str, stack_dir: str) -> None:
         """
