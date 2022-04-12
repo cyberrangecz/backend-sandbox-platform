@@ -116,6 +116,16 @@ class KypoTerraformClient:
         """
         self.client_manager.delete_stack_directory(stack_name)
 
+    def delete_terraform_workspace(self, stack_name: str) -> None:
+        """
+        Delete the Terraform workspace.
+
+        :param stack_name: Name of stack
+        :return: None
+        :raise KypoException: Terraform workspace is not found
+        """
+        self.client_manager.delete_terraform_workspace(stack_name)
+
     def list_images(self) -> List[Image]:
         """
         List all available images on the cloud project.
