@@ -15,6 +15,7 @@ TEMPLATE_FILE_NAME = 'deploy.tf'
 TERRAFORM_BACKEND_FILE_NAME = 'backend.tf'
 TERRAFORM_PROVIDER_FILE_NAME = 'provider.tf'
 TERRAFORM_WORKSPACE_PATH = 'terraform.tfstate.d/{}/' + TERRAFORM_STATE_FILE_NAME
+TERRAFORM_DEFAULT_WORKSPACE = 'default'
 
 
 class KypoTerraformClientManager:
@@ -274,6 +275,20 @@ class KypoTerraformClientManager:
         """
         stack_dir = self.get_stack_dir(stack_name)
         self.remove_directory(stack_dir)
+
+    def delete_terraform_workspace(self, stack_name) -> None:
+        """
+        Delete Terraform workspace.
+
+        :param stack_name: Name of stack
+        :return: None
+        :raise KypoException: Terraform workspace is not found
+        """
+        stack_dir = self.get_stack_dir(stack_name)
+        self._switch_terraform_workspace(TERRAFORM_DEFAULT_WORKSPACE, stack_dir)
+        process = subprocess.Popen(['terraform', 'workspace', 'delete', stack_name], cwd=stack_dir,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.wait_for_process(process)
 
     def get_image(self, image_id) -> Image:
         """
