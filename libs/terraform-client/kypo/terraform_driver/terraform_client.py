@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List
+from typing import List, Tuple
 
 from kypo.cloud_commons import KypoCloudClientBase, TopologyInstance, TransformationConfiguration, \
     Image, Limits, QuotaSet, HardwareUsage
@@ -42,15 +42,15 @@ class KypoTerraformClient:
         """
         return self.client_manager.get_process_output(process)
 
-    def wait_for_process(self, process):
+    def wait_for_process(self, process, timeout) -> Tuple[str, str, int]:
         """
         Wait for the process to finish. Close all file descriptors when proces is finished.
 
         :param process: The process that is waited for
-        :return: None
-        :raise KypoException: Process finished with error
+        :param timeout: Timeout in seconds
+        :return: Tuple of stdout, stderr and return code
         """
-        self.client_manager.wait_for_process(process)
+        return self.client_manager.wait_for_process(process, timeout)
 
     def create_stack(self, topology_definition: TopologyDefinition, stack_name: str = 'stack-name',
                      key_pair_name_ssh: str = 'kypo-dummy-ssh-key-pair',
