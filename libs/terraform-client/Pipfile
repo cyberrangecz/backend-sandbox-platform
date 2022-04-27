@@ -10,9 +10,10 @@ verify_ssl = true
 
 [packages]
 PyYaml = "*"
-kypo-python-commons = "==0.1.*"
-kypo-openstack-lib = { index = "kypo", version = "==0.38.*" }
+kypo-python-commons = { index = "kypo", version = "~=0.1.0" }
+kypo-openstack-lib = { index = "kypo", version = "~=0.38.0" }
 jinja2 = "*"
+structlog = "*"
 
 [dev-packages]
 
