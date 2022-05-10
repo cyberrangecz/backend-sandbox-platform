@@ -292,7 +292,7 @@ class KypoTerraformClientManager:
         """
         stack_dir = self.get_stack_dir(stack_name)
         try:
-            self._initialize_stack_dir(stack_name, should_raise=False)
+            self._initialize_stack_dir(stack_name)
         except TerraformInitFailed:
             return None
         except TerraformWorkspaceFailed:
