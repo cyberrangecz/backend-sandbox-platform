@@ -17,7 +17,7 @@ setup(
     long_description=read('README.md'),
     packages=find_namespace_packages(include=['kypo.*'], exclude=['tests']),
     install_requires=[
-        'kypo-topology-definition==0.5.0',
+        'kypo-topology-definition~=0.5.0',
     ],
     python_requires='>=3',
     zip_safe=False
