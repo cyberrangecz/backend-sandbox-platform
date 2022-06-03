@@ -66,6 +66,7 @@ class Router(Object):
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
     base_box = Attribute(type=BaseBox)
     flavor = Attribute(type=str)
+    extra = Attribute(type=ExtraValues, default=None)
 
     def __init__(self, name, base_box, flavor):
         self.name = name
