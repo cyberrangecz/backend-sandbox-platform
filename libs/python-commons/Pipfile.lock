@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "d005b02017e4de01599285d0f86b176d1ca214831c722c5d4e9782d1ac237014"
+            "sha256": "e11847f89210cd8528f71ebe28221415f7a37f55910ec697cee83138adce0735"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -22,11 +22,8 @@
     },
     "default": {
         "kypo-topology-definition": {
-            "hashes": [
-                "sha256:6676bb3b4f5386ac85e400d3568a50a3b5f93e89b182f7e0a607ba7a042f58cc"
-            ],
             "index": "kypo",
-            "version": "==0.5.0"
+            "version": "==0.5.1"
         },
         "netaddr": {
             "hashes": [
