@@ -322,7 +322,7 @@ class KypoTerraformClientManager:
         """
         stack_dir = self.get_stack_dir(stack_name)
         self._switch_terraform_workspace(TERRAFORM_DEFAULT_WORKSPACE, stack_dir)
-        process = self._execute_command(['terraform', 'workspace', 'select', stack_name],
+        process = self._execute_command(['terraform', 'workspace', 'delete', stack_name],
                                         cwd=stack_dir, stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE)
         _, stderr, return_code = self.wait_for_process(process)
