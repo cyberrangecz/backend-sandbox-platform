@@ -17,6 +17,7 @@ TERRAFORM_BACKEND_FILE_NAME = 'backend.tf'
 TERRAFORM_PROVIDER_FILE_NAME = 'provider.tf'
 TERRAFORM_WORKSPACE_PATH = 'terraform.tfstate.d/{}/' + TERRAFORM_STATE_FILE_NAME
 TERRAFORM_DEFAULT_WORKSPACE = 'default'
+TERRAFORM_RETRY_NEW_WORKSPACE_COMMAND = 5
 
 
 class KypoTerraformClientManager:
@@ -69,8 +70,7 @@ class KypoTerraformClientManager:
 
         self.create_file(os.path.join(stack_dir, TERRAFORM_PROVIDER_FILE_NAME), provider)
 
-    def _initialize_stack_dir(self, stack_name: str, terraform_template: str = None,
-                              should_raise: bool = True) -> None:
+    def _initialize_stack_dir(self, stack_name: str, terraform_template: str = None) -> None:
         """
 
         :param stack_name: The name of Terraform stack.
@@ -87,7 +87,6 @@ class KypoTerraformClientManager:
             self.create_file(os.path.join(stack_dir, self.template_file_name), terraform_template)
 
         self.init_terraform(stack_dir, stack_name)
-        self.create_terraform_workspace(stack_dir, stack_name, should_raise=should_raise)
 
     def _pull_terraform_state(self, stack_name: str) -> None:
         """
@@ -96,9 +95,12 @@ class KypoTerraformClientManager:
         :param stack_name: The name of Terraform stack.
         :return: None
         """
-        self._initialize_stack_dir(stack_name, should_raise=False)
+        self._initialize_stack_dir(stack_name)
         stack_dir = self.get_stack_dir(stack_name)
-        self._switch_terraform_workspace(stack_name, stack_dir)
+        try:
+            self._switch_terraform_workspace(stack_name, stack_dir)
+        except TerraformWorkspaceFailed:
+            raise KypoException('Failed to switch Terraform workspace')
 
         terraform_state_file_path = os.path.join(stack_dir, TERRAFORM_STATE_FILE_NAME)
         terraform_state_file = open(terraform_state_file_path, 'w')
@@ -235,12 +237,19 @@ class KypoTerraformClientManager:
         :return: None
         :raise TerraformWorkspaceFailed: Could not create new workspace.
         """
+        retry_count = 1
+        stderr = ""
         command = ['terraform', 'workspace', 'new', stack_name]
-        process = self._execute_command(command, cwd=stack_dir, stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE)
-        _, stderr, return_code = self.wait_for_process(process)
-        if return_code and should_raise:
-            command_error_handler(TerraformWorkspaceFailed, 'Failed to create new workspace',
+        while retry_count <= TERRAFORM_RETRY_NEW_WORKSPACE_COMMAND:
+            process = self._execute_command(command, cwd=stack_dir, stdout=subprocess.PIPE,
+                                            stderr=subprocess.PIPE)
+            _, stderr, return_code = self.wait_for_process(process)
+            if not (return_code and should_raise) or ('already exists' in stderr):
+                break
+            retry_count += 1
+        if retry_count > TERRAFORM_RETRY_NEW_WORKSPACE_COMMAND:
+            command_error_handler(TerraformWorkspaceFailed, 'Failed to create new workspace: '
+                                                            'command retry limit exceeded',
                                   command=' '.join(command), stack_name=stack_name, stderr=stderr)
 
     def create_terraform_template(self, topology_instance: TopologyInstance, *args, **kwargs)\
@@ -276,6 +285,7 @@ class KypoTerraformClientManager:
                                                             **kwargs)
         stack_dir = self.get_stack_dir(stack_name)
         self._initialize_stack_dir(stack_name, terraform_template)
+        self.create_terraform_workspace(stack_dir, stack_name)
 
         if dry_run:
             return self._execute_command(['terraform', 'plan'], cwd=stack_dir,
@@ -295,11 +305,9 @@ class KypoTerraformClientManager:
         stack_dir = self.get_stack_dir(stack_name)
         try:
             self._initialize_stack_dir(stack_name)
-        except TerraformInitFailed:
-            return None
-        except TerraformWorkspaceFailed:
             self._switch_terraform_workspace(stack_name, stack_dir)
-
+        except (TerraformInitFailed, TerraformWorkspaceFailed):
+            return None
         return self._execute_command(['terraform', 'destroy', '-auto-approve', '-no-color'],
                                      cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
