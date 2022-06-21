@@ -162,6 +162,15 @@ class KypoCloudClientBase(ABC):
         pass
 
     @abstractmethod
+    def get_flavors_dict(self) -> dict:
+        """
+        Gets flavors defined in OpenStack project with their vcpu and ram usage as dictionary
+
+        :return: flavors dictionary
+        """
+        pass
+
+    @abstractmethod
     def get_project_limits(self) -> Limits:
         """
         Get resources limits of cloud project.
