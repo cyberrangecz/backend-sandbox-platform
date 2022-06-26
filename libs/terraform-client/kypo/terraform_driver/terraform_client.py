@@ -313,6 +313,14 @@ class KypoTerraformClient:
         """
         return self.cloud_client.get_hardware_usage(topology_instance)
 
+    def get_flavors_dict(self) -> dict:
+        """
+        Gets flavors defined in OpenStack project with their vcpu and ram usage as dictionary
+
+        :return: flavors dictionary
+        """
+        return self.cloud_client.get_flavors_dict()
+
     def get_project_limits(self) -> Limits:
         """
         Get resources limits of cloud project.
