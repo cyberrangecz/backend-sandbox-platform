@@ -135,13 +135,13 @@ class HardwareUsage:
     Used to wrap HeatStacks hardware usage.
     """
 
-    def __init__(self, used_vcpu, used_ram, used_instances, used_network, used_subnet, used_port):
-        self.vcpu = used_vcpu
-        self.ram = used_ram
-        self.instances = used_instances
-        self.network = used_network
-        self.subnet = used_subnet
-        self.port = used_port
+    def __init__(self, vcpu, ram, instances, network, subnet, port):
+        self.vcpu = vcpu
+        self.ram = ram
+        self.instances = instances
+        self.network = network
+        self.subnet = subnet
+        self.port = port
 
     def __mul__(self, other):
         if not isinstance(other, int):
@@ -149,6 +149,13 @@ class HardwareUsage:
 
         return HardwareUsage(self.vcpu*other, self.ram*other, self.instances*other,
                              self.network*other, self.subnet*other, self.port*other)
+
+    def __truediv__(self, other):
+        if not isinstance(other, Limits):
+            return NotImplemented
+
+        return HardwareUsage(**{key: round(value / (other.__dict__[key]), 3) for (key, value)
+                                in self.__dict__.items()})
 
     def __eq__(self, other: 'HardwareUsage'):
         if not isinstance(other, HardwareUsage):
