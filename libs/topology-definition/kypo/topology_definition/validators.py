@@ -135,3 +135,9 @@ class TopologyValidation:
                     unique_elements.remove(element)
 
         return list(result)
+
+    @staticmethod
+    def is_volumes_valid(obj, volumes: []):
+        if volumes:
+            if len(volumes) < 1:
+                raise ValueError("Volumes must contain at least one entry for system disk")

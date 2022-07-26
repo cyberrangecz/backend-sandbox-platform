@@ -42,6 +42,14 @@ class ExtraValues(Map):
     value_type = Dynamic
 
 
+class Volume(Object):
+    size = Attribute(type=int, default=None)
+
+
+class VolumeList(Sequence):
+    item_type = Volume
+
+
 class Host(Object):
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
     base_box = Attribute(type=BaseBox)
@@ -49,13 +57,16 @@ class Host(Object):
     block_internet = Attribute(type=bool, default=False)
     hidden = Attribute(type=bool, default=False)
     extra = Attribute(type=ExtraValues, default=None)
+    volumes = Attribute(type=VolumeList, default=None,
+                        validator=TopologyValidation.is_volumes_valid)
 
-    def __init__(self, name, base_box, flavor, block_internet, hidden):
+    def __init__(self, name, base_box, flavor, block_internet, hidden, volumes):
         self.name = name
         self.base_box = base_box
         self.flavor = flavor
         self.block_internet = block_internet
         self.hidden = hidden
+        self.volumes = volumes
 
 
 class HostList(Sequence):
