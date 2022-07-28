@@ -22,8 +22,11 @@
     },
     "default": {
         "kypo-topology-definition": {
+            "hashes": [
+                "sha256:b88773ebb200bece4ed3c7330d1d64643f45f3faccacd60d952272c15cf5779d"
+            ],
             "index": "kypo",
-            "version": "==0.5.1"
+            "version": "==0.5.2"
         },
         "netaddr": {
             "hashes": [
@@ -73,11 +76,11 @@
         },
         "structlog": {
             "hashes": [
-                "sha256:68c4c29c003714fe86834f347cb107452847ba52414390a7ee583472bde00fc9",
-                "sha256:fd7922e195262b337da85c2a91c84be94ccab1f8fd1957bd6986f6904e3761c8"
+                "sha256:760d37b8839bd4fe1747bed7b80f7f4de160078405f4b6a1db9270ccbfce6c30",
+                "sha256:94b29b1d62b2659db154f67a9379ec1770183933d6115d21f21aa25cfc9a7393"
             ],
-            "markers": "python_version >= '3.6'",
-            "version": "==21.5.0"
+            "markers": "python_version >= '3.7'",
+            "version": "==22.1.0"
         },
         "yamlize": {
             "hashes": [
