@@ -402,6 +402,13 @@ class KypoTerraformClientManager:
         resource_dict = self.get_resource_dict(stack_name)
         resource_dict = resource_dict[f'{stack_name}-{node_name}'][0]['attributes']
         image_id = resource_dict['image_id']
+
+        if image_id == "Attempt to boot from volume - no image supplied":
+            if 'block_device' in resource_dict and len(resource_dict['block_device']) \
+                    and 'uuid' in resource_dict['block_device'][0]:
+                image_id = resource_dict['block_device'][0]['uuid']
+            else:
+                raise KypoException(f'Image id could not be retrieved from the node')
         image = self.get_image(image_id)
 
         instance = TerraformInstance(name=node_name, instance_id=resource_dict['id'],
