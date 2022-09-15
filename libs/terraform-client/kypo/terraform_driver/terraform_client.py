@@ -5,7 +5,7 @@ from kypo.cloud_commons import KypoCloudClientBase, TopologyInstance, Transforma
     Image, Limits, QuotaSet, HardwareUsage
 # Available cloud clients
 from kypo.openstack_driver import KypoOpenStackClient
-from kypo.topology_definition.models import TopologyDefinition
+from kypo.topology_definition.models import TopologyDefinition, DockerContainers
 
 from kypo.terraform_driver.terraform_backend import KypoTerraformBackend
 from kypo.terraform_driver.terraform_client_elements import TerraformInstance, \
@@ -142,17 +142,20 @@ class KypoTerraformClient:
         """
         return self.client_manager.list_stacks()
 
-    def get_topology_instance(self, topology_definition: TopologyDefinition) -> TopologyInstance:
+    def get_topology_instance(self, topology_definition: TopologyDefinition,
+                              containers: DockerContainers = None)\
+            -> TopologyInstance:
         """
         Get TopologyInstance from topology definition.
 
         :param topology_definition: TopologyDefinition object
+        :param containers: DockerContainers object
         :return: TopologyInstance object
         """
-        return TopologyInstance(topology_definition, self.trc)
+        return TopologyInstance(topology_definition, self.trc, containers)
 
-    def get_enriched_topology_instance(self, stack_name: str,
-                                       topology_definition: TopologyDefinition) -> TopologyInstance:
+    def get_enriched_topology_instance(self, stack_name: str, topology_definition: TopologyDefinition,
+                                       containers: DockerContainers = None) -> TopologyInstance:
         """
         Get enriched TopologyInstance.
 
@@ -161,9 +164,10 @@ class KypoTerraformClient:
 
         :param stack_name: The name of stack
         :param topology_definition: TopologyDefinition object
+        :param containers: DockerContainers object
         :return: TopologyInstance with additional properties
         """
-        topology_instance = self.get_topology_instance(topology_definition)
+        topology_instance = self.get_topology_instance(topology_definition, containers)
         return self.client_manager.get_enriched_topology_instance(stack_name, topology_instance)
 
     def get_image(self, image_id: str) -> Image:
