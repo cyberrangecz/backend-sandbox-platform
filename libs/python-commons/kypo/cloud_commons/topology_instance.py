@@ -4,7 +4,7 @@ import yaml
 
 from kypo.topology_definition.models \
     import TopologyDefinition, NetworkMappingList, RouterList, RouterMappingList, \
-    Group, Network, Host, Router
+    Group, Network, Host, Router, DockerContainers
 
 from kypo.cloud_commons.transformation_configuration \
     import TransformationConfiguration
@@ -21,8 +21,10 @@ class TopologyInstance:
     """
     Represents a topology instance.
     """
-    def __init__(self, topology_definition: TopologyDefinition, trc: TransformationConfiguration):
+    def __init__(self, topology_definition: TopologyDefinition, trc: TransformationConfiguration,
+                 containers: DockerContainers = None):
         self.topology_definition = topology_definition
+        self.containers = containers
 
         self.name = None
         self.ip = None
