@@ -57,8 +57,7 @@ class Host(Object):
     block_internet = Attribute(type=bool, default=False)
     hidden = Attribute(type=bool, default=False)
     extra = Attribute(type=ExtraValues, default=None)
-    volumes = Attribute(type=VolumeList, default=None,
-                        validator=TopologyValidation.is_volumes_valid)
+    volumes = Attribute(type=VolumeList, default=None, validator=TopologyValidation.is_volumes_valid)
 
     def __init__(self, name, base_box, flavor, block_internet, hidden, volumes):
         self.name = name
@@ -225,3 +224,32 @@ class TopologyDefinition(Object):
 
     def add_group(self, group):
         self.groups.append(group)
+
+
+class Container(Object):
+    name = Attribute(type=str)
+    image = Attribute(type=str, default="")
+    dockerfile = Attribute(type=str, default="")
+
+
+class ContainerList(Sequence):
+    item_type = Container
+
+
+class ContainerMapping(Object):
+    container = Attribute(type=str)
+    host = Attribute(type=str)
+    port = Attribute(type=int)
+
+
+class ContainerMappingList(Sequence):
+    item_type = ContainerMapping
+
+
+class DockerContainers(Object):
+    containers = Attribute(type=ContainerList)
+    container_mappings = Attribute(type=ContainerMappingList)
+
+    @staticmethod
+    def from_file(file) -> 'DockerContainers':
+        return DockerContainers.load(open(file, mode='r'))
