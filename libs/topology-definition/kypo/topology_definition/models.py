@@ -240,6 +240,7 @@ class ContainerMapping(Object):
     container = Attribute(type=str)
     host = Attribute(type=str)
     port = Attribute(type=int)
+    hidden = Attribute(type=bool, default=False)
 
 
 class ContainerMappingList(Sequence):
@@ -249,6 +250,7 @@ class ContainerMappingList(Sequence):
 class DockerContainers(Object):
     containers = Attribute(type=ContainerList)
     container_mappings = Attribute(type=ContainerMappingList)
+    hide_all = Attribute(type=bool, default=False)
 
     @staticmethod
     def from_file(file) -> 'DockerContainers':
