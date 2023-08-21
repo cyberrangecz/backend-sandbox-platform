@@ -1,9 +1,5 @@
 terraform {
   backend "{{ tf_backend }}" {
-    {%- if tf_backend == "local" %}
-    path = "{{ tf_state_file_location }}"
-    {%- else %}
-    conn_str = "{{ tf_state_file_location }}"
-    {%- endif %}
+    {{ tf_backend_settings }}
   }
 }

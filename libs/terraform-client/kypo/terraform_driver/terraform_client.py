@@ -25,10 +25,11 @@ class KypoTerraformClient:
     def __init__(self, cloud_client: AvailableCloudLibraries, trc: TransformationConfiguration,
                  stacks_dir: str = None, template_file_name: str = None,
                  backend_type: KypoTerraformBackendType = KypoTerraformBackendType('local'),
-                 db_configuration=None, *args, **kwargs):
+                 db_configuration=None, kube_namespace=None, *args, **kwargs):
         self.cloud_client: KypoCloudClientBase = cloud_client.value(trc=trc, *args, **kwargs)
         terraform_backend = KypoTerraformBackend(backend_type=backend_type,
-                                                 db_configuration=db_configuration)
+                                                 db_configuration=db_configuration,
+                                                 kube_namespace=kube_namespace)
         self.client_manager = KypoTerraformClientManager(stacks_dir, self.cloud_client, trc,
                                                          template_file_name, terraform_backend)
         self.trc = trc

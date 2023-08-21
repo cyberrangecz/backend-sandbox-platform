@@ -1,9 +1,9 @@
 import os
 
 from jinja2 import Environment, FileSystemLoader
-from kypo.cloud_commons import KypoException
 
 from kypo.terraform_driver.terraform_client_elements import KypoTerraformBackendType
+from kypo.terraform_driver.terraform_exceptions import TerraformImproperlyConfigured
 
 TERRAFORM_STATE_FILE_NAME = 'terraform.tfstate'
 TEMPLATES_DIR_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')
@@ -12,29 +12,38 @@ TERRAFORM_BACKEND_FILE_NAME = 'terraform_backend.j2'
 
 class KypoTerraformBackend:
 
-    def __init__(self, backend_type: KypoTerraformBackendType, db_configuration=None):
+    def __init__(self, backend_type: KypoTerraformBackendType, db_configuration=None, kube_namespace=None):
         self.backend_type = backend_type
         self.db_configuration = db_configuration
+        self.kube_namespace = kube_namespace
         self.template_environment = Environment(loader=(FileSystemLoader(TEMPLATES_DIR_PATH)))
         self.template = self._create_terraform_backend_template()
 
-    def _get_state_file_location(self) -> str:
-        """
-        Get state file location for Terraform backend configuration.
-        :return: State file locaiton
-        """
-        if self.backend_type == KypoTerraformBackendType.LOCAL:
-            return TERRAFORM_STATE_FILE_NAME
+    def _get_local_settings(self) -> str:
+        return f'path = "{TERRAFORM_STATE_FILE_NAME}"'
 
+    def _get_postgres_settings(self) -> str:
         if self.db_configuration is None:
-            raise KypoException(f'Cannot use backend "{self.backend_type.value}" without'
-                                f' specifying database configuration.')
+            raise TerraformImproperlyConfigured('Provide database configuration when using the postgres backend.')
 
-        try:
-            return 'postgres://{0[user]}:{0[password]}@{0[host]}/{0[name]}?sslmode=disable'\
-                .format(self.db_configuration)
-        except KeyError as exc:
-            raise KypoException(f'Database configuration is incomplete. Error: "{exc}"')
+        conn_str = 'postgres://{0[user]}:{0[password]}@{0[host]}/{0[name]}?sslmode=disable'\
+                   .format(self.db_configuration)
+        return f'conn_str = "{conn_str}"'
+
+    def _get_kubernetes_settings(self) -> str:
+        if self.kube_namespace is None:
+            raise TerraformImproperlyConfigured('Provide Kubernetes namespace when using the kubernetes backend.')
+
+        return f'secret_suffix = "state"\nin_cluster_config = "true"\nnamespace = "{self.kube_namespace}"'
+
+    def _get_backend_settings(self) -> str:
+        backend_settings = {
+            KypoTerraformBackendType.LOCAL: self._get_local_settings(),
+            KypoTerraformBackendType.POSTGRES: self._get_postgres_settings(),
+            KypoTerraformBackendType.KUBERNETES: self._get_kubernetes_settings(),
+        }
+
+        return backend_settings[self.backend_type]
 
     def _create_terraform_backend_template(self) -> str:
         """
@@ -44,5 +53,5 @@ class KypoTerraformBackend:
         template = self.template_environment.get_template(TERRAFORM_BACKEND_FILE_NAME)
         return template.render(
             tf_backend=self.backend_type.value,
-            tf_state_file_location=self._get_state_file_location(),
+            tf_backend_settings=self._get_backend_settings(),
         )

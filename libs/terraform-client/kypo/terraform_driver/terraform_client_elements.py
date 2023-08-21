@@ -7,6 +7,7 @@ from kypo.cloud_commons.cloud_client_elements import Image
 class KypoTerraformBackendType(Enum):
     LOCAL = 'local'
     POSTGRES = 'pg'
+    KUBERNETES = 'kubernetes'
 
 
 class TerraformInstance:
