@@ -1,6 +1,6 @@
 from enum import Enum
 
-from yamlize import Sequence, Object, Attribute, Typed, StrList, Map, Dynamic
+from yamlize import Sequence, Object, Attribute, Typed, StrList, Map, Dynamic, IntList
 
 from kypo.topology_definition.validators import TopologyValidation
 from kypo.topology_definition.utils import rename_deprecated_attribute
@@ -157,6 +157,13 @@ class Group(Object):
 class GroupList(Sequence):
     item_type = Group
 
+class MonitoringTarget(Object):
+    host = Attribute(type=str)
+    ports = Attribute(type=IntList, validator=TopologyValidation.validate_ports)
+
+class MonitoringTargetList(Sequence):
+    item_type = MonitoringTarget
+
 
 class TopologyDefinition(Object):
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
@@ -169,6 +176,7 @@ class TopologyDefinition(Object):
     router_mappings = Attribute(type=RouterMappingList, validator=TopologyValidation.validate_router_mappings)
     # the validation of router_mappings is also used to validate CIDRs and IP addresses
     groups = Attribute(type=GroupList, validator=TopologyValidation.validate_groups)
+    monitoring_targets = Attribute(type=MonitoringTargetList, validator=TopologyValidation.validate_monitoring_targets, default=None)
 
     _indexed: bool = False
     _hosts_index: dict = {}
@@ -184,6 +192,7 @@ class TopologyDefinition(Object):
         self.net_mappings = NetworkMappingList()
         self.router_mappings = RouterMappingList()
         self.groups = GroupList()
+        self.monitoring_targets = MonitoringTargetList()
 
     @staticmethod
     def from_file(file) -> 'TopologyDefinition':

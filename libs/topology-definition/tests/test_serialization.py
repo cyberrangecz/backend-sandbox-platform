@@ -8,8 +8,8 @@ from yamlize.yamlizing_error import YamlizingError
 from kypo.topology_definition.models import TopologyDefinition, Protocol, BaseBox, Host, Router
 from kypo.topology_definition.image_naming import image_name_replace, image_name_strip
 
-SANDBOX_DEFINITION_PATH = os.path.join(os.path.dirname(__file__), 'assets/sandbox.yml')
-
+SANDBOX_DEFINITION_PATH = os.path.join(os.path.dirname(__file__), 'assets/topology.yml')
+SANDBOX_DEFINITION_MONITORING_PATH = os.path.join(os.path.dirname(__file__), 'assets/topology-with-monitoring.yml')
 
 @pytest.fixture
 def topology_definition_string():
@@ -27,6 +27,9 @@ def topology_definition_dict():
 def topology_definition():
     return TopologyDefinition.from_file(SANDBOX_DEFINITION_PATH)
 
+@pytest.fixture
+def topology_definition_monitoring():
+    return TopologyDefinition.from_file(SANDBOX_DEFINITION_MONITORING_PATH)
 
 @pytest.mark.integration
 class TestDummy:
@@ -43,6 +46,17 @@ class TestDummy:
         assert home.extra['hello'] == 'yello'
         assert home.extra['yello'] == 5
         assert home.extra['foo']
+
+    def test_read_yaml_monitoring(self, topology_definition_monitoring):
+        assert topology_definition_monitoring is not None
+        assert len(topology_definition_monitoring.hosts) == 2
+        assert not topology_definition_monitoring.find_network_by_name('home-switch').accessible_by_user
+
+        assert len(topology_definition_monitoring.monitoring_targets) == 1
+        home = topology_definition_monitoring.monitoring_targets[0]
+        assert len(home.ports) == 2
+        assert home.ports[0] == 2223
+        assert home.ports[1] == 2222
 
     def test_indexes(self, topology_definition):
         assert topology_definition.find_host_by_name('server') is not None
