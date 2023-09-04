@@ -141,3 +141,39 @@ class TopologyValidation:
         if volumes:
             if len(volumes) < 1:
                 raise ValueError("Volumes must contain at least one entry for system disk")
+
+    @staticmethod
+    def validate_monitoring_targets(obj, targets):
+        host_names = set([host.name for host in obj.hosts])
+        used_host_names = set()
+
+        for target in targets:
+            if target.host not in host_names:
+                _msg = 'Invalid host name in MonitoringTarget.host. No host with name "{}" found.'
+                raise ValueError(_msg.format(target.host))
+
+            if target.host in used_host_names:
+                _msg = 'Duplicate host name "{}" in MonitoringTarget.host. Only define each target once.'
+                raise ValueError(_msg.format(target.host))
+
+            used_host_names.add(target.host)
+
+        return True
+
+    @staticmethod
+    def validate_ports(obj, ports):
+        used_ports = set()
+
+        for port in ports:
+            if port in used_ports:
+                _msg = 'Port "{}" in MonitoringTarget.ports is duplicated. ' \
+                       'Only define each port once on a single host.'
+                raise ValueError(_msg.format(port))
+
+            used_ports.add(port)
+            if port < 1 or port > 65535:
+                _msg = 'Port "{}" in MonitoringTarget.ports is not a valid port number. ' \
+                       'Port number must be in range <1, 65535>.'
+                raise ValueError(_msg.format(port))
+
+        return True
