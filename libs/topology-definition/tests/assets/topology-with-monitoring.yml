@@ -62,6 +62,8 @@ groups:
 
 monitoring_targets:
   - host: home
-    ports: 
-      - 2223
-      - 2222
+    targets:
+      - port: 2022
+        interface: eth0
+      - port: 2023
+        interface: eth1

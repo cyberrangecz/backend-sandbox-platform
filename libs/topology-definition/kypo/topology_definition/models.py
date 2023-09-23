@@ -157,9 +157,20 @@ class Group(Object):
 class GroupList(Sequence):
     item_type = Group
 
+
+class Target(Object):
+    interface = Attribute(type=str)
+    port = Attribute(type=int)
+
+
+class TargetList(Sequence):
+    item_type = Target
+
+
 class MonitoringTarget(Object):
     host = Attribute(type=str)
-    ports = Attribute(type=IntList, validator=TopologyValidation.validate_ports)
+    targets = Attribute(type=TargetList, validator=TopologyValidation.validate_targets)
+
 
 class MonitoringTargetList(Sequence):
     item_type = MonitoringTarget

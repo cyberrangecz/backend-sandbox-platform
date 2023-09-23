@@ -161,19 +161,19 @@ class TopologyValidation:
         return True
 
     @staticmethod
-    def validate_ports(obj, ports):
+    def validate_targets(obj, targets):
         used_ports = set()
 
-        for port in ports:
-            if port in used_ports:
+        for target in targets:
+            if target.port in used_ports:
                 _msg = 'Port "{}" in MonitoringTarget.ports is duplicated. ' \
                        'Only define each port once on a single host.'
-                raise ValueError(_msg.format(port))
+                raise ValueError(_msg.format(target.port))
 
-            used_ports.add(port)
-            if port < 1 or port > 65535:
+            used_ports.add(target.port)
+            if target.port < 1 or target.port > 65535:
                 _msg = 'Port "{}" in MonitoringTarget.ports is not a valid port number. ' \
                        'Port number must be in range <1, 65535>.'
-                raise ValueError(_msg.format(port))
+                raise ValueError(_msg.format(target.port))
 
         return True

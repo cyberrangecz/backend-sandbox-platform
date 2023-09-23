@@ -54,9 +54,11 @@ class TestDummy:
 
         assert len(topology_definition_monitoring.monitoring_targets) == 1
         home = topology_definition_monitoring.monitoring_targets[0]
-        assert len(home.ports) == 2
-        assert home.ports[0] == 2223
-        assert home.ports[1] == 2222
+        assert len(home.targets) == 2
+        assert home.targets[0].port == 2022
+        assert home.targets[1].port == 2023
+        assert home.targets[0].interface == "eth0"
+        assert home.targets[1].interface == "eth1"
 
     def test_indexes(self, topology_definition):
         assert topology_definition.find_host_by_name('server') is not None
