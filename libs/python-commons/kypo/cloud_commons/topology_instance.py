@@ -4,7 +4,7 @@ import yaml
 
 from kypo.topology_definition.models \
     import TopologyDefinition, NetworkMappingList, RouterList, RouterMappingList, \
-    Group, Network, Host, Router, DockerContainers
+    Group, Network, Host, Router, DockerContainers, MonitoringTarget
 
 from kypo.cloud_commons.transformation_configuration \
     import TransformationConfiguration
@@ -112,6 +112,13 @@ class TopologyInstance:
         Return an iterable of TI user-defined Networks.
         """
         return self.topology_definition.networks
+
+    def get_monitored_hosts(self) -> List[MonitoringTarget]:
+        """
+        Return a list of monitored hosts and their monitored
+        interfaces/ports.
+        """
+        return self.topology_definition.monitoring_targets
 
     def get_user_accessible_hosts_networks(self) -> List[Network]:
         """
@@ -263,6 +270,7 @@ class TopologyInstance:
             'man_network': str(self.man_network),
             'links': [str(link) for link in self.get_links()],
             'groups': [str(group) for group in self.get_groups()],
+            'monitoring_targets': [str(monitored_host) for monitored_host in self.get_monitored_hosts()],
         }
         if self.ip:
             ret['ip'] = self.ip
