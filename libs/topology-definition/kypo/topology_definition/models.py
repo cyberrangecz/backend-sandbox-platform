@@ -92,11 +92,13 @@ class Network(Object):
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
     cidr = Attribute(type=str)
     accessible_by_user = Attribute(type=bool, default=True)
+    hidden = Attribute(type=bool, default=False)
 
-    def __init__(self, name, cidr, accessible_by_user):
+    def __init__(self, name, cidr, accessible_by_user, hidden):
         self.name = name
         self.cidr = cidr
         self.accessible_by_user = accessible_by_user
+        self.hidden = hidden
 
 
 class WAN(Object):
