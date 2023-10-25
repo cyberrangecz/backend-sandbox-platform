@@ -2,7 +2,7 @@ import io
 import os
 
 import pytest
-from ruamel import yaml
+from ruamel.yaml import YAML
 from yamlize.yamlizing_error import YamlizingError
 
 from kypo.topology_definition.models import TopologyDefinition, Protocol, BaseBox, Host, Router
@@ -10,6 +10,7 @@ from kypo.topology_definition.image_naming import image_name_replace, image_name
 
 SANDBOX_DEFINITION_PATH = os.path.join(os.path.dirname(__file__), 'assets/topology.yml')
 SANDBOX_DEFINITION_MONITORING_PATH = os.path.join(os.path.dirname(__file__), 'assets/topology-with-monitoring.yml')
+
 
 @pytest.fixture
 def topology_definition_string():
@@ -20,20 +21,21 @@ def topology_definition_string():
 @pytest.fixture
 def topology_definition_dict():
     with open(SANDBOX_DEFINITION_PATH) as f:
-        return dict(yaml.safe_load(f))
+        return dict(YAML(typ='safe', pure=True).load(f))
 
 
 @pytest.fixture
 def topology_definition():
     return TopologyDefinition.from_file(SANDBOX_DEFINITION_PATH)
 
+
 @pytest.fixture
 def topology_definition_monitoring():
     return TopologyDefinition.from_file(SANDBOX_DEFINITION_MONITORING_PATH)
 
+
 @pytest.mark.integration
 class TestDummy:
-
     def test_read_yaml(self, topology_definition):
         assert topology_definition is not None
         assert len(topology_definition.hosts) == 2
@@ -98,7 +100,9 @@ class TestDummy:
         server_base_box_dict['mgmt_protocol'] = 'ssh'
 
         with pytest.raises(YamlizingError):
-            BaseBox.load(yaml.dump(server_base_box_dict))
+            output_stream = io.StringIO()
+            YAML(typ='full').dump(server_base_box_dict, output_stream)
+            BaseBox.load(output_stream.getvalue())
 
     def test_multi_user_base_box(self, topology_definition_dict):
         server_base_box_dict = topology_definition_dict['hosts'][0]['base_box']
@@ -106,12 +110,15 @@ class TestDummy:
         server_base_box_dict['mgmt_user'] = 'debian'
 
         with pytest.raises(YamlizingError):
-            BaseBox.load(yaml.dump(server_base_box_dict))
+            output_stream = io.StringIO()
+            YAML(typ='full').dump(server_base_box_dict, output_stream)
+            BaseBox.load(output_stream.getvalue())
 
     def test_deprecated_base_box_attributes(self, topology_definition_dict):
         server_router_base_box_dict = topology_definition_dict['routers'][0]['base_box']
-
-        server_router_base_box = BaseBox.load(yaml.dump(server_router_base_box_dict))
+        output_stream = io.StringIO()
+        YAML(typ='full').dump(server_router_base_box_dict, output_stream)
+        server_router_base_box = BaseBox.load(output_stream.getvalue())
 
         assert not hasattr(server_router_base_box, 'man_user')
         assert not hasattr(server_router_base_box, 'mng_protocol')
