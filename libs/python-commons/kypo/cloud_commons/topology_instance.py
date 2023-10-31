@@ -105,6 +105,17 @@ class TopologyInstance:
         """
         return [node for node in self.get_nodes() if node is not self.man]
 
+    def get_visible_hosts(self) -> List[Node]:
+        """
+        Return a list of TI virtual machines that are not hidden directly
+        or through their network.
+        """
+        hosts = [self.get_node(m.name) for m in self.topology_definition.net_mappings
+                 if not self.get_node(m.host).hidden and not self.get_network(m.network).hidden]
+
+        # removes duplicates caused by hosts assigned to multiple networks
+        return list(set(hosts))
+
     # get networks
 
     def get_hosts_networks(self) -> Iterable[Network]:
