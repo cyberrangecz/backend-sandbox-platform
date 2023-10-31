@@ -32,7 +32,7 @@ class TopologyInstance:
         self.man = MAN(MAN_NAME, trc.man_flavor,
                        trc.man_image, trc.man_user)
 
-        self.man_network = Network(MAN_NET_NAME, trc.sandbox_man_cidr, False)
+        self.man_network = Network(MAN_NET_NAME, trc.sandbox_man_cidr, False, True)
         self.wan = topology_definition.wan
 
         self.links = {}
