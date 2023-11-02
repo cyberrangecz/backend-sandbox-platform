@@ -61,9 +61,13 @@ groups:
       - home-router
 
 monitoring_targets:
-  - host: home
+  - node: home
     targets:
       - port: 2022
         interface: eth0
       - port: 2023
         interface: eth1
+  - node: server-router
+    targets:
+      - port: 555
+        interface: eth0

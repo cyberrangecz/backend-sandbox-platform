@@ -170,7 +170,7 @@ class TargetList(Sequence):
 
 
 class MonitoringTarget(Object):
-    host = Attribute(type=str)
+    node = Attribute(type=str)
     targets = Attribute(type=TargetList, validator=TopologyValidation.validate_targets)
 
 

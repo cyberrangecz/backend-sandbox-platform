@@ -54,13 +54,18 @@ class TestDummy:
         assert len(topology_definition_monitoring.hosts) == 2
         assert not topology_definition_monitoring.find_network_by_name('home-switch').accessible_by_user
 
-        assert len(topology_definition_monitoring.monitoring_targets) == 1
+        assert len(topology_definition_monitoring.monitoring_targets) == 2
         home = topology_definition_monitoring.monitoring_targets[0]
         assert len(home.targets) == 2
         assert home.targets[0].port == 2022
         assert home.targets[1].port == 2023
         assert home.targets[0].interface == "eth0"
         assert home.targets[1].interface == "eth1"
+        router = topology_definition_monitoring.monitoring_targets[1]
+        assert len(router.targets) == 1
+        assert router.node == "server-router"
+        assert router.targets[0].port == 555
+        assert router.targets[0].interface == "eth0"
 
     def test_indexes(self, topology_definition):
         assert topology_definition.find_host_by_name('server') is not None

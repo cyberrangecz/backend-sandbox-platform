@@ -144,19 +144,20 @@ class TopologyValidation:
 
     @staticmethod
     def validate_monitoring_targets(obj, targets):
-        host_names = set([host.name for host in obj.hosts])
-        used_host_names = set()
+        node_names = set([host.name for host in obj.hosts] +
+                         [router.name for router in obj.routers])
+        used_node_names = set()
 
         for target in targets:
-            if target.host not in host_names:
-                _msg = 'Invalid host name in MonitoringTarget.host. No host with name "{}" found.'
-                raise ValueError(_msg.format(target.host))
+            if target.node not in node_names:
+                _msg = 'Invalid node name in MonitoringTarget.node. No node with name "{}" found.'
+                raise ValueError(_msg.format(target.node))
 
-            if target.host in used_host_names:
-                _msg = 'Duplicate host name "{}" in MonitoringTarget.host. Only define each target once.'
-                raise ValueError(_msg.format(target.host))
+            if target.node in used_node_names:
+                _msg = 'Duplicate node name "{}" in MonitoringTarget.node. Only define each target once.'
+                raise ValueError(_msg.format(target.node))
 
-            used_host_names.add(target.host)
+            used_node_names.add(target.node)
 
         return True
 
