@@ -77,6 +77,7 @@ class Router(Object):
     base_box = Attribute(type=BaseBox)
     flavor = Attribute(type=str)
     extra = Attribute(type=ExtraValues, default=None)
+    hidden = Attribute(type=bool, default=False)
 
     def __init__(self, name, base_box, flavor):
         self.name = name
