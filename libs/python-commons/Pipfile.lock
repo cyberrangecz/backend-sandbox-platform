@@ -22,8 +22,11 @@
     },
     "default": {
         "kypo-topology-definition": {
+            "hashes": [
+                "sha256:cc9b88e0c192a077db2725e58a007dac351455238d8da2711bb27c573c04f6e3"
+            ],
             "index": "kypo",
-            "version": "==0.5.7"
+            "version": "==0.5.8"
         },
         "netaddr": {
             "hashes": [
@@ -34,11 +37,11 @@
         },
         "ruamel.yaml": {
             "hashes": [
-                "sha256:36dbbe90390d977f957436570d2bd540bfd600e6ec5a1ea42bcdb9fc7963d802",
-                "sha256:b5d119e1f9678cf90b58f64bbd2a4e78af76860ae39fab3e73323e622b462df9"
+                "sha256:61917e3a35a569c1133a8f772e1226961bf5a1198bea7e23f06a0841dea1ab0e",
+                "sha256:a013ac02f99a69cdd6277d9664689eb1acba07069f912823177c5eced21a6ada"
             ],
-            "markers": "python_version >= '3'",
-            "version": "==0.18.3"
+            "markers": "python_version >= '3.7'",
+            "version": "==0.18.5"
         },
         "ruamel.yaml.clib": {
             "hashes": [

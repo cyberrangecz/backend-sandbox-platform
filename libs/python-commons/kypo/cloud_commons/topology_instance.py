@@ -105,16 +105,25 @@ class TopologyInstance:
         """
         return [node for node in self.get_nodes() if node is not self.man]
 
-    def get_visible_hosts(self) -> List[Node]:
+    def get_visible_hosts(self) -> List[Host]:
         """
         Return a list of TI virtual machines that are not hidden directly
         or through their network.
         """
-        hosts = [self.get_node(m.host) for m in self.topology_definition.net_mappings
-                 if not self.get_node(m.host).hidden and not self.get_network(m.network).hidden]
+        visible_networks = self.get_visible_networks()
+        hosts = [self.get_node(mapping.host) for mapping in self.topology_definition.net_mappings
+                 if not self.get_node(mapping.host).hidden
+                 and self.get_network(mapping.network) in visible_networks]
 
         # removes duplicates caused by hosts assigned to multiple networks
         return list(set(hosts))
+
+    def get_visible_routers(self) -> List[Router]:
+        """
+        Return a list of TI routers that are not hidden.
+        """
+        return [router for router in self.topology_definition.routers
+                if not router.hidden]
 
     # get networks
 
@@ -151,6 +160,15 @@ class TopologyInstance:
         Return an iterable of TI virtual networks.
         """
         return self._networks.values()
+
+    def get_visible_networks(self):
+        """
+        Retrun a list of TI networks that are not hidden, and their router is not hidden.
+        """
+        visible_routers = self.get_visible_routers()
+        return [self.get_network(mapping.network) for mapping in self.topology_definition.router_mappings
+                if self.get_node(mapping.router) in visible_routers
+                and not self.get_network(mapping.network).hidden] + [self.wan]
 
     # get links
 
