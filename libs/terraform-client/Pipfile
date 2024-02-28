@@ -12,10 +12,8 @@ verify_ssl = true
 PyYaml = "*"
 kypo-python-commons = { index = "kypo", version = "==0.1.*" }
 kypo-openstack-lib = { index = "kypo", version = "~=0.38.3" }
+kypo-topology-definition = { index = "kypo", version = "~=0.5.0" }
 jinja2 = "*"
 structlog = "*"
 
 [dev-packages]
-
-[requires]
-python_version = "3.8"
