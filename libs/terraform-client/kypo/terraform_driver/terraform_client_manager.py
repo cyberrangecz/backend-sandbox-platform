@@ -104,7 +104,7 @@ class KypoTerraformClientManager:
 
         terraform_state_file_path = os.path.join(stack_dir, TERRAFORM_STATE_FILE_NAME)
         terraform_state_file = open(terraform_state_file_path, 'w')
-        command = ['terraform', 'state', 'pull']
+        command = ['tofu', 'state', 'pull']
         process = self._execute_command(command, cwd=stack_dir, stdout=terraform_state_file,
                                         stderr=subprocess.PIPE)
         _, stderr, return_code = self.wait_for_process(process)
@@ -123,7 +123,7 @@ class KypoTerraformClientManager:
         :param stack_dir: The path to the stack directory
         :return: None
         """
-        command = ['terraform', 'workspace', 'select', workspace]
+        command = ['tofu', 'workspace', 'select', workspace]
         process = self._execute_command(command, cwd=stack_dir, stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE)
         _, stderr, return_code = self.wait_for_process(process)
@@ -218,7 +218,7 @@ class KypoTerraformClientManager:
         :raise TerraformInitFailed: The 'terraform init' command fails.
         :raise TerraformWorkspaceFailed: Could not create new workspace.
         """
-        command = ['terraform', 'init']
+        command = ['tofu', 'init']
         process = self._execute_command(command, cwd=stack_dir,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         _, stderr, return_code = self.wait_for_process(process)
@@ -239,7 +239,7 @@ class KypoTerraformClientManager:
         """
         retry_count = 1
         stderr = ""
-        command = ['terraform', 'workspace', 'new', stack_name]
+        command = ['tofu', 'workspace', 'new', stack_name]
         while retry_count <= TERRAFORM_RETRY_NEW_WORKSPACE_COMMAND:
             process = self._execute_command(command, cwd=stack_dir, stdout=subprocess.PIPE,
                                             stderr=subprocess.PIPE)
@@ -288,10 +288,10 @@ class KypoTerraformClientManager:
         self.create_terraform_workspace(stack_dir, stack_name)
 
         if dry_run:
-            return self._execute_command(['terraform', 'plan'], cwd=stack_dir,
+            return self._execute_command(['tofu', 'plan'], cwd=stack_dir,
                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-        return self._execute_command(['terraform', 'apply', '-auto-approve', '-no-color'],
+        return self._execute_command(['tofu', 'apply', '-auto-approve', '-no-color'],
                                      cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     def delete_stack(self, stack_name):
@@ -308,7 +308,7 @@ class KypoTerraformClientManager:
             self._switch_terraform_workspace(stack_name, stack_dir)
         except (TerraformInitFailed, TerraformWorkspaceFailed):
             return None
-        return self._execute_command(['terraform', 'destroy', '-auto-approve', '-no-color'],
+        return self._execute_command(['tofu', 'destroy', '-auto-approve', '-no-color'],
                                      cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     def delete_stack_directory(self, stack_name) -> None:
@@ -332,7 +332,7 @@ class KypoTerraformClientManager:
         """
         stack_dir = self.get_stack_dir(stack_name)
         self._switch_terraform_workspace(TERRAFORM_DEFAULT_WORKSPACE, stack_dir)
-        command = ['terraform', 'workspace', 'delete', stack_name]
+        command = ['tofu', 'workspace', 'delete', stack_name]
         process = self._execute_command(command, cwd=stack_dir, stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE)
         _, stderr, return_code = self.wait_for_process(process)
