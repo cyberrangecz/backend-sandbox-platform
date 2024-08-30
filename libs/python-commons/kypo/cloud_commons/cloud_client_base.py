@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List
 
-from kypo.cloud_commons.cloud_client_elements import Image, QuotaSet, HardwareUsage, Limits
+from kypo.cloud_commons.cloud_client_elements import Image, NodeDetails, QuotaSet, HardwareUsage, Limits
 from kypo.cloud_commons.topology_instance import TopologyInstance
 
 
@@ -83,6 +83,17 @@ class KypoCloudClientBase(ABC):
         :param node_id: The ID of the node
         :return: None
         :raise KypoException: Node not found
+        """
+        pass
+
+    @abstractmethod
+    def get_node_details(self, terraform_attrs: dict) -> NodeDetails:
+        """
+        Get node details from the Terraform resource attributes.
+        Note, Terraform attributes are backend specific.
+
+        :param terraform_attrs: Terraform resource attributes of the node
+        :return: Node details
         """
         pass
 
