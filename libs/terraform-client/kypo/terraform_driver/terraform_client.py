@@ -5,6 +5,7 @@ from kypo.cloud_commons import KypoCloudClientBase, TopologyInstance, Transforma
     Image, Limits, QuotaSet, HardwareUsage
 # Available cloud clients
 from kypo.openstack_driver import KypoOpenStackClient
+from kypo.aws_driver.aws_client import KypoAwsClient
 from kypo.topology_definition.models import TopologyDefinition, DockerContainers
 
 from kypo.terraform_driver.terraform_backend import KypoTerraformBackend
@@ -15,6 +16,7 @@ from kypo.terraform_driver.terraform_client_manager import KypoTerraformClientMa
 
 class AvailableCloudLibraries(Enum):
     OPENSTACK = KypoOpenStackClient
+    AWS = KypoAwsClient
 
 
 class KypoTerraformClient:

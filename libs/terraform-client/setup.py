@@ -19,8 +19,9 @@ setup(
     package_data={'kypo.terraform_driver': ['templates/*']},
     install_requires=[
         'kypo-python-commons==0.1.*',
-        'kypo-openstack-lib==0.38.*',
+        'kypo-openstack-lib==0.39.*',
         'Jinja2',
+        'kypo-aws-lib>=0.3.0',
     ],
     python_requires='>=3',
     zip_safe=False
