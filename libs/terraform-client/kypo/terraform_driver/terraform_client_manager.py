@@ -4,7 +4,7 @@ import shutil
 import subprocess
 from typing import List, Tuple
 
-from kypo.cloud_commons import StackNotFound, KypoException, Image, TopologyInstance
+from kypo.cloud_commons import KypoCloudClientBase, StackNotFound, KypoException, Image, TopologyInstance
 
 from kypo.terraform_driver.terraform_client_elements import TerraformInstance
 from kypo.terraform_driver.terraform_backend import KypoTerraformBackend, TERRAFORM_STATE_FILE_NAME
@@ -25,7 +25,7 @@ class KypoTerraformClientManager:
     Manager class for KypoTerraformClient
     """
 
-    def __init__(self, stacks_dir, cloud_client, trc, template_file_name,
+    def __init__(self, stacks_dir, cloud_client: KypoCloudClientBase, trc, template_file_name,
                  terraform_backend: KypoTerraformBackend):
         self.cloud_client = cloud_client
         self.stacks_dir = stacks_dir if stacks_dir else STACKS_DIR
@@ -401,21 +401,23 @@ class KypoTerraformClientManager:
         """
         resource_dict = self.get_resource_dict(stack_name)
         resource_dict = resource_dict[f'{stack_name}-{node_name}'][0]['attributes']
-        image_id = resource_dict['image_id']
-
+        node_details = self.cloud_client.get_node_details(resource_dict)
+        image_id = node_details.image_id
         if image_id == "Attempt to boot from volume - no image supplied":
             if 'block_device' in resource_dict and len(resource_dict['block_device']) \
                     and 'uuid' in resource_dict['block_device'][0]:
                 image_id = resource_dict['block_device'][0]['uuid']
             else:
-                raise KypoException(f'Image id could not be retrieved from the node')
+                raise KypoException('Image id could not be retrieved from the node')
+
         image = self.get_image(image_id)
-
+        status = node_details.status
+        flavor = node_details.flavor
         instance = TerraformInstance(name=node_name, instance_id=resource_dict['id'],
-                                     status=resource_dict['power_state'], image=image,
-                                     flavor_name=resource_dict['flavor_name'])
+                                     status=status, image=image,
+                                     flavor_name=flavor)
 
-        for network in resource_dict['network']:
+        for network in resource_dict.get('network', []):
             name = network['name']
             link = {key: value for key, value in network.items() if key != 'name'}
             instance.add_link(name, link)
@@ -454,12 +456,12 @@ class KypoTerraformClientManager:
         list_of_resources = self.list_stack_resources(stack_name)
         resources_dict = {res['name']: res for res in list_of_resources}
 
-        man_out_port_dict = resources_dict[f'{stack_name}-{self.trc.man_out_port}']
-        topology_instance.ip = man_out_port_dict['instances'][0]['attributes']['all_fixed_ips'][0]
+        man_out_port_dict = resources_dict[f'{stack_name}-{self.trc.man_out_port}']['instances'][0]['attributes']
+        topology_instance.ip = self.cloud_client.get_private_ip(man_out_port_dict)
 
         for link in topology_instance.get_links():
-            port_dict = resources_dict[f'{stack_name}-{link.name}']
-            link.ip = port_dict['instances'][0]['attributes']['all_fixed_ips'][0]
+            port_dict = resources_dict[f'{stack_name}-{link.name}']['instances'][0]['attributes']
+            link.ip = self.cloud_client.get_private_ip(port_dict)
             link.mac = port_dict['instances'][0]['attributes']['mac_address']
 
         return topology_instance
