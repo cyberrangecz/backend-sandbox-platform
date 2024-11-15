@@ -10,8 +10,8 @@ class KypoCloudClientBase(ABC):
     Base class for KYPO cloud clients.
     """
 
-    @abstractmethod
     @staticmethod
+    @abstractmethod
     def get_private_ip(instance_attrs: dict) -> str:
         """
         Get IP address of a Terraform instance.
