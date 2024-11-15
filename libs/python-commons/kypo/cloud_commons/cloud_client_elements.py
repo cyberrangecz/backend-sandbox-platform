@@ -164,3 +164,14 @@ class HardwareUsage:
         return self.vcpu == other.vcpu and self.ram == other.ram and\
             self.instances == other.instances and self.network == other.network and\
             self.subnet == other.subnet and self.port == other.port
+
+
+class NodeDetails:
+    """
+    Defines node (Terraform resource) detail
+    """
+
+    def __init__(self, image_id: str, status: str, flavor: str) -> None:
+        self.image_id = image_id
+        self.status = status
+        self.flavor = flavor
