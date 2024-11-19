@@ -462,6 +462,6 @@ class KypoTerraformClientManager:
         for link in topology_instance.get_links():
             port_dict = resources_dict[f'{stack_name}-{link.name}']['instances'][0]['attributes']
             link.ip = self.cloud_client.get_private_ip(port_dict)
-            link.mac = port_dict['instances'][0]['attributes']['mac_address']
+            link.mac = port_dict['mac_address']
 
         return topology_instance
