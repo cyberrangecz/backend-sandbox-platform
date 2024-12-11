@@ -1,6 +1,6 @@
 import re
 
-from kypo.topology_definition.models import TopologyDefinition, BaseBox
+from crczp.topology_definition.models import TopologyDefinition, BaseBox
 
 
 def image_name_replace(prefix: str, replacement: str, topology_definition: TopologyDefinition) -> TopologyDefinition:

@@ -1,14 +1,14 @@
 name: small-sandbox
 hosts:
   - name: server
-    base_box: {image: munikypo/debian-9-x86_64, mgmt_user: debian}
-    flavor: csirtmu.tiny1x2
+    base_box: { image: crczp/debian-12-x86_64, mgmt_user: debian }
+    flavor: standard.small
     block_internet: True
     hidden: True
 
   - name: home
-    base_box: {image: windows/windows-10-amd64, mgmt_protocol: winrm}
-    flavor: csirtmu.tiny1x2
+    base_box: { image: windows/windows-10-amd64, mgmt_protocol: winrm }
+    flavor: standard.small
     extra:
       hello: yello
       yello: 5
@@ -16,12 +16,12 @@ hosts:
 
 routers:
   - name: server-router
-    base_box: {image: munikypo/debian-9-x86_64, man_user: debian, mng_protocol: ssh}
-    flavor: csirtmu.tiny1x2
+    base_box: { image: crczp/debian-12-x86_64, man_user: debian, mng_protocol: ssh }
+    flavor: standard.small
 
   - name: home-router
-    base_box: {image: debian/debian-9-x86_64}
-    flavor: csirtmu.tiny1x2
+    base_box: { image: debian/debian-12-x86_64 }
+    flavor: standard.small
 
 wan:
   name: internet-connection

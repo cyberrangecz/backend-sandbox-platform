@@ -2,8 +2,8 @@ from enum import Enum
 
 from yamlize import Sequence, Object, Attribute, Typed, StrList, Map, Dynamic, IntList
 
-from kypo.topology_definition.validators import TopologyValidation
-from kypo.topology_definition.utils import rename_deprecated_attribute
+from crczp.topology_definition.validators import TopologyValidation
+from crczp.topology_definition.utils import rename_deprecated_attribute
 
 
 class Protocol(Enum):
@@ -20,7 +20,7 @@ class Protocol(Enum):
 
 class BaseBox(Object):
     image = Attribute(type=str)
-    mgmt_user = Attribute(type=str, default='kypo-man')
+    mgmt_user = Attribute(type=str, default='debian')
     mgmt_protocol = Attribute(
         type=Typed(
             Protocol,

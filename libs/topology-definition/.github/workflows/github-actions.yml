@@ -1,0 +1,130 @@
+name: Topology definition CI
+
+on:
+  push:
+    branches-ignore:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      confirm_action:
+        description: "Type 'yes' if you want to create a new tag"
+        required: true
+        default: "no"
+
+jobs:
+  get_current_version:
+    uses: cyberrangecz/actions-templates/.github/workflows/get_version.yml@master
+    with:
+      file_path: "crczp/topology_definition/__init__.py"
+
+  unitTests:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    env:
+      LC_ALL: C.UTF-8
+      LANG: C.UTF-8
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Python Version
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: install packages
+        run: pip3 install pipenv
+
+      - name: run pipenv
+        run: |
+          pipenv sync --dev
+          pipenv run python -V
+          pipenv run tox
+
+  build:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    needs: [get_current_version, unitTests]
+    env:
+      VERSION: ${{ needs.get_current_version.outputs.version }}
+      PYTHON_TAG: py3
+      ABI_TAG: none
+      PLATFORM_TAG: any
+      PACKAGE_EXTENSION: whl
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Python Version
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install setuptools wheel
+
+      - name: Set Package Version
+        run: python3 setup.py setopt --command=metadata --option=version --set-value=$VERSION
+
+      - name: Build Wheel Package
+        run: |
+          export WHEEL_NAME=$(python3 setup.py --name | tr '-' '_')
+          export PACKAGE=$WHEEL_NAME-$VERSION-${PYTHON_TAG}-${ABI_TAG}-${PLATFORM_TAG}.${PACKAGE_EXTENSION}
+          python3 setup.py bdist_wheel
+
+      - name: Upload package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package
+          path: dist/*.whl
+          retention-days: 1  # GitHub only supports a minimum of 1 day
+
+  publish_to_pypi:
+    if: github.ref == 'refs/heads/master' && github.event.inputs.confirm_action == 'yes'
+    runs-on: ubuntu-24.04
+    needs: [build, control_tag]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Python Version
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download built package
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package
+          path: dist
+
+      - name: Install Dependencies
+        run: |
+          pip install setuptools twine
+
+      - name: Publish to Pypi
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          python -m twine upload dist/*
+
+  # Controls if version consistent with semver and higner than last git tag.
+  control_tag:
+    if: github.event.pull_request.base.ref == 'master' || github.ref == 'refs/heads/master'
+    needs: get_current_version
+    uses: cyberrangecz/actions-templates/.github/workflows/tag_control_template.yml@master
+    with:
+      VERSION: ${{ needs.get_current_version.outputs.version }}
+
+  # Push tag only from manual workflow_dispatch with confirmed tag creation
+  push_tag:
+    needs: [get_current_version, control_tag, publish_to_pypi]
+    uses: cyberrangecz/actions-templates/.github/workflows/tag_push_template.yml@master
+    with:
+      VERSION: ${{ needs.get_current_version.outputs.version }}

@@ -5,8 +5,8 @@ import pytest
 from ruamel.yaml import YAML
 from yamlize.yamlizing_error import YamlizingError
 
-from kypo.topology_definition.models import TopologyDefinition, Protocol, BaseBox, Host, Router
-from kypo.topology_definition.image_naming import image_name_replace, image_name_strip
+from crczp.topology_definition.models import TopologyDefinition, Protocol, BaseBox, Host, Router
+from crczp.topology_definition.image_naming import image_name_replace, image_name_strip
 
 SANDBOX_DEFINITION_PATH = os.path.join(os.path.dirname(__file__), 'assets/topology.yml')
 SANDBOX_DEFINITION_MONITORING_PATH = os.path.join(os.path.dirname(__file__), 'assets/topology-with-monitoring.yml')
@@ -137,22 +137,22 @@ class TestDummy:
         assert home.base_box.image == 'Xindows/windows-10-amd64'
 
         home_router: Router = td.find_router_by_name('home-router')
-        assert home_router.base_box.image == 'debian/debian-9-x86_64'
+        assert home_router.base_box.image == 'debian/debian-12-x86_64'
 
     def test_image_name_replace_2(self, topology_definition):
-        td = image_name_replace(r'.*/', 'kypo-', topology_definition)
+        td = image_name_replace(r'.*/', 'crczp-', topology_definition)
 
         home: Host = td.find_host_by_name('home')
-        assert home.base_box.image == 'kypo-windows-10-amd64'
+        assert home.base_box.image == 'crczp-windows-10-amd64'
 
         home_router: Router = td.find_router_by_name('home-router')
-        assert home_router.base_box.image == 'kypo-debian-9-x86_64'
+        assert home_router.base_box.image == 'crczp-debian-12-x86_64'
 
     def test_image_name_strip(self, topology_definition):
-        td = image_name_strip('munikypo/', topology_definition)
+        td = image_name_strip('crczp/', topology_definition)
 
         home: Host = td.find_host_by_name('home')
         assert home.base_box.image == 'windows/windows-10-amd64'
 
         server_router: Router = td.find_router_by_name('server-router')
-        assert server_router.base_box.image == 'debian-9-x86_64'
+        assert server_router.base_box.image == 'debian-12-x86_64'
