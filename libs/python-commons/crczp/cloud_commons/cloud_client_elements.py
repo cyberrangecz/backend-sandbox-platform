@@ -1,5 +1,5 @@
 from typing import Union, Dict, List
-from kypo.cloud_commons.exceptions import KypoException
+from crczp.cloud_commons.exceptions import CrczpException
 
 
 class Image:
@@ -95,7 +95,7 @@ class Quota:
     def check_limit(self, requested: int, resource_name: str):
         required = self.in_use + requested
         if required > self.limit:
-            raise KypoException(f'Cloud limits will be exceeded (required: {required},'
+            raise CrczpException(f'Cloud limits will be exceeded (required: {required},'
                                 f' maximum: {self.limit} [{resource_name}]).')
 
 

@@ -3,14 +3,14 @@ Module containing exceptions.
 """
 
 
-class KypoException(Exception):
+class CrczpException(Exception):
     """
     Base exception class for this project. All other exceptions inherit form it.
     """
     pass
 
 
-class StackException(KypoException):
+class StackException(CrczpException):
     """
     This exception is raised if error occurs within OpenStack API.
     """
@@ -31,7 +31,7 @@ class StackNotFound(StackException):
     pass
 
 
-class InvalidTopologyDefinition(KypoException):
+class InvalidTopologyDefinition(CrczpException):
     """
     This exception is raised if topology definition cannot be transformed.
     """

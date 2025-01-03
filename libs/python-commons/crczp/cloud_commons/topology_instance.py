@@ -2,14 +2,14 @@ from netaddr import IPSet, IPNetwork
 from typing import List, Iterable, Optional
 import yaml
 
-from kypo.topology_definition.models \
+from crczp.topology_definition.models \
     import TopologyDefinition, NetworkMappingList, RouterList, RouterMappingList, \
     Group, Network, Host, Router, DockerContainers, MonitoringTarget
 
-from kypo.cloud_commons.transformation_configuration \
+from crczp.cloud_commons.transformation_configuration \
     import TransformationConfiguration
-from kypo.cloud_commons.exceptions import KypoException
-from kypo.cloud_commons.topology_elements \
+from crczp.cloud_commons.exceptions import CrczpException
+from crczp.cloud_commons.topology_elements \
     import MAN, Node, Link, NodeToNodeLinkPair, SecurityGroups
 
 MAN_NAME = 'man'  # Management Node
@@ -203,7 +203,7 @@ class TopologyInstance:
         elif len(links) > 1:
             msg = 'invalid number of links between server and network,' \
                   'there should be exactly 1 link, got: {0}'.format(links)
-            raise KypoException(msg)
+            raise CrczpException(msg)
         return links[0]
 
     def get_network_default_gateway_link(self, network: Network) -> Optional[Link]:
@@ -217,7 +217,7 @@ class TopologyInstance:
         if len(links) != 1:
             msg = 'invalid number of links between user-defined Network and Router,' \
                   'there should be exactly 1 link, got: {0}'.format(links)
-            raise KypoException(msg)
+            raise CrczpException(msg)
         return links[0]
 
     def get_links(self) -> Iterable[Link]:
@@ -276,7 +276,7 @@ class TopologyInstance:
         if len(links) != len(self._nodes) - 1:
             msg = 'invalid number of link pairs between MAN and all other machines' \
                   'over management network, got: {0}'.format(links)
-            raise KypoException(msg)
+            raise CrczpException(msg)
         return links
 
     # get groups
@@ -368,7 +368,7 @@ class TopologyInstance:
             if lower + 1 == upper:
                 return str(upper)
 
-        raise KypoException("no free IP address in network {0}".format(network.name))
+        raise CrczpException("no free IP address in network {0}".format(network.name))
 
     def _add_link(self, node: Node, network: Network, security_group: SecurityGroups,
                   ip: str = None, mac: str = None) -> None:

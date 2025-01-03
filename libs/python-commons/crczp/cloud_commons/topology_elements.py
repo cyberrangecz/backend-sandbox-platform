@@ -1,7 +1,7 @@
 from typing import Union
 from enum import Enum
 
-from kypo.topology_definition.models import BaseBox, Network, Host, Router
+from crczp.topology_definition.models import BaseBox, Network, Host, Router
 
 Node = Union['MAN', Host, Router]
 
@@ -26,7 +26,7 @@ class MAN:
             'flavor': self.flavor,
             'base_box': {
                 'image': self.base_box.image,
-                'user': self.base_box.mgmt_user,    
+                'user': self.base_box.mgmt_user,
             }
         }
 
@@ -38,10 +38,10 @@ class SecurityGroups(Enum):
     """
     Enumerator for sandboxes OpenStack security groups
     """
-    SANDBOX_ACCESS = 'kypo-sandbox-access-sg'
-    SANDBOX_MAN = 'kypo-sandbox-man-sg'
-    SANDBOX_INTERNAL = 'kypo-sandbox-internal-sg'
-    SANDBOX_MAN_INT = 'kypo-sandbox-man-int-sg'
+    SANDBOX_ACCESS = 'sandbox-access-sg'
+    SANDBOX_MAN = 'sandbox-man-sg'
+    SANDBOX_INTERNAL = 'sandbox-internal-sg'
+    SANDBOX_MAN_INT = 'sandbox-man-int-sg'
 
 
 class Link:

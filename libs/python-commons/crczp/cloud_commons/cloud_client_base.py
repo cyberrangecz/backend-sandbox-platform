@@ -1,13 +1,13 @@
 from abc import ABC, abstractmethod
 from typing import List
 
-from kypo.cloud_commons.cloud_client_elements import Image, NodeDetails, QuotaSet, HardwareUsage, Limits
-from kypo.cloud_commons.topology_instance import TopologyInstance
+from crczp.cloud_commons.cloud_client_elements import Image, NodeDetails, QuotaSet, HardwareUsage, Limits
+from crczp.cloud_commons.topology_instance import TopologyInstance
 
 
-class KypoCloudClientBase(ABC):
+class CrczpCloudClientBase(ABC):
     """
-    Base class for KYPO cloud clients.
+    Base class for CyberRangeCZ Platform cloud clients.
     """
 
     @staticmethod
@@ -41,7 +41,7 @@ class KypoCloudClientBase(ABC):
         :keyword key_pair_name_cert: The name of certificate key pair in the cloud
         :keyword resource_prefix: The prefix of all resources
         :return: Terraform template as a string
-        :raise KypoException: Network validation error
+        :raise CrczpException: Network validation error
         :raise InvalidTopologyDefinition: Template rendering error
         """
         pass
@@ -72,7 +72,7 @@ class KypoCloudClientBase(ABC):
 
         :param node_id: The ID of the node
         :return: None
-        :raise KypoException: Node not found
+        :raise CrczpException: Node not found
         """
         pass
 
@@ -83,7 +83,7 @@ class KypoCloudClientBase(ABC):
 
         :param node_id: The ID of the node
         :return: None
-        :raise KypoException: Node not found
+        :raise CrczpException: Node not found
         """
         pass
 
@@ -94,7 +94,7 @@ class KypoCloudClientBase(ABC):
 
         :param node_id: The ID of the node
         :return: None
-        :raise KypoException: Node not found
+        :raise CrczpException: Node not found
         """
         pass
 
@@ -117,7 +117,7 @@ class KypoCloudClientBase(ABC):
         :param node_id: The ID of the node
         :param console_type: Type can be novnc, xvpvnc, spice-html5, rdp-html5, serial and webmks
         :return: Console url
-        :raise KypoException: Node not found
+        :raise CrczpException: Node not found
         """
         pass
 
@@ -130,7 +130,7 @@ class KypoCloudClientBase(ABC):
         :param public_key: SSH public key or certificate, it None new is created
         :param key_type: Accepted vales are 'ssh' and 'x509'. Is used as suffix to 'name' parameter
         :return: None
-        :raise KypoException: Creation failure
+        :raise CrczpException: Creation failure
         """
         pass
 
@@ -141,7 +141,7 @@ class KypoCloudClientBase(ABC):
 
         :param name: The name of key pair
         :return: KeyPair instance
-        :raise KypoException: Key pair does not exist
+        :raise CrczpException: Key pair does not exist
         """
         pass
 
@@ -152,7 +152,7 @@ class KypoCloudClientBase(ABC):
 
         :param name: The name of key pair
         :return: None
-        :raise KypoException: Key pair does not exist
+        :raise CrczpException: Key pair does not exist
         """
         pass
 

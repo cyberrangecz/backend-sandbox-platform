@@ -11,13 +11,13 @@ def read(filename):
 
 
 setup(
-    name='kypo-python-commons',
-    author='MASARYK UNIVERSITY',
-    description='KYPO Python Commons',
+    name='crczp-python-commons',
+    author='cybersecurityhub.cz',
+    description='Python Commons',
     long_description=read('README.md'),
-    packages=find_namespace_packages(include=['kypo.*'], exclude=['tests']),
+    packages=find_namespace_packages(include=['crczp.*'], exclude=['tests']),
     install_requires=[
-        'kypo-topology-definition~=0.5.0',
+        'crczp-topology-definition~=0.1.4',
     ],
     python_requires='>=3',
     zip_safe=False

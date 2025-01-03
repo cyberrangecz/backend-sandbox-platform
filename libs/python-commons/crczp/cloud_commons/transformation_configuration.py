@@ -2,7 +2,7 @@ from typing import List
 from yamlize import Attribute, Object, StrList
 
 
-BASE_NETWORK = 'kypo-network'
+BASE_NETWORK = 'crczp-network'
 MAN_OUT_PORT = 'man-out-port'
 
 SANDBOX_MAN_CIDR = '192.168.128.0/17'  # 32766 addresses
