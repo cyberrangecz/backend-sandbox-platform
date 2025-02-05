@@ -1,0 +1,167 @@
+{%- set tf_resource_instance = "openstack_compute_instance_v2" -%}
+{%- set tf_resource_network = "openstack_networking_network_v2" -%}
+{%- set tf_resource_subnet = "openstack_networking_subnet_v2" -%}
+{%- set tf_resource_port = "openstack_networking_port_v2" -%}
+{%- set tf_data_secgroup = "openstack_networking_secgroup_v2" -%}
+
+{%- set tf_provider = "openstack" -%}
+{%- set tf_provider_source = "terraform-provider-openstack/openstack" -%}
+
+{%- set hosts_names = topology_instance.get_hosts() | map(attribute='name') | list -%}
+{%- set man = topology_instance.man -%}
+{%- set key_pair_names_dict = {
+    protocol.SSH: key_pair_name_ssh,
+    protocol.WINRM: key_pair_name_cert,
+} -%}
+
+
+{%- macro tf_network(name, admin_state_up=true) %}
+resource "{{ tf_resource_network }}" "{{ name }}" {
+    name = "{{ name }}"
+    admin_state_up = "{{ (admin_state_up | string).lower() }}"
+}
+
+{%- endmacro -%}
+
+
+{%- macro tf_subnet(name, network_name, cidr, gateway_ip, dns_name_servers=[]) %}
+resource "{{ tf_resource_subnet }}" "{{ name }}" {
+    name = "{{ name }}"
+    network_id = {{ tf_resource_network + '.' + network_name }}.id
+    cidr = "{{ cidr }}"
+{%- if gateway_ip %}
+    gateway_ip = "{{ gateway_ip }}"
+{%- else %}
+    no_gateway = "true"
+{%- endif %}
+    dns_nameservers = [
+    {%- for server in dns_name_servers %}
+        "{{ server }}",
+    {%- endfor %}
+    ]
+}
+{%- endmacro -%}
+
+
+{%- macro tf_port(name, network_name, security_group_name, fixed_ip, subnet_name,
+                  allowed_address_pairs=false, admin_state_up=true) %}
+resource "{{ tf_resource_port }}" "{{ name }}" {
+    name = "{{ name }}"
+{%- if network_name == trc.base_network %}
+    network_id = data.{{ tf_resource_network + '.' + network_name }}.id
+{%- else %}
+    network_id = {{ tf_resource_network + '.' + network_name }}.id
+{%- endif %}
+    admin_state_up = "{{ (admin_state_up | string).lower() }}"
+    security_group_ids = [
+        data.{{ tf_data_secgroup + '.' + security_group_name}}.id
+    ]
+{% if subnet_name %}
+    fixed_ip {
+        subnet_id = {{ tf_resource_subnet + '.' + subnet_name }}.id
+    {%- if fixed_ip is not none %}
+        ip_address = "{{ fixed_ip }}"
+    {%- endif %}
+    }
+{% endif %}
+    allowed_address_pairs {
+    {%- if allowed_address_pairs %}
+        ip_address = {{ tf_resource_subnet + '.' + subnet_name }}.cidr
+    {%- else %}
+        ip_address = "0.0.0.0/0"
+    {%- endif %}
+    }
+}
+{%- endmacro -%}
+
+{%- macro tf_instance(name, image_name, flavor_name, key_pair, link_names, volumes=[]) %}
+data "openstack_images_image_ids_v2" "image_data_source-{{ name }}" {
+  name = "{{ image_name }}"
+}
+
+resource "{{ tf_resource_instance }}" "{{ name }}" {
+    name = "{{ name }}"
+    image_name = "{{ image_name }}"
+    flavor_name = "{{ flavor_name }}"
+    key_pair = "{{ key_pair }}"
+    config_drive = "true"
+{% if volumes %}
+    block_device {
+        uuid                  = data.openstack_images_image_ids_v2.image_data_source-{{ name }}.ids[0]
+        source_type           = "image"
+        destination_type      = "volume"
+        boot_index            = 0
+        volume_size           = {{ volumes[0].size }}
+        delete_on_termination = true
+    }
+{% for volume in volumes[1:] %}
+    block_device {
+        source_type           = "blank"
+        destination_type      = "volume"
+        volume_size           = {{ volume.size }}
+        boot_index            = -1
+        delete_on_termination = true
+    }
+{% endfor -%}
+{%- endif %}
+{% for link_name in link_names %}
+    network {
+        port = {{ tf_resource_port + '.' + link_name }}.id
+    }
+{% endfor -%}
+}
+{%- endmacro -%}
+
+data "{{ tf_resource_network }}" "{{ trc.base_network }}" {
+    name = "{{ trc.base_network }}"
+}
+
+{%- if True %}
+{% for group in security_groups %}
+data "{{ tf_data_secgroup }}" "{{ group.value }}" {
+    name = "{{ group.value }}"
+}
+{% endfor -%}
+
+{% endif %}
+
+{%- for network in topology_instance.get_networks() -%}
+    {%- set default_gateway = topology_instance.get_network_default_gateway_link(network) -%}
+    {%- set network_name = resource_prefix ~ '-' ~ network.name -%}
+    {%- set subnet_name = network_name ~ '-subnet' -%}
+    {%- set dns_name_servers = trc.dns_name_servers -%}
+    {{ tf_network(network_name) }}
+    {{ tf_subnet(subnet_name, network_name, network.cidr, default_gateway.ip,
+                 dns_name_servers) }}
+
+    {%- for link in topology_instance.get_network_links(network) -%}
+        {%- set link_name = resource_prefix ~ '-' ~ link.name -%}
+        {%- if link.node.name in hosts_names or network == topology_instance.man_network %}
+            {{ tf_port(link_name, network_name, link.security_group, link.ip, subnet_name,
+                       allowed_address_pairs=true) }}
+        {%- else %}
+            {{ tf_port(link_name, network_name, link.security_group, link.ip, subnet_name) }}
+        {%- endif %}
+    {%- endfor %}
+{% endfor -%}
+
+{%- for node in topology_instance.get_nodes_without_man() %}
+    {%- set node_name = resource_prefix ~ '-' ~ node.name -%}
+    {%- set link_names = topology_instance.get_node_links(node) | map(attribute = 'name')
+                         | map('regex_replace', '^', resource_prefix ~ '-') | list -%}
+
+    {{ tf_instance(node_name, node.base_box.image, node.flavor,
+                   key_pair_names_dict[node.base_box.mgmt_protocol], link_names, node.volumes) }}
+{% endfor %}
+
+{%- set man_out_port_name = resource_prefix ~ '-' ~ trc.man_out_port -%}
+
+{{ tf_port(man_out_port_name, trc.base_network, security_groups.SANDBOX_ACCESS.value) }}
+{% if True -%}
+
+    {%- set man_name = resource_prefix ~ '-' ~ man.name %}
+    {%- set man_links = topology_instance.get_node_links(topology_instance.man) -%}
+    {%- set man_link_names = [man_out_port_name] + (man_links | map(attribute='name')
+                             | map('regex_replace', '^', resource_prefix ~ '-') | list) -%}
+    {{ tf_instance(man_name, man.base_box.image, man.flavor, key_pair_name_ssh, man_link_names) }}
+{%- endif -%}

@@ -1,0 +1,53 @@
+[tool.poetry]
+name = "crczp-openstack-lib"
+version = "1.0.0"
+description = "Cyberrangecz platform OpenStack Driver Python lib"
+authors = ["cybersecurityhub.cz"]
+license = "MIT"
+readme = "README.md"
+packages = [
+    { include = "crczp", from = "." }
+]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pyyaml = "^6.0.1"
+boto3 = "^1.34.63"
+crczp-python-commons = "^1.0.1"
+jinja2 = "^3.1.3"
+keystoneauth1 = "*"
+netaddr = "*"
+structlog = ">=19.2"
+PyYAML = "*" # TODO try to remove in the futue
+deepdiff = "*"
+yamlize = "^0.6"
+python-glanceclient = ">=2.17"
+python-keystoneclient = ">=3.22"
+python-neutronclient = ">=6.14"
+python-novaclient = ">=16.0"
+
+[tool.poetry.group.dev.dependencies]
+mypy = "^1.8.0"
+ruff = "^0.7.4"
+pytest = "^8.3.4"
+pycryptodome = "^3.9"
+pytest-mock = "^3.14"
+tox = "^4.23"
+
+[[tool.poetry.source]]
+name = "PyPI"
+priority = "primary"
+
+[tool.ruff]
+line-length = 127
+preview = true
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "PD", "B", "A"]
+
+[tool.pytest.ini_options]
+markers = ["not integration"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
