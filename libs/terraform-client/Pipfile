@@ -3,17 +3,12 @@ url = "https://pypi.org/simple"
 verify_ssl = true
 name = "pypi"
 
-[[source]]
-url = "$KYPO_PYPI_DOWNLOAD_URL"
-name = "kypo"
-verify_ssl = true
-
 [packages]
 PyYaml = "*"
-kypo-python-commons = { index = "kypo", version = "==0.1.*" }
-kypo-openstack-lib = { index = "kypo", version = "==0.39.*" }
-kypo-topology-definition = { index = "kypo", version = "~=0.5.0" }
-kypo-aws-lib = ">=0.3.0"
+crczp-python-commons = "~=1.0.1"
+crczp-topology-definition = "~=1.0.0"
+crczp-openstack-lib = "~=1.0.0"
+crczp-aws-lib = ">=1.0.1"
 jinja2 = "*"
 structlog = "*"
 

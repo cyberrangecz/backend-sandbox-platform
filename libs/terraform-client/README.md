@@ -1,2 +1,2 @@
-# kypo-terraform-client
+# Terraform-client
 

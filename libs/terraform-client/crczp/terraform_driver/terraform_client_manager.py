@@ -4,14 +4,14 @@ import shutil
 import subprocess
 from typing import List, Tuple
 
-from kypo.cloud_commons import KypoCloudClientBase, StackNotFound, KypoException, Image, TopologyInstance
+from crczp.cloud_commons import CrczpCloudClientBase, StackNotFound, CrczpException, Image, TopologyInstance
 
-from kypo.terraform_driver.terraform_client_elements import TerraformInstance
-from kypo.terraform_driver.terraform_backend import KypoTerraformBackend, TERRAFORM_STATE_FILE_NAME
-from kypo.terraform_driver.terraform_exceptions import TerraformInitFailed, TerraformWorkspaceFailed
-from kypo.terraform_driver.terraform_exc_handlers import command_error_handler
+from crczp.terraform_driver.terraform_client_elements import TerraformInstance
+from crczp.terraform_driver.terraform_backend import CrczpTerraformBackend, TERRAFORM_STATE_FILE_NAME
+from crczp.terraform_driver.terraform_exceptions import TerraformInitFailed, TerraformWorkspaceFailed
+from crczp.terraform_driver.terraform_exc_handlers import command_error_handler
 
-STACKS_DIR = '/var/tmp/kypo/terraform-stacks/'
+STACKS_DIR = '/var/tmp/crczp/terraform-stacks/'
 TEMPLATE_FILE_NAME = 'deploy.tf'
 TERRAFORM_BACKEND_FILE_NAME = 'backend.tf'
 TERRAFORM_PROVIDER_FILE_NAME = 'provider.tf'
@@ -20,13 +20,13 @@ TERRAFORM_DEFAULT_WORKSPACE = 'default'
 TERRAFORM_RETRY_NEW_WORKSPACE_COMMAND = 5
 
 
-class KypoTerraformClientManager:
+class CrczpTerraformClientManager:
     """
-    Manager class for KypoTerraformClient
+    Manager class for CrczpTerraformClient
     """
 
-    def __init__(self, stacks_dir, cloud_client: KypoCloudClientBase, trc, template_file_name,
-                 terraform_backend: KypoTerraformBackend):
+    def __init__(self, stacks_dir, cloud_client: CrczpCloudClientBase, trc, template_file_name,
+                 terraform_backend: CrczpTerraformBackend):
         self.cloud_client = cloud_client
         self.stacks_dir = stacks_dir if stacks_dir else STACKS_DIR
         self.template_file_name = template_file_name if template_file_name else TEMPLATE_FILE_NAME
@@ -76,7 +76,7 @@ class KypoTerraformClientManager:
         :param stack_name: The name of Terraform stack.
         :param terraform_template: Terraform template specifying resources of the stack.
         :return: None
-        :raise KypoException: If should_raise is True and Terraform command fails.
+        :raise CrczpException: If should_raise is True and Terraform command fails.
         """
         stack_dir = self.get_stack_dir(stack_name)
         self.create_directories(stack_dir)
@@ -100,7 +100,7 @@ class KypoTerraformClientManager:
         try:
             self._switch_terraform_workspace(stack_name, stack_dir)
         except TerraformWorkspaceFailed:
-            raise KypoException('Failed to switch Terraform workspace')
+            raise CrczpException('Failed to switch Terraform workspace')
 
         terraform_state_file_path = os.path.join(stack_dir, TERRAFORM_STATE_FILE_NAME)
         terraform_state_file = open(terraform_state_file_path, 'w')
@@ -109,7 +109,7 @@ class KypoTerraformClientManager:
                                         stderr=subprocess.PIPE)
         _, stderr, return_code = self.wait_for_process(process)
         if return_code:
-            command_error_handler(KypoException, 'Failed to pull Terraform state',
+            command_error_handler(CrczpException, 'Failed to pull Terraform state',
                                   command=' '.join(command), stack_name=stack_name, stderr=stderr)
 
         terraform_state_file.flush()
@@ -260,7 +260,7 @@ class KypoTerraformClientManager:
         :param topology_instance: The TopologyDefinition from which the template is created
         :param args, kwargs: Can contain other attributes required for rendering of template
         :return: Rendered Terraform template
-        :raise KypoException: Invalid template of attributes.
+        :raise CrczpException: Invalid template of attributes.
         """
         return self.cloud_client.create_terraform_template(topology_instance, *args, **kwargs)
 
@@ -276,7 +276,7 @@ class KypoTerraformClientManager:
         :param key_pair_name_cert: Name of the certificate key pair
         :param args, kwargs: Can contain other attributes required for rendering of template
         :return: The process that is executing the creation
-        :raise KypoException: Stack creation has failed
+        :raise CrczpException: Stack creation has failed
         """
         terraform_template = self.create_terraform_template(topology_instance,
                                                             key_pair_name_ssh=key_pair_name_ssh,
@@ -300,7 +300,7 @@ class KypoTerraformClientManager:
 
         :param stack_name: Name of stack that is deleted
         :return: The process that is executing the deletion
-        :raise KypoException: Stack deletion has failed
+        :raise CrczpException: Stack deletion has failed
         """
         stack_dir = self.get_stack_dir(stack_name)
         try:
@@ -317,7 +317,7 @@ class KypoTerraformClientManager:
 
         :param stack_name: Name of stack
         :return: None
-        :raise KypoException: Stack directory is not found
+        :raise CrczpException: Stack directory is not found
         """
         stack_dir = self.get_stack_dir(stack_name)
         self.remove_directory(stack_dir)
@@ -328,7 +328,7 @@ class KypoTerraformClientManager:
 
         :param stack_name: Name of stack
         :return: None
-        :raise KypoException: Terraform workspace is not found
+        :raise CrczpException: Terraform workspace is not found
         """
         stack_dir = self.get_stack_dir(stack_name)
         self._switch_terraform_workspace(TERRAFORM_DEFAULT_WORKSPACE, stack_dir)
@@ -408,7 +408,7 @@ class KypoTerraformClientManager:
                     and 'uuid' in resource_dict['block_device'][0]:
                 image_id = resource_dict['block_device'][0]['uuid']
             else:
-                raise KypoException('Image id could not be retrieved from the node')
+                raise CrczpException('Image id could not be retrieved from the node')
 
         image = self.get_image(image_id)
         status = node_details.status
@@ -435,7 +435,7 @@ class KypoTerraformClientManager:
         """
         node = self.get_node(stack_name, node_name)
         if node.status != 'active':
-            raise KypoException(f'Cannot get {console_type} console from inactive machine')
+            raise CrczpException(f'Cannot get {console_type} console from inactive machine')
 
         resource_id = self.get_resource_id(stack_name, node_name)
         return self.cloud_client.get_console_url(resource_id, console_type)

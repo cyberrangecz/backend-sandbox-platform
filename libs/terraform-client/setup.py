@@ -11,17 +11,17 @@ def read(filename):
 
 
 setup(
-    name='kypo-terraform-client',
-    author='MASARYK UNIVERSITY',
-    description='KYPO Terraform Client',
+    name='crczp-terraform-client',
+    author='cybersecurityhub.cz',
+    description='Terraform Client',
     long_description=read('README.md'),
-    packages=find_namespace_packages(include=['kypo.*'], exclude=['tests']),
-    package_data={'kypo.terraform_driver': ['templates/*']},
+    packages=find_namespace_packages(include=['crczp.*'], exclude=['tests']),
+    package_data={'crczp.terraform_driver': ['templates/*']},
     install_requires=[
-        'kypo-python-commons==0.1.*',
-        'kypo-openstack-lib==0.39.*',
+        'crczp-python-commons~=1.0.1',
+        'crczp-openstack-lib~=1.0.0',
         'Jinja2',
-        'kypo-aws-lib>=0.3.0',
+        'crczp-aws-lib>=1.0.1',
     ],
     python_requires='>=3',
     zip_safe=False

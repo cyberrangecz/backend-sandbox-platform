@@ -1,38 +1,38 @@
 from enum import Enum
 from typing import List, Tuple
 
-from kypo.cloud_commons import KypoCloudClientBase, TopologyInstance, TransformationConfiguration, \
+from crczp.cloud_commons import CrczpCloudClientBase, TopologyInstance, TransformationConfiguration, \
     Image, Limits, QuotaSet, HardwareUsage
 # Available cloud clients
-from kypo.openstack_driver import KypoOpenStackClient
-from kypo.aws_driver.aws_client import KypoAwsClient
-from kypo.topology_definition.models import TopologyDefinition, DockerContainers
+from crczp.openstack_driver import CrczpOpenStackClient
+from crczp.aws_driver.aws_client import CrczpAwsClient
+from crczp.topology_definition.models import TopologyDefinition, DockerContainers
 
-from kypo.terraform_driver.terraform_backend import KypoTerraformBackend
-from kypo.terraform_driver.terraform_client_elements import TerraformInstance, \
-    KypoTerraformBackendType
-from kypo.terraform_driver.terraform_client_manager import KypoTerraformClientManager
+from crczp.terraform_driver.terraform_backend import CrczpTerraformBackend
+from crczp.terraform_driver.terraform_client_elements import TerraformInstance, \
+    CrczpTerraformBackendType
+from crczp.terraform_driver.terraform_client_manager import CrczpTerraformClientManager
 
 
 class AvailableCloudLibraries(Enum):
-    OPENSTACK = KypoOpenStackClient
-    AWS = KypoAwsClient
+    OPENSTACK = CrczpOpenStackClient
+    AWS = CrczpAwsClient
 
 
-class KypoTerraformClient:
+class CrczpTerraformClient:
     """
     Client used as an interface providing functions of this Terraform library
     """
 
     def __init__(self, cloud_client: AvailableCloudLibraries, trc: TransformationConfiguration,
                  stacks_dir: str = None, template_file_name: str = None,
-                 backend_type: KypoTerraformBackendType = KypoTerraformBackendType('local'),
+                 backend_type: CrczpTerraformBackendType = CrczpTerraformBackendType('local'),
                  db_configuration=None, kube_namespace=None, *args, **kwargs):
-        self.cloud_client: KypoCloudClientBase = cloud_client.value(trc=trc, *args, **kwargs)
-        terraform_backend = KypoTerraformBackend(backend_type=backend_type,
+        self.cloud_client: CrczpCloudClientBase = cloud_client.value(trc=trc, *args, **kwargs)
+        terraform_backend = CrczpTerraformBackend(backend_type=backend_type,
                                                  db_configuration=db_configuration,
                                                  kube_namespace=kube_namespace)
-        self.client_manager = KypoTerraformClientManager(stacks_dir, self.cloud_client, trc,
+        self.client_manager = CrczpTerraformClientManager(stacks_dir, self.cloud_client, trc,
                                                          template_file_name, terraform_backend)
         self.trc = trc
 
@@ -56,8 +56,8 @@ class KypoTerraformClient:
         return self.client_manager.wait_for_process(process, timeout)
 
     def create_stack(self, topology_definition: TopologyDefinition, stack_name: str = 'stack-name',
-                     key_pair_name_ssh: str = 'kypo-dummy-ssh-key-pair',
-                     key_pair_name_cert: str = 'kypo-dummy-cert-key-pair', dry_run: bool = False,
+                     key_pair_name_ssh: str = 'dummy-ssh-key-pair',
+                     key_pair_name_cert: str = 'dummy-cert-key-pair', dry_run: bool = False,
                      *args, **kwargs):
         """
         Create Terraform stack on the cloud.
@@ -69,7 +69,7 @@ class KypoTerraformClient:
         :param dry_run: Create only Terraform plan without allocation
         :param args, kwargs: Can contain other attributes required for rendering of template
         :return: The process that is executing the creation
-        :raise KypoException: Stack creation has failed
+        :raise CrczpException: Stack creation has failed
         """
         topology_instance = self.get_topology_instance(topology_definition)
         return self.client_manager.create_stack(topology_instance, dry_run, stack_name,
@@ -84,7 +84,7 @@ class KypoTerraformClient:
         :param topology_definition: The TopologyDefinition from which the template is created
         :param args, kwargs: Can contain other attributes required for rendering of template
         :return: Rendered Terraform template
-        :raise KypoException: Invalid template of attributes.
+        :raise CrczpException: Invalid template of attributes.
         """
         topology_instance = self.get_topology_instance(topology_definition)
         return self.client_manager.create_terraform_template(topology_instance, *args, **kwargs)
@@ -95,7 +95,7 @@ class KypoTerraformClient:
 
         :param topology_definition: TopologyDefinition object
         :return: None
-        :raise KypoException: TopologyDefinition is invalid
+        :raise CrczpException: TopologyDefinition is invalid
         """
         self.create_terraform_template(topology_definition)
 
@@ -105,7 +105,7 @@ class KypoTerraformClient:
 
         :param stack_name: Name of stack that is deleted
         :return: The process that is executing the deletion
-        :raise KypoException: Stack deletion has failed
+        :raise CrczpException: Stack deletion has failed
         """
         return self.client_manager.delete_stack(stack_name)
 
@@ -115,7 +115,7 @@ class KypoTerraformClient:
 
         :param stack_name: Name of stack
         :return: None
-        :raise KypoException: Stack directory is not found
+        :raise CrczpException: Stack directory is not found
         """
         self.client_manager.delete_stack_directory(stack_name)
 
@@ -125,7 +125,7 @@ class KypoTerraformClient:
 
         :param stack_name: Name of stack
         :return: None
-        :raise KypoException: Terraform workspace is not found
+        :raise CrczpException: Terraform workspace is not found
         """
         self.client_manager.delete_terraform_workspace(stack_name)
 
@@ -189,7 +189,7 @@ class KypoTerraformClient:
         :param stack_name: The name of stack
         :param node_name: The name of node
         :return: None
-        :raise KypoException: Node not found
+        :raise CrczpException: Node not found
         """
         resource_id = self.client_manager.get_resource_id(stack_name, node_name)
         self.cloud_client.resume_node(resource_id)
@@ -201,7 +201,7 @@ class KypoTerraformClient:
         :param stack_name: The name of stack
         :param node_name: The name of node
         :return: None
-        :raise KypoException: Node not found
+        :raise CrczpException: Node not found
         """
         resource_id = self.client_manager.get_resource_id(stack_name, node_name)
         self.cloud_client.start_node(resource_id)
@@ -213,7 +213,7 @@ class KypoTerraformClient:
         :param stack_name: The name of stack
         :param node_name: The name of node
         :return: None
-        :raise KypoException: Node not found
+        :raise CrczpException: Node not found
         """
         resource_id = self.client_manager.get_resource_id(stack_name, node_name)
         self.cloud_client.reboot_node(resource_id)
@@ -256,7 +256,7 @@ class KypoTerraformClient:
         :param public_key: SSH public key or certificate, it None new is created
         :param key_type: Accepted vales are 'ssh' and 'x509'. Is used as suffix to 'name' parameter
         :return: None
-        :raise KypoException: Creation failure
+        :raise CrczpException: Creation failure
         """
         self.cloud_client.create_keypair(name, public_key, key_type)
 
@@ -266,7 +266,7 @@ class KypoTerraformClient:
 
         :param name: The name of key pair
         :return: KeyPair instance
-        :raise KypoException: Key pair does not exist
+        :raise CrczpException: Key pair does not exist
         """
         return self.cloud_client.get_keypair(name)
 
@@ -276,7 +276,7 @@ class KypoTerraformClient:
 
         :param name: The name of key pair
         :return: None
-        :raise KypoException: Key pair does not exist
+        :raise CrczpException: Key pair does not exist
         """
         self.cloud_client.delete_keypair(name)
 
@@ -304,7 +304,7 @@ class KypoTerraformClient:
         :param topology_instance: TopologyInstance of the stack
         :param count: Number of stacks
         :return: None
-        :raise KypoException: The cloud limits are exceeded
+        :raise CrczpException: The cloud limits are exceeded
         """
         quota_set = self.get_quota_set()
         hardware_usage = self.get_hardware_usage(topology_instance) * count

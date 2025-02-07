@@ -2,17 +2,17 @@ import os
 
 from jinja2 import Environment, FileSystemLoader
 
-from kypo.terraform_driver.terraform_client_elements import KypoTerraformBackendType
-from kypo.terraform_driver.terraform_exceptions import TerraformImproperlyConfigured
+from crczp.terraform_driver.terraform_client_elements import CrczpTerraformBackendType
+from crczp.terraform_driver.terraform_exceptions import TerraformImproperlyConfigured
 
 TERRAFORM_STATE_FILE_NAME = 'terraform.tfstate'
 TEMPLATES_DIR_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')
 TERRAFORM_BACKEND_FILE_NAME = 'terraform_backend.j2'
 
 
-class KypoTerraformBackend:
+class CrczpTerraformBackend:
 
-    def __init__(self, backend_type: KypoTerraformBackendType, db_configuration=None, kube_namespace=None):
+    def __init__(self, backend_type: CrczpTerraformBackendType, db_configuration=None, kube_namespace=None):
         self.backend_type = backend_type
         self.db_configuration = db_configuration
         self.kube_namespace = kube_namespace
@@ -38,9 +38,9 @@ class KypoTerraformBackend:
 
     def _get_backend_settings(self) -> str:
         backend_settings = {
-            KypoTerraformBackendType.LOCAL: self._get_local_settings(),
-            KypoTerraformBackendType.POSTGRES: self._get_postgres_settings(),
-            KypoTerraformBackendType.KUBERNETES: self._get_kubernetes_settings(),
+            CrczpTerraformBackendType.LOCAL: self._get_local_settings(),
+            CrczpTerraformBackendType.POSTGRES: self._get_postgres_settings(),
+            CrczpTerraformBackendType.KUBERNETES: self._get_kubernetes_settings(),
         }
 
         return backend_settings[self.backend_type]
