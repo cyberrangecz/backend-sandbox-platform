@@ -1,4 +1,4 @@
-__version__ = "v1.0.0"
+__version__ = "v1.0.1"
 
 from .cloud_client_base import CrczpCloudClientBase
 from .cloud_client_elements import Image, Limits, QuotaSet, Quota, HardwareUsage, NodeDetails

@@ -17,7 +17,7 @@ setup(
     long_description=read('README.md'),
     packages=find_namespace_packages(include=['crczp.*'], exclude=['tests']),
     install_requires=[
-        'crczp-topology-definition~=0.1.4',
+        'crczp-topology-definition~=1.0.0',
     ],
     python_requires='>=3',
     zip_safe=False
