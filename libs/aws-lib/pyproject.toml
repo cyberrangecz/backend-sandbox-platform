@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "crczp-aws-lib"
-version = "1.0.0"
+version = "1.0.1"
 description = "Cyberrangecz platform AWS Driver Python lib"
 authors = ["Juraj Paluba <492988@mail.muni.cz>"]
 license = "MIT"
@@ -13,7 +13,7 @@ packages = [
 python = "^3.10"
 pyyaml = "^6.0.1"
 boto3 = "^1.34.63"
-crczp-python-commons = "^1.0.0"
+crczp-python-commons = "^1.0.1"
 jinja2 = "^3.1.3"
 
 [tool.poetry.group.dev.dependencies]

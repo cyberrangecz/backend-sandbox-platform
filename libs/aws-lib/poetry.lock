@@ -42,27 +42,27 @@ crt = ["awscrt (==0.22.0)"]
 
 [[package]]
 name = "crczp-python-commons"
-version = "1.0.0"
+version = "1.0.1"
 description = "Python Commons"
 optional = false
 python-versions = ">=3"
 groups = ["main"]
 files = [
-    {file = "crczp_python_commons-1.0.0-py3-none-any.whl", hash = "sha256:2165782fba61b4e842bd7dc2fc192ff1cc6f2fe57262f1bd1d58a0a07170d018"},
+    {file = "crczp_python_commons-1.0.1-py3-none-any.whl", hash = "sha256:c7159ae3e7b37b91230acd39cf9fc3bfac41c56c686ca8b991c6aac835c1fbba"},
 ]
 
 [package.dependencies]
-crczp-topology-definition = ">=0.1.4,<0.2.0"
+crczp-topology-definition = ">=1.0.0,<1.1.0"
 
 [[package]]
 name = "crczp-topology-definition"
-version = "0.1.4"
+version = "1.0.0"
 description = "topology-definition"
 optional = false
 python-versions = ">=3"
 groups = ["main"]
 files = [
-    {file = "crczp_topology_definition-0.1.4-py3-none-any.whl", hash = "sha256:33fd107488cfd0f04142c818cf5db37b4050310820224739593389f50be76eac"},
+    {file = "crczp_topology_definition-1.0.0-py3-none-any.whl", hash = "sha256:eceaad92d83f087f6a5ef376f922c2e6c558913b7f8da4dd6c1f1586b1b2e5bc"},
 ]
 
 [package.dependencies]
@@ -546,4 +546,4 @@ dev = ["aenum", "numpy", "pycodestyle", "pytest", "sphinx", "yaml"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "4a751ed6413b97d2e1371d687031a9ea083051de9d29ecec6e70cdf5b44afc88"
+content-hash = "d8dbda3e3d3796d36c0a5ddb433c7c4e5e00a3986fbef1b596127123e1f7fa13"
