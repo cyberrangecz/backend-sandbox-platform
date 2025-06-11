@@ -1,4 +1,8 @@
-## Usage example
+## CyberRange Topology definition
+
+Package that defines CyberRange Topology
+
+### Usage example
 
 ```toml
 [[source]]
@@ -7,5 +11,5 @@ url = "https://pypi.org/simple"
 verify_ssl = true
 
 [requires]
-python_version = "3.8"
+python_version = "3.12"
 ```
