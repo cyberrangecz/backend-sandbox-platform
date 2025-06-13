@@ -18,36 +18,35 @@ jobs:
   get_current_version:
     uses: cyberrangecz/actions-templates/.github/workflows/get_version.yml@master
     with:
-      file_path: "crczp/topology_definition/__init__.py"
+      file_path: "pyproject.toml"
 
-  unitTests:
+  codeQuality:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     env:
       LC_ALL: C.UTF-8
       LANG: C.UTF-8
+      TERM: xterm-256color
+      FORCE_COLOR: "1"
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set Python Version
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.12'
+          # Install a specific version of uv.
+          version: "0.7.12"
 
-      - name: install packages
-        run: pip3 install pipenv
-
-      - name: run pipenv
+      - name: install and run tox
         run: |
-          pipenv sync --dev
-          pipenv run python -V
-          pipenv run tox
+          uv tool install tox --with tox-uv
+          tox
 
   build:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
-    needs: [get_current_version, unitTests]
+    needs: [get_current_version, codeQuality]
     env:
       VERSION: ${{ needs.get_current_version.outputs.version }}
       PYTHON_TAG: py3
@@ -58,24 +57,15 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set Python Version
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.12'
+          # Install a specific version of uv.
+          version: "0.7.12"
 
-      - name: Install Dependencies
+      - name: Build Package
         run: |
-          python3 -m pip install --upgrade pip
-          pip install setuptools wheel
-
-      - name: Set Package Version
-        run: python3 setup.py setopt --command=metadata --option=version --set-value=$VERSION
-
-      - name: Build Wheel Package
-        run: |
-          export WHEEL_NAME=$(python3 setup.py --name | tr '-' '_')
-          export PACKAGE=$WHEEL_NAME-$VERSION-${PYTHON_TAG}-${ABI_TAG}-${PLATFORM_TAG}.${PACKAGE_EXTENSION}
-          python3 setup.py bdist_wheel
+          uv build
 
       - name: Upload package as artifact
         uses: actions/upload-artifact@v4
@@ -92,27 +82,23 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set Python Version
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       - name: Download built package
         uses: actions/download-artifact@v4
         with:
           name: python-package
           path: dist
 
-      - name: Install Dependencies
-        run: |
-          pip install setuptools twine
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          # Install a specific version of uv.
+          version: "0.7.12"
 
       - name: Publish to Pypi
         env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
         run: |
-          python -m twine upload dist/*
+          uv publish
 
   # Controls if version consistent with semver and higner than last git tag.
   control_tag:
