@@ -21,5 +21,7 @@ on:
 jobs:
   build_package:
     uses: cyberrangecz/actions-templates/.github/workflows/python_build_template.yml@master
+    secrets:
+      PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
     with:
       publish_and_tag: ${{ github.event.inputs.confirm_action }}
