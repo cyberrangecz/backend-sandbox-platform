@@ -1,6 +1,6 @@
 [project]
 name = "crczp-topology-definition"
-version = "1.0.1"
+version = "1.0.2"
 description = "topology-definition"
 readme = "README.md"
 license = "MIT"
