@@ -16,6 +16,6 @@ on:
 
 jobs:
   build_package:
-    uses: cyberrangecz/actions-templates/.github/workflows/python_build_template.yml@feat/add-python-code-quality-tools
+    uses: cyberrangecz/actions-templates/.github/workflows/python_build_template.yml@master
     with:
       publish_and_tag: ${{ github.event.inputs.confirm_action }}
