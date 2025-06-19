@@ -5,7 +5,7 @@ description = "Random generator of selected variables"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
-authors = ["Daniel Kosc <485652@mail.muni.cz>"]
+authors = [{ name = "Daniel Kosc", email = "485652@mail.muni.cz" }]
 dependencies = [
     "PyYAML>=6.0.2",
     "better-profanity>=0.7.0"
