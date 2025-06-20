@@ -1,16 +1,20 @@
 [project]
-name = "crczp-topology-definition"
+name = "crczp-terraform-client"
 version = "1.0.1"
-description = "topology-definition"
+description = "Terraform Client"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
 authors = [{ name = "cybersecurityhub.cz" }]
 dependencies = [
-    "yamlize>=0.6",
-    "structlog>=19.2",
-    "netaddr>=0.7"
+    "crczp-python-commons~=1.0.1",
+    "crczp-openstack-lib~=1.0.0",
+    "crczp-aws-lib~=1.0.1",
+    "Jinja2>=3.1.6"
 ]
+
+[project.urls]
+GitHub = "https://github.com/cyberrangecz/backend-terraform-client"
 
 [build-system]
 # TODO: Replace this with uv_build when it is it released for GA.
