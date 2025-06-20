@@ -13,6 +13,9 @@ dependencies = [
     "Jinja2>=3.1.6"
 ]
 
+[project.urls]
+GitHub = "https://github.com/cyberrangecz/backend-terraform-client"
+
 [build-system]
 # TODO: Replace this with uv_build when it is it released for GA.
 #   https://github.com/astral-sh/uv/issues/3957
