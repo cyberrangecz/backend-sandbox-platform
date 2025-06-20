@@ -1,3 +1,9 @@
+name: Openstack lib CI
+
+permissions:
+  contents: write
+  packages: write
+
 on:
   push:
     branches-ignore:
@@ -13,119 +19,9 @@ on:
         default: "no"
 
 jobs:
-  get_current_version:
-    uses: cyberrangecz/actions-templates/.github/workflows/get_version.yml@master
+  build_package:
+    uses: cyberrangecz/actions-templates/.github/workflows/python_build_template.yml@master
+    secrets:
+      PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
     with:
-      file_path: "pyproject.toml"
-
-  lint:
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Ruff
-        run: pipx install ruff
-
-      - name: Run Ruff Lint
-        run: ruff check
-
-  test:
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
-    needs: lint
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install poetry
-        run: |
-          pipx install poetry
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'poetry'
-
-      - name: Install dependencies and run tox
-        run: |
-          poetry config virtualenvs.in-project true
-          poetry install
-          poetry run tox
-
-  build:
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
-    needs: test
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install poetry
-        run: |
-          pipx install poetry
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'poetry'
-
-      - name: Build package
-        run: |
-          poetry config virtualenvs.in-project true
-          poetry build
-
-      - name: Upload package as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-package
-          path: dist/
-          retention-days: 1
-
-  publish_to_pypi:
-    if: github.ref == 'refs/heads/master' && github.event.inputs.confirm_action == 'yes'
-    runs-on: ubuntu-24.04
-    needs: [build, control_tag]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install poetry
-        run: |
-          pipx install poetry
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'poetry'
-
-      - name: Download built package
-        uses: actions/download-artifact@v4
-        with:
-          name: python-package
-          path: dist
-
-      - name: Publish package
-        env:
-          POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
-        run: |
-          poetry publish
-
-  # Controls if version consistent with semver and higner than last git tag.
-  control_tag:
-    if: github.event.pull_request.base.ref == 'master' || github.ref == 'refs/heads/master'
-    needs: get_current_version
-    uses: cyberrangecz/actions-templates/.github/workflows/tag_control_template.yml@master
-    with:
-      VERSION: ${{ needs.get_current_version.outputs.version }}
-
-  # Push tag only from manual workflow_dispatch with confirmed tag creation
-  push_tag:
-    needs: [get_current_version, control_tag, publish_to_pypi]
-    uses: cyberrangecz/actions-templates/.github/workflows/tag_push_template.yml@master
-    with:
-      VERSION: ${{ needs.get_current_version.outputs.version }}
+      publish_and_tag: ${{ github.event.inputs.confirm_action }}
