@@ -8,7 +8,6 @@ on:
   push:
     branches-ignore:
       - master
-      - bugfix/inputs-issue
   pull_request:
     branches:
       - master
@@ -21,7 +20,7 @@ on:
 
 jobs:
   build_package:
-    uses: cyberrangecz/actions-templates/.github/workflows/python_build_template.yml@bugfix/inputs-issue
+    uses: cyberrangecz/actions-templates/.github/workflows/python_build_template.yml@master
     secrets:
       PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
     with:

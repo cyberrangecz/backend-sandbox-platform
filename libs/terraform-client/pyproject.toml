@@ -1,6 +1,6 @@
 [project]
 name = "crczp-terraform-client"
-version = "1.0.1"
+version = "1.0.2"
 description = "Terraform Client"
 readme = "README.md"
 license = "MIT"
