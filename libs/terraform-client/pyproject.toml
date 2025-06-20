@@ -1,0 +1,65 @@
+[project]
+name = "crczp-topology-definition"
+version = "1.0.1"
+description = "topology-definition"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [{ name = "cybersecurityhub.cz" }]
+dependencies = [
+    "yamlize>=0.6",
+    "structlog>=19.2",
+    "netaddr>=0.7"
+]
+
+[build-system]
+# TODO: Replace this with uv_build when it is it released for GA.
+#   https://github.com/astral-sh/uv/issues/3957
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["crczp"]
+exclude-packages = ["tests"]
+
+[tool.ruff]
+line-length = 127
+preview = true
+
+[tool.ruff.lint]
+select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+]
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "tab"
+docstring-code-format = true
+
+[tool.mypy]
+check_untyped_defs = true
+ignore_missing_imports = true
+strict = true
+enable_error_code = ["deprecated", "explicit-override"]
+
+[tool.pylint]
+# You can add pylint configs here or in .pylintrc
+
+[tool.bandit]
+skips = ["B101"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
