@@ -1,5 +1,9 @@
 name: Topology definition CI
 
+permissions:
+  contents: write
+  packages: write
+
 on:
   push:
     branches-ignore:
@@ -15,102 +19,9 @@ on:
         default: "no"
 
 jobs:
-  get_current_version:
-    uses: cyberrangecz/actions-templates/.github/workflows/get_version.yml@master
+  build_package:
+    uses: cyberrangecz/actions-templates/.github/workflows/python_build_template.yml@master
+    secrets:
+      PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
     with:
-      file_path: "pyproject.toml"
-
-  codeQuality:
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
-    env:
-      LC_ALL: C.UTF-8
-      LANG: C.UTF-8
-      TERM: xterm-256color
-      FORCE_COLOR: "1"
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          # Install a specific version of uv.
-          version: "0.7.12"
-
-      - name: install and run tox
-        run: |
-          uv tool install tox --with tox-uv
-          tox
-
-  build:
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
-    needs: [get_current_version, codeQuality]
-    env:
-      VERSION: ${{ needs.get_current_version.outputs.version }}
-      PYTHON_TAG: py3
-      ABI_TAG: none
-      PLATFORM_TAG: any
-      PACKAGE_EXTENSION: whl
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          # Install a specific version of uv.
-          version: "0.7.12"
-
-      - name: Build Package
-        run: |
-          uv build
-
-      - name: Upload package as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-package
-          path: dist/*.whl
-          retention-days: 1  # GitHub only supports a minimum of 1 day
-
-  publish_to_pypi:
-    if: github.ref == 'refs/heads/master' && github.event.inputs.confirm_action == 'yes'
-    runs-on: ubuntu-24.04
-    needs: [build, control_tag]
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Download built package
-        uses: actions/download-artifact@v4
-        with:
-          name: python-package
-          path: dist
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          # Install a specific version of uv.
-          version: "0.7.12"
-
-      - name: Publish to Pypi
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
-        run: |
-          uv publish
-
-  # Controls if version consistent with semver and higner than last git tag.
-  control_tag:
-    if: github.event.pull_request.base.ref == 'master' || github.ref == 'refs/heads/master'
-    needs: get_current_version
-    uses: cyberrangecz/actions-templates/.github/workflows/tag_control_template.yml@master
-    with:
-      VERSION: ${{ needs.get_current_version.outputs.version }}
-
-  # Push tag only from manual workflow_dispatch with confirmed tag creation
-  push_tag:
-    needs: [get_current_version, control_tag, publish_to_pypi]
-    uses: cyberrangecz/actions-templates/.github/workflows/tag_push_template.yml@master
-    with:
-      VERSION: ${{ needs.get_current_version.outputs.version }}
+      publish_and_tag: ${{ github.event.inputs.confirm_action }}
