@@ -286,6 +286,8 @@ class OpenStackProxy:
         used_vcpu, used_ram, used_instances = 0, 0, 0
 
         for node in topology_instance.get_nodes():
+            if node.flavor not in flavors:
+                raise ValueError(f"Flavor '{node.flavor}' used in topology is not defined in OpenStack project. Please fix your flavor mappings and man flavor in your configuration.")
             flavor = flavors[node.flavor]
             used_vcpu += flavor["vcpu"]
             used_ram += flavor["ram"]
