@@ -1,3 +1,5 @@
+"""Module for generating random variable values."""
+
 import os
 import random
 import string
@@ -42,7 +44,7 @@ def get_number_of_lines(path: str) -> int:
             number of newlines
 
     """
-    with open(path) as source_file:
+    with open(path, encoding='utf-8') as source_file:
         line_num = 0
         for _line_num, _ in enumerate(source_file):
             pass
@@ -68,14 +70,14 @@ def get_random_text(text_file: str) -> str:
 
     try:
         chosen_sentence = random.randint(0, get_number_of_lines(text_file) - 1)
-        with open(text_file) as source_file:
+        with open(text_file, encoding='utf-8') as source_file:
             for sentence in source_file:
                 if chosen_sentence == 0:
                     censored_sentence: str = profanity.censor(sentence[:-1].split('"')[1])
                     return censored_sentence
                 chosen_sentence -= 1
         return 'Empty!'
-    except Exception:
+    except OSError:
         raise Exception('Missing or corrupted text.txt file in generator directory.') from None
 
 
@@ -97,7 +99,7 @@ def get_random_name(name_file: str, var: Variable) -> str:
 
     try:
         chosen_name = random.randint(0, get_number_of_lines(name_file) - 1)
-        with open(name_file) as source_file:
+        with open(name_file, encoding='utf-8') as source_file:
             for _ in range(2):
                 source_file.seek(0)
                 for name in source_file:
@@ -110,7 +112,7 @@ def get_random_name(name_file: str, var: Variable) -> str:
                     chosen_name -= 1
         return 'username'
 
-    except Exception:
+    except OSError:
         raise Exception('Missing or corrupted name.txt file in generator directory.') from None
 
 
@@ -293,7 +295,7 @@ def map_var_list_to_dict(var_list: list[Variable]) -> dict[str, str]:
 
     """
 
-    var_dict: dict[str, str] = dict()
+    var_dict: dict[str, str] = {}
     for var in var_list:
         var_dict[var.name] = var.generated_value
     return var_dict

@@ -1,3 +1,5 @@
+"""Module for parsing variable configuration files."""
+
 from typing import Any, Optional, TextIO
 
 import yaml
@@ -6,6 +8,19 @@ from generator.var_object import Variable
 
 
 def get_variables(variables_raw: dict[str, dict[str, Any]]) -> list[Variable]:
+    """
+    Convert raw dictionary variables to Variable objects.
+
+    Parameters
+    ----------
+    variables_raw : dict
+        Dictionary containing variable configurations
+
+    Returns
+    -------
+    list
+        List of Variable objects
+    """
     var_objects = []
     for variable_name, variable_options in variables_raw.items():
         v_type = variable_options['type']
@@ -38,7 +53,6 @@ def parser_var_file(var_file: TextIO) -> Optional[list[Variable]]:
     try:
         variables_raw = yaml.load(var_file, Loader=yaml.FullLoader)
         return get_variables(variables_raw)
-    except Exception as exc:
-        # TODO: Remove this horrendous exception handling!
+    except (yaml.YAMLError, KeyError) as exc:
         print(f'Something went wrong: {exc}')
         return None

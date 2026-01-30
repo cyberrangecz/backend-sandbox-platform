@@ -1,3 +1,5 @@
+"""Module containing the Variable class for representing variables."""
+
 from typing import Any, Optional
 
 from typing_extensions import override
