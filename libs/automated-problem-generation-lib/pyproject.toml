@@ -1,6 +1,6 @@
 [project]
 name = "crczp-automated-problem-generation-lib"
-version = "1.0.2"
+version = "1.0.3"
 description = "Random generator of selected variables"
 readme = "README.md"
 license = "MIT"

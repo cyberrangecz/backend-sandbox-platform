@@ -78,7 +78,7 @@ def get_random_text(text_file: str) -> str:
                 chosen_sentence -= 1
         return 'Empty!'
     except OSError:
-        raise Exception('Missing or corrupted text.txt file in generator directory.') from None
+        raise RuntimeError('Missing or corrupted text.txt file in generator directory.') from None
 
 
 def get_random_name(name_file: str, var: Variable) -> str:
@@ -113,7 +113,7 @@ def get_random_name(name_file: str, var: Variable) -> str:
         return 'username'
 
     except OSError:
-        raise Exception('Missing or corrupted name.txt file in generator directory.') from None
+        raise RuntimeError('Missing or corrupted name.txt file in generator directory.') from None
 
 
 def get_random_port(var_obj: Variable) -> str:
