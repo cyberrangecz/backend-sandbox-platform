@@ -102,7 +102,7 @@ Code quality checks must be executed in a reproducible, CI-equivalent environmen
 
   ```bash
   tox
-
+  ```
 
 ## Code Quality Requirements
 

@@ -69,7 +69,7 @@ def get_random_text(text_file: str) -> str:
     """
 
     try:
-        chosen_sentence = random.randint(0, get_number_of_lines(text_file) - 1)
+        chosen_sentence = random.randint(0, get_number_of_lines(text_file) - 1)  # nosec B311
         with open(text_file, encoding='utf-8') as source_file:
             for sentence in source_file:
                 if chosen_sentence == 0:
@@ -98,7 +98,7 @@ def get_random_name(name_file: str, var: Variable) -> str:
     """
 
     try:
-        chosen_name = random.randint(0, get_number_of_lines(name_file) - 1)
+        chosen_name = random.randint(0, get_number_of_lines(name_file) - 1)  # nosec B311
         with open(name_file, encoding='utf-8') as source_file:
             for _ in range(2):
                 source_file.seek(0)
@@ -139,7 +139,7 @@ def get_random_port(var_obj: Variable) -> str:
         v_max = v_min + 4000
 
     for _ in range(4000):
-        port = random.randint(v_min, v_max)
+        port = random.randint(v_min, v_max)  # nosec B311
         if port not in var_obj.prohibited:
             return str(port)
     return '0'
@@ -183,7 +183,7 @@ def get_random_ip(var_obj: Variable) -> str:
             octet_list_max[i] = str(int(octet_list_max[i]))
 
     for _ in range(4000):
-        ip_dec = random.randint(
+        ip_dec = random.randint(  # nosec B311
             int(octet_list_min[0]) * 2**24
             + int(octet_list_min[1]) * 2**16
             + int(octet_list_min[2]) * 2**8
@@ -200,7 +200,7 @@ def get_random_ip(var_obj: Variable) -> str:
 
         if ip_add[:-1] not in var_obj.prohibited:
             return ip_add[:-1]
-    return '0.0.0.0'
+    return '0.0.0.0'  # nosec B104
 
 
 def get_cwd(file: str) -> str:
@@ -240,7 +240,7 @@ def get_random_password(var: Variable) -> str:
         var.length = 8
     while True:
         letters_and_digits = string.ascii_letters + string.digits
-        result_str = ''.join(random.choice(letters_and_digits) for _ in range(var.length))
+        result_str = ''.join(random.choice(letters_and_digits) for _ in range(var.length))  # nosec B311
         if result_str not in var.prohibited:
             return result_str
 

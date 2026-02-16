@@ -51,7 +51,7 @@ def parser_var_file(var_file: TextIO) -> Optional[list[Variable]]:
 
     """
     try:
-        variables_raw = yaml.load(var_file, Loader=yaml.FullLoader)
+        variables_raw = yaml.safe_load(var_file)
         return get_variables(variables_raw)
     except (yaml.YAMLError, KeyError) as exc:
         print(f'Something went wrong: {exc}')
