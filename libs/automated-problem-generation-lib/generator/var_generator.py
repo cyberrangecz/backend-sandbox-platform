@@ -3,6 +3,9 @@
 import os
 import random
 import string
+import warnings
+from ipaddress import AddressValueError, IPv4Address
+from typing import Any, Optional
 
 from better_profanity import profanity
 
@@ -45,11 +48,7 @@ def get_number_of_lines(path: str) -> int:
 
     """
     with open(path, encoding='utf-8') as source_file:
-        line_num = 0
-        for _line_num, _ in enumerate(source_file):
-            pass
-        line_num += 1
-    return line_num
+        return sum(1 for _ in source_file)
 
 
 def get_random_text(text_file: str) -> str:
@@ -77,8 +76,8 @@ def get_random_text(text_file: str) -> str:
                     return censored_sentence
                 chosen_sentence -= 1
         return 'Empty!'
-    except OSError:
-        raise RuntimeError('Missing or corrupted text.txt file in generator directory.') from None
+    except OSError as exc:
+        raise RuntimeError('Missing or corrupted text.txt file in generator directory.') from exc
 
 
 def get_random_name(name_file: str, var: Variable) -> str:
@@ -112,8 +111,8 @@ def get_random_name(name_file: str, var: Variable) -> str:
                     chosen_name -= 1
         return 'username'
 
-    except OSError:
-        raise RuntimeError('Missing or corrupted name.txt file in generator directory.') from None
+    except OSError as exc:
+        raise RuntimeError('Missing or corrupted name.txt file in generator directory.') from exc
 
 
 def get_random_port(var_obj: Variable) -> str:
@@ -151,55 +150,60 @@ def get_random_ip(var_obj: Variable) -> str:
 
     Parameters
         ----------
-        var_obj : Variable object
+        var_obj : Variable
             Variable object with set restrictions for generation
 
     Returns
         -------
-        Variable object
-            Variable object with filled generated_value attribute
-
+        str
+            Generated IP address in dotted-decimal notation
     """
-    octet_list_min = (var_obj.min or ' ').split('.')
-    octet_list_max = (var_obj.max or ' ').split('.')
 
-    if len(octet_list_min) <= 3:
-        octet_list_min = ['0', '0', '0', '0']
-    if len(octet_list_max) <= 3:
-        octet_list_max = ['255', '255', '255', '255']
+    def parse_ip_to_int(ip_value: Optional[Any], default: int) -> int:
+        """
+        Parse IP value to integer, return default on any failure.
 
-    for i in range(4):
-        if int(octet_list_min[i]) > 255:
-            octet_list_min[i] = '255'
-        elif int(octet_list_min[i]) < 0:
-            octet_list_min[i] = '0'
-        else:
-            octet_list_min[i] = str(int(octet_list_min[i]))
-        if int(octet_list_max[i]) > 255:
-            octet_list_max[i] = '255'
-        elif int(octet_list_max[i]) < 0:
-            octet_list_max[i] = '0'
-        else:
-            octet_list_max[i] = str(int(octet_list_max[i]))
+        Expected types: None (use default) or str (parse as IP).
+        Warns on unexpected types (int, bool, etc.).
+        """
+        # None is expected - no warning
+        if ip_value is None:
+            return default
 
-    for _ in range(4000):
-        ip_dec = random.randint(  # nosec B311
-            int(octet_list_min[0]) * 2**24
-            + int(octet_list_min[1]) * 2**16
-            + int(octet_list_min[2]) * 2**8
-            + int(octet_list_min[3]),
-            int(octet_list_max[0]) * 2**24
-            + int(octet_list_max[1]) * 2**16
-            + int(octet_list_max[2]) * 2**8
-            + int(octet_list_max[3]),
+        # String is expected - try to parse
+        if isinstance(ip_value, str):
+            # Strip whitespace and check for empty
+            ip_str = ip_value.strip()
+            if not ip_str:
+                return default
+
+            try:
+                return int(IPv4Address(ip_str))
+            except (AddressValueError, ValueError):
+                # Invalid IP format - this gets a warning
+                warnings.warn(f'Invalid IP address format: {ip_value!r}. Using default.', UserWarning, stacklevel=3)
+                return default
+
+        # Unexpected type - warn and use default
+        warnings.warn(
+            f'Unexpected type {type(ip_value).__name__}: {ip_value!r}. Expected Optional[str]. Using default.',
+            UserWarning,
+            stacklevel=3,
         )
-        ip_add = ''
-        for _i in range(4):
-            ip_add = str(ip_dec % 2**8) + '.' + ip_add
-            ip_dec //= 2**8
+        return default
 
-        if ip_add[:-1] not in var_obj.prohibited:
-            return ip_add[:-1]
+    # Parse min/max IP addresses using helper function
+    ip_min = parse_ip_to_int(var_obj.min, 0)
+    ip_max = parse_ip_to_int(var_obj.max, 2**32 - 1)
+
+    # Generate random IPs until we find one not prohibited
+    for _ in range(4000):
+        ip_dec = random.randint(ip_min, ip_max)  # nosec B311
+        ip_str = str(IPv4Address(ip_dec))
+
+        if ip_str not in var_obj.prohibited:
+            return ip_str
+
     return '0.0.0.0'  # nosec B104
 
 
@@ -227,8 +231,8 @@ def get_random_password(var: Variable) -> str:
 
     Parameters
         ----------
-        length : int
-            number of characters in result
+        var : Variable
+            Variable configuration (uses `var.length`, defaults to 8 if unspecified)
 
     Returns
         -------
