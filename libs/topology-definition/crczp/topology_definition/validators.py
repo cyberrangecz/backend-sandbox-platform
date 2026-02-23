@@ -1,180 +1,176 @@
 import re
-from ipaddress import ip_address, ip_network, collapse_addresses
-from itertools import combinations, product
-from typing import List
+from ipaddress import ip_address, ip_network
+from itertools import combinations
+from typing import Any
 
 VALID_NAMES_REGEX = r'^[a-z]([a-z0-9A-Z-])*$'
 _UNIQ_MSG = 'Uniqueness violation. The following name identifiers are not unique within the [{}] definition: {}.'
 
 
 class TopologyValidation:
-    @staticmethod
-    def is_valid_ostack_name(obj, name: str):
-        if not re.match(VALID_NAMES_REGEX, name):
-            _msg = 'Cannot set {}.name to "{}". It does not match regex "{}".'
-            raise ValueError(_msg.format(obj.__class__.__name__, name, VALID_NAMES_REGEX))
+	@staticmethod
+	def is_valid_ostack_name(obj: Any, name: str) -> None:
+		if not re.match(VALID_NAMES_REGEX, name):
+			_msg = 'Cannot set {}.name to "{}". It does not match regex "{}".'
+			raise ValueError(_msg.format(obj.__class__.__name__, name, VALID_NAMES_REGEX))
 
-    @staticmethod
-    def validate_net_mappings(obj, net_mappings):
-        _msg = 'Invalid network mapping with ip "{}". Cannot find {} with name "{}".'
-        for net_mapping in net_mappings:
-            if not obj.find_host_by_name(net_mapping.host):
-                raise ValueError(_msg.format(net_mapping.ip, 'host', net_mapping.host))
-            if not obj.find_network_by_name(net_mapping.network):
-                raise ValueError(_msg.format(net_mapping.ip, 'network', net_mapping.network))
-        return True
+	@staticmethod
+	def validate_net_mappings(obj: Any, net_mappings: Any) -> bool:
+		_msg = 'Invalid network mapping with ip "{}". Cannot find {} with name "{}".'
+		for net_mapping in net_mappings:
+			if not obj.find_host_by_name(net_mapping.host):
+				raise ValueError(_msg.format(net_mapping.ip, 'host', net_mapping.host))
+			if not obj.find_network_by_name(net_mapping.network):
+				raise ValueError(_msg.format(net_mapping.ip, 'network', net_mapping.network))
+		return True
 
-    @staticmethod
-    def validate_router_mappings(obj, router_mappings):
-        TopologyValidation.validate_name_mappings(obj, router_mappings)
-        TopologyValidation.validate_cidrs_and_ips(obj, router_mappings)
+	@staticmethod
+	def validate_router_mappings(obj: Any, router_mappings: Any) -> bool:
+		TopologyValidation.validate_name_mappings(obj, router_mappings)
+		TopologyValidation.validate_cidrs_and_ips(obj, router_mappings)
 
-        return True
+		return True
 
-    @staticmethod
-    def validate_name_mappings(obj, router_mappings):
-        _msg = 'Invalid router mapping with ip "{}". Cannot find {} with name "{}".'
-        for router_mapping in router_mappings:
-            if not obj.find_router_by_name(router_mapping.router):
-                raise ValueError(_msg.format(router_mapping.ip, 'router', router_mapping.router))
-            if not obj.find_network_by_name(router_mapping.network):
-                raise ValueError(_msg.format(router_mapping.ip, 'network', router_mapping.network))
+	@staticmethod
+	def validate_name_mappings(obj: Any, router_mappings: Any) -> None:
+		_msg = 'Invalid router mapping with ip "{}". Cannot find {} with name "{}".'
+		for router_mapping in router_mappings:
+			if not obj.find_router_by_name(router_mapping.router):
+				raise ValueError(_msg.format(router_mapping.ip, 'router', router_mapping.router))
+			if not obj.find_network_by_name(router_mapping.network):
+				raise ValueError(_msg.format(router_mapping.ip, 'network', router_mapping.network))
 
-    @staticmethod
-    def validate_cidrs_and_ips(obj, router_mappings):
-        networks = [n for n in obj.networks] + [obj.wan]
-        net_mappings = [n for n in obj.net_mappings]
-        router_mappings_list = [r for r in router_mappings]
+	@staticmethod
+	def validate_cidrs_and_ips(obj: Any, router_mappings: Any) -> None:
+		networks = [n for n in obj.networks] + [obj.wan]
+		net_mappings = [n for n in obj.net_mappings]
+		router_mappings_list = [r for r in router_mappings]
 
-        TopologyValidation.raise_if_overlaps(networks)
+		TopologyValidation.raise_if_overlaps(networks)
 
-        TopologyValidation.raise_if_not_in_network(obj.net_mappings, obj.networks)
-        TopologyValidation.raise_if_not_in_network(router_mappings, obj.networks)
+		TopologyValidation.raise_if_not_in_network(obj.net_mappings, obj.networks)
+		TopologyValidation.raise_if_not_in_network(router_mappings, obj.networks)
 
-        TopologyValidation.raise_if_ip_not_unique(net_mappings + router_mappings_list)
+		TopologyValidation.raise_if_ip_not_unique(net_mappings + router_mappings_list)
 
-    @staticmethod
-    def raise_if_overlaps(networks):
-        cidrs = {network.name: ip_network(network.cidr) for network in networks}
-        for net_a, net_b in combinations(cidrs, 2):
-            if cidrs[net_a].overlaps(cidrs[net_b]):
-                _msg = 'Network "{}" overlaps with network "{}".'
-                raise ValueError(_msg.format(cidrs[net_a], cidrs[net_b]))
+	@staticmethod
+	def raise_if_overlaps(networks: Any) -> None:
+		cidrs = {network.name: ip_network(network.cidr) for network in networks}
+		for net_a, net_b in combinations(cidrs, 2):
+			if cidrs[net_a].overlaps(cidrs[net_b]):
+				_msg = 'Network "{}" overlaps with network "{}".'
+				raise ValueError(_msg.format(cidrs[net_a], cidrs[net_b]))
 
-    @staticmethod
-    def raise_if_not_in_network(mappings, networks):
-        mappings = {mapp.network: ip_address(mapp.ip) for mapp in mappings}
-        networks = {net.name: ip_network(net.cidr) for net in networks}
-        for network, ip in mappings.items():
-            if ip not in networks[network]:
-                _msg = 'IP address "{}" is not valid host address of "{}" defined in network "{}".'
-                raise ValueError(_msg.format(ip, networks[network], network))
+	@staticmethod
+	def raise_if_not_in_network(mappings: Any, networks: Any) -> None:
+		mappings = {mapp.network: ip_address(mapp.ip) for mapp in mappings}
+		networks = {net.name: ip_network(net.cidr) for net in networks}
+		for network, ip in mappings.items():
+			if ip not in networks[network]:
+				_msg = 'IP address "{}" is not valid host address of "{}" defined in network "{}".'
+				raise ValueError(_msg.format(ip, networks[network], network))
 
-    @staticmethod
-    def raise_if_ip_not_unique(mappings):
-        mappings_ip = [mapp.ip for mapp in mappings]
-        duplicates_ip = TopologyValidation.get_duplicates(mappings_ip)
+	@staticmethod
+	def raise_if_ip_not_unique(mappings: Any) -> None:
+		mappings_ip = [mapp.ip for mapp in mappings]
+		duplicates_ip = TopologyValidation.get_duplicates(mappings_ip)
 
-        if duplicates_ip:
-            _msg = 'Uniqueness violation. The IP address of either of mappings must be unique. Incorrect IP addresses' \
-                   ': {}.'
-            raise ValueError(_msg.format(duplicates_ip))
+		if duplicates_ip:
+			_msg = 'Uniqueness violation. The IP address of either of mappings must be unique. Incorrect IP addresses: {}.'
+			raise ValueError(_msg.format(duplicates_ip))
 
-    @staticmethod
-    def validate_groups(obj, groups):
-        TopologyValidation.raise_if_not_unique('groups', [g.name for g in groups])
+	@staticmethod
+	def validate_groups(obj: Any, groups: Any) -> bool:
+		TopologyValidation.raise_if_not_unique('groups', [g.name for g in groups])
 
-        _msg = 'Invalid group with name "{}". Cannot find a node (host or router) with name "{}".'
-        for group in groups:
-            for node in group.nodes:
-                if not obj.find_host_by_name(node) and not obj.find_router_by_name(node):
-                    raise ValueError(_msg.format(group.name, node))
-        return True
+		_msg = 'Invalid group with name "{}". Cannot find a node (host or router) with name "{}".'
+		for group in groups:
+			for node in group.nodes:
+				if not obj.find_host_by_name(node) and not obj.find_router_by_name(node):
+					raise ValueError(_msg.format(group.name, node))
+		return True
 
-    @staticmethod
-    def validate_group_nodes(obj, nodes):
-        for node in nodes:
-            if not re.match(VALID_NAMES_REGEX, node):
-                _msg = 'Invalid name "{}" in Group.nodes. It does not match regex "{}".'
-                raise ValueError(_msg.format(node, VALID_NAMES_REGEX))
+	@staticmethod
+	def validate_group_nodes(obj: Any, nodes: Any) -> bool:
+		for node in nodes:
+			if not re.match(VALID_NAMES_REGEX, node):
+				_msg = 'Invalid name "{}" in Group.nodes. It does not match regex "{}".'
+				raise ValueError(_msg.format(node, VALID_NAMES_REGEX))
 
-        TopologyValidation.raise_if_not_unique('Group.nodes', list(nodes))
+		TopologyValidation.raise_if_not_unique('Group.nodes', list(nodes))
 
-        return True
+		return True
 
-    @staticmethod
-    def validate_name_uniqueness(obj, networks):
-        a = [obj.name]
-        b = [h.name for h in obj.hosts]
-        c = [r.name for r in obj.routers]
-        d = [n.name for n in networks]
-        e = [obj.wan.name]
+	@staticmethod
+	def validate_name_uniqueness(obj: Any, networks: Any) -> bool:
+		a = [obj.name]
+		b = [h.name for h in obj.hosts]
+		c = [r.name for r in obj.routers]
+		d = [n.name for n in networks]
+		e = [obj.wan.name]
 
-        TopologyValidation.raise_if_not_unique('name, hosts, routers, networks, wan',
-                                               a + b + c + d + e)
+		TopologyValidation.raise_if_not_unique('name, hosts, routers, networks, wan', a + b + c + d + e)
 
-        return True
+		return True
 
-    @staticmethod
-    def raise_if_not_unique(what_for: str, elements: List):
-        duplicates = TopologyValidation.get_duplicates(elements)
-        if duplicates:
-            raise ValueError(_UNIQ_MSG.format(what_for, duplicates))
+	@staticmethod
+	def raise_if_not_unique(what_for: str, elements: list[Any]) -> None:
+		duplicates = TopologyValidation.get_duplicates(elements)
+		if duplicates:
+			raise ValueError(_UNIQ_MSG.format(what_for, duplicates))
 
-    @staticmethod
-    def get_duplicates(elements: List) -> List:
-        result = set()
+	@staticmethod
+	def get_duplicates(elements: list[Any]) -> list[Any]:
+		result = set()
 
-        unique_elements = set(elements)
+		unique_elements = set(elements)
 
-        if len(elements) > len(unique_elements):
-            for element in elements:
-                if element not in unique_elements:
-                    result.add(element)
-                else:
-                    unique_elements.remove(element)
+		if len(elements) > len(unique_elements):
+			for element in elements:
+				if element not in unique_elements:
+					result.add(element)
+				else:
+					unique_elements.remove(element)
 
-        return list(result)
+		return list(result)
 
-    @staticmethod
-    def is_volumes_valid(obj, volumes: []):
-        if volumes:
-            if len(volumes) < 1:
-                raise ValueError("Volumes must contain at least one entry for system disk")
+	@staticmethod
+	def is_volumes_valid(obj: Any, volumes: list[Any]) -> None:
+		if volumes and len(volumes) < 1:
+			raise ValueError('Volumes must contain at least one entry for system disk')
 
-    @staticmethod
-    def validate_monitoring_targets(obj, targets):
-        node_names = set([host.name for host in obj.hosts] +
-                         [router.name for router in obj.routers])
-        used_node_names = set()
+	@staticmethod
+	def validate_monitoring_targets(obj: Any, targets: Any) -> bool:
+		node_names = set([host.name for host in obj.hosts] + [router.name for router in obj.routers])
+		used_node_names = set()
 
-        for target in targets:
-            if target.node not in node_names:
-                _msg = 'Invalid node name in MonitoringTarget.node. No node with name "{}" found.'
-                raise ValueError(_msg.format(target.node))
+		for target in targets:
+			if target.node not in node_names:
+				_msg = 'Invalid node name in MonitoringTarget.node. No node with name "{}" found.'
+				raise ValueError(_msg.format(target.node))
 
-            if target.node in used_node_names:
-                _msg = 'Duplicate node name "{}" in MonitoringTarget.node. Only define each target once.'
-                raise ValueError(_msg.format(target.node))
+			if target.node in used_node_names:
+				_msg = 'Duplicate node name "{}" in MonitoringTarget.node. Only define each target once.'
+				raise ValueError(_msg.format(target.node))
 
-            used_node_names.add(target.node)
+			used_node_names.add(target.node)
 
-        return True
+		return True
 
-    @staticmethod
-    def validate_targets(obj, targets):
-        used_ports = set()
+	@staticmethod
+	def validate_targets(obj: Any, targets: Any) -> bool:
+		used_ports = set()
 
-        for target in targets:
-            if target.port in used_ports:
-                _msg = 'Port "{}" in MonitoringTarget.ports is duplicated. ' \
-                       'Only define each port once on a single host.'
-                raise ValueError(_msg.format(target.port))
+		for target in targets:
+			if target.port in used_ports:
+				_msg = 'Port "{}" in MonitoringTarget.ports is duplicated. Only define each port once on a single host.'
+				raise ValueError(_msg.format(target.port))
 
-            used_ports.add(target.port)
-            if target.port < 1 or target.port > 65535:
-                _msg = 'Port "{}" in MonitoringTarget.ports is not a valid port number. ' \
-                       'Port number must be in range <1, 65535>.'
-                raise ValueError(_msg.format(target.port))
+			used_ports.add(target.port)
+			if target.port < 1 or target.port > 65535:
+				_msg = (
+					'Port "{}" in MonitoringTarget.ports is not a valid port number. Port number must be in range <1, 65535>.'
+				)
+				raise ValueError(_msg.format(target.port))
 
-        return True
+		return True
