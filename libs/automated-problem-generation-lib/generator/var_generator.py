@@ -1,53 +1,57 @@
-import string
-import random
+"""Module for generating random variable values."""
+
 import os
+import random
+import string
+import warnings
+from ipaddress import AddressValueError, IPv4Address
+from typing import Any, Optional
+
 from better_profanity import profanity
 
-NAME_FILE_PATH = "names.txt"
-TEXT_FILE_PATH = "text.txt"
+from generator.var_object import Variable
+
+NAME_FILE_PATH = 'names.txt'
+TEXT_FILE_PATH = 'text.txt'
 
 
-def init_seed(seed):
+def init_seed(seed: int) -> None:
     """
-        Function to initialize random generator.
+    Function to initialize random generator.
 
-        Parameters
-            ----------
-            seed : int
-                initial seed
+    Parameters
+        ----------
+        seed : int
+            initial seed
 
-        Returns
-            -------
-            None
+    Returns
+        -------
+        None
 
     """
     random.seed(seed)
 
 
-def get_number_of_lines(path):
+def get_number_of_lines(path: str) -> int:
     """
-        Function counts number of lines in text file.
+    Function counts number of lines in text file.
 
-        Parameters
-            ----------
-            path : String
-                path to file with text
+    Parameters
+        ----------
+        path : String
+            path to file with text
 
-        Returns
-            -------
-            int
-                number of newlines
+    Returns
+        -------
+        int
+            number of newlines
 
     """
-    with open(path, "r") as source_file:
-        line_num = 0
-        for line_num, _ in enumerate(source_file):
-            pass
-        line_num += 1
-    return line_num
+    with open(path, encoding='utf-8') as source_file:
+        return sum(1 for _ in source_file)
 
 
-def get_random_text(text_file):
+def get_random_text(text_file: str) -> str:
     """
     Function generates random sentence.
 
@@ -64,18 +68,19 @@ def get_random_text(text_file):
     """
 
     try:
-        chosen_sentence = random.randint(0, get_number_of_lines(text_file) - 1)
-        with open(text_file, "r") as source_file:
+        chosen_sentence = random.randint(0, get_number_of_lines(text_file) - 1)  # nosec B311
+        with open(text_file, encoding='utf-8') as source_file:
             for sentence in source_file:
                 if chosen_sentence == 0:
-                    return profanity.censor(sentence[:-1].split('"')[1])
+                    censored_sentence: str = profanity.censor(sentence[:-1].split('"')[1])
+                    return censored_sentence
                 chosen_sentence -= 1
-        return "Empty!"
-    except:
-        raise Exception("Missing or corrupted text.txt file in generator directory.")
+        return 'Empty!'
+    except OSError as exc:
+        raise RuntimeError('Missing or corrupted text.txt file in generator directory.') from exc
 
 
-def get_random_name(name_file, var):
+def get_random_name(name_file: str, var: Variable) -> str:
     """
     Function generates random name.
 
@@ -92,53 +97,27 @@ def get_random_name(name_file, var):
     """
 
     try:
-        chosen_name = random.randint(0, get_number_of_lines(name_file) - 1)
-        with open(name_file, "r") as source_file:
+        chosen_name = random.randint(0, get_number_of_lines(name_file) - 1)  # nosec B311
+        with open(name_file, encoding='utf-8') as source_file:
             for _ in range(2):
                 source_file.seek(0)
                 for name in source_file:
-                    if chosen_name <= 0 and (var.length is None or var.length + 1 == len(name)):
-                        if name[:-1] not in var.prohibited:
-                            return name[:-1]
+                    if (
+                        chosen_name <= 0
+                        and (var.length is None or var.length + 1 == len(name))
+                        and name[:-1] not in var.prohibited
+                    ):
+                        return name[:-1]
                     chosen_name -= 1
-        return "username"
+        return 'username'
 
-    except:
-        raise Exception("Missing or corrupted name.txt file in generator directory.")
+    except OSError as exc:
+        raise RuntimeError('Missing or corrupted name.txt file in generator directory.') from exc
 
 
-def get_random_port(var_obj):
+def get_random_port(var_obj: Variable) -> str:
     """
-        Function generates random port number with optional restrictions.
-
-        Parameters
-            ----------
-            var_obj : Variable object
-                Variable object with set restrictions for generation
-
-        Returns
-            -------
-            Variable object
-                Variable object with filled generated_value attribute
-
-    """
-    v_min = var_obj.min
-    v_max = var_obj.max
-    if v_min is None:
-        v_min = 35000
-    if v_max is None:
-        v_max = v_min + 4000
-
-    for _ in range(4000):
-        port = random.randint(v_min, v_max)
-        if port not in var_obj.prohibited:
-            return str(port)
-    return "0"
-
-
-def get_random_ip(var_obj):
-    """
-    Function generates random IP address with optional restrictions.
+    Function generates random port number with optional restrictions.
 
     Parameters
         ----------
@@ -151,44 +130,84 @@ def get_random_ip(var_obj):
             Variable object with filled generated_value attribute
 
     """
-    octet_list_min = (var_obj.min or " ").split(".")
-    octet_list_max = (var_obj.max or " ").split(".")
-
-    if len(octet_list_min) <= 3:
-        octet_list_min = [0, 0, 0, 0]
-    if len(octet_list_max) <= 3:
-        octet_list_max = [255, 255, 255, 255]
-
-    for i in range(4):
-        if int(octet_list_min[i]) > 255:
-            octet_list_min[i] = 255
-        elif int(octet_list_min[i]) < 0:
-            octet_list_min[i] = 0
-        else:
-            octet_list_min[i] = int(octet_list_min[i])
-        if int(octet_list_max[i]) > 255:
-            octet_list_max[i] = 255
-        elif int(octet_list_max[i]) < 0:
-            octet_list_max[i] = 0
-        else:
-            octet_list_max[i] = int(octet_list_max[i])
+    v_min = var_obj.min
+    v_max = var_obj.max
+    if v_min is None:
+        v_min = 35000
+    if v_max is None:
+        v_max = v_min + 4000
 
     for _ in range(4000):
-        ip_dec = random.randint(octet_list_min[0] * 2 ** 24 + octet_list_min[1] * 2 ** 16 +
-                                octet_list_min[2] * 2 ** 8 + octet_list_min[3],
-                                octet_list_max[0] * 2 ** 24 + octet_list_max[1] * 2 ** 16 +
-                                octet_list_max[2] * 2 ** 8 + octet_list_max[3])
-        ip_add = ""
-        for i in range(4):
-            ip_add = str(ip_dec % 2 ** 8) + "." + ip_add
-            ip_dec //= 2 ** 8
-
-        if ip_add[:-1] not in var_obj.prohibited:
-            return ip_add[:-1]
-    return "0.0.0.0"
+        port = random.randint(v_min, v_max)  # nosec B311
+        if port not in var_obj.prohibited:
+            return str(port)
+    return '0'
 
 
-def get_cwd(file):
+def get_random_ip(var_obj: Variable) -> str:
+    """
+    Function generates random IP address with optional restrictions.
+
+    Parameters
+        ----------
+        var_obj : Variable
+            Variable object with set restrictions for generation
+
+    Returns
+        -------
+        str
+            Generated IP address in dotted-decimal notation
+    """
+
+    def parse_ip_to_int(ip_value: Optional[Any], default: int) -> int:
+        """
+        Parse IP value to integer, return default on any failure.
+
+        Expected types: None (use default) or str (parse as IP).
+        Warns on unexpected types (int, bool, etc.).
+        """
+        # None is expected - no warning
+        if ip_value is None:
+            return default
+
+        # String is expected - try to parse
+        if isinstance(ip_value, str):
+            # Strip whitespace and check for empty
+            ip_str = ip_value.strip()
+            if not ip_str:
+                return default
+
+            try:
+                return int(IPv4Address(ip_str))
+            except (AddressValueError, ValueError):
+                # Invalid IP format - this gets a warning
+                warnings.warn(f'Invalid IP address format: {ip_value!r}. Using default.', UserWarning, stacklevel=3)
+                return default
+
+        # Unexpected type - warn and use default
+        warnings.warn(
+            f'Unexpected type {type(ip_value).__name__}: {ip_value!r}. Expected Optional[str]. Using default.',
+            UserWarning,
+            stacklevel=3,
+        )
+        return default
+
+    # Parse min/max IP addresses using helper function
+    ip_min = parse_ip_to_int(var_obj.min, 0)
+    ip_max = parse_ip_to_int(var_obj.max, 2**32 - 1)
+
+    # Generate random IPs until we find one not prohibited
+    for _ in range(4000):
+        ip_dec = random.randint(ip_min, ip_max)  # nosec B311
+        ip_str = str(IPv4Address(ip_dec))
+
+        if ip_str not in var_obj.prohibited:
+            return ip_str
+
+    return '0.0.0.0'  # nosec B104
+
+
+def get_cwd(file: str) -> str:
     """
     Helper function to get absolut path to the file.
 
@@ -206,14 +225,14 @@ def get_cwd(file):
     return os.path.join(abs_from_root, file)
 
 
-def get_random_password(var):
+def get_random_password(var: Variable) -> str:
     """
     Function generates random password.
 
     Parameters
         ----------
-        length : int
-            number of characters in result
+        var : Variable
+            Variable configuration (uses `var.length`, defaults to 8 if unspecified)
 
     Returns
         -------
@@ -225,12 +244,12 @@ def get_random_password(var):
         var.length = 8
     while True:
         letters_and_digits = string.ascii_letters + string.digits
-        result_str = ''.join((random.choice(letters_and_digits) for _ in range(var.length)))
+        result_str = ''.join(random.choice(letters_and_digits) for _ in range(var.length))  # nosec B311
         if result_str not in var.prohibited:
             return result_str
 
 
-def generate_randomized_arg(variables, player_seed):
+def generate_randomized_arg(variables: list[Variable], player_seed: int) -> list[Variable]:
     """
     Function fills each Variable object's attribute generated_value
     from argument with generated value.
@@ -249,10 +268,8 @@ def generate_randomized_arg(variables, player_seed):
         list of Variable objects
             list of Variable objects filled with generate valued in dependence on restrictions
     """
-    step = 0
-    for var in variables:
+    for step, var in enumerate(variables):
         init_seed(player_seed + step)
-        step += 1
         if var.type.lower() == 'username':
             var.generated_value = get_random_name(get_cwd(NAME_FILE_PATH), var)
         elif var.type.lower() == 'password':
@@ -266,7 +283,7 @@ def generate_randomized_arg(variables, player_seed):
     return variables
 
 
-def map_var_list_to_dict(var_list):
+def map_var_list_to_dict(var_list: list[Variable]) -> dict[str, str]:
     """
     Help function to map each object to tuple key value.
 
@@ -279,15 +296,16 @@ def map_var_list_to_dict(var_list):
         -------
         dict
             dictionary with name of the variable as key and generate value as value
+
     """
 
-    var_dict = dict()
+    var_dict: dict[str, str] = {}
     for var in var_list:
         var_dict[var.name] = var.generated_value
     return var_dict
 
 
-def generate(variable_list, seed):
+def generate(variable_list: list[Variable], seed: int) -> dict[str, str]:
     """
     Main function to generate random values in dependence on set restrictions.
 
