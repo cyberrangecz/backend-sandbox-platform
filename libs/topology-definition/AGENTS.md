@@ -7,7 +7,7 @@ should interact with this repository.
 
 For a high-level description, usage examples, and API overview, see the main project documentation:
 
-[README.md](https://github.com/cyberrangecz/backend-automated-problem-generation-lib/blob/master/README.md)
+[README.md](https://github.com/cyberrangecz/backend-topology-definition/blob/master/README.md)
 
 **Repository:** `backend-automated-problem-generation-lib`
 
@@ -39,22 +39,22 @@ Agents **must not** push directly to `master`.
 
 ```
 /
-├── .github/                    # GitHub CI/CD configuration
-│   └── workflows/              # CI workflows
-├── generator/                  # Main Python package
-│   └── *.py                    # Library modules
-├── tests/                      # Pytest test suite
-│   └── *.py                    # Test modules
-├── .pre-commit-config.yaml     # Pre-commit hook definitions
-├── pyproject.toml              # Project and tool configuration
-├── tox.ini                     # Tox environments
-├── uv.lock                     # Locked dependency versions
-├── README.md
+├── .github/                     # CI workflows & automated checks
+│   └── workflows/
+├── crczp/
+│   └── topology_definition/     # Core Python package source
+│       └── *.py                 # Model & schema definitions
+├── tests/                       # Automated tests
+│   └── *.py                     # Pytest test modules
+├── AGENTS.md                    # This file
 ├── LICENSE
-└── AGENTS.md                   # This file
+├── README.md                    # Human-oriented project readme
+├── pyproject.toml               # Python project config
+├── tox.ini                      # Test & quality orchestrator
+└── uv.lock                      # Locked dependency versions
 ```
 
-* **`generator/`** contains all production library code
+* **`crczp/topology_definition`** contains all production Python code for topology definitions
 * **`tests/`** contains the complete automated test suite
 * **`.github/workflows/`** defines CI behavior
 
