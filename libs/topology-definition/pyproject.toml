@@ -1,6 +1,6 @@
 [project]
 name = "crczp-topology-definition"
-version = "1.0.2"
+version = "1.0.3"
 description = "topology-definition"
 readme = "README.md"
 license = "MIT"
@@ -23,7 +23,7 @@ packages = ["crczp"]
 exclude-packages = ["tests"]
 
 [tool.ruff]
-line-length = 127
+line-length = 100
 preview = true
 
 [tool.ruff.lint]
@@ -44,7 +44,7 @@ select = [
 
 [tool.ruff.format]
 quote-style = "single"
-indent-style = "tab"
+indent-style = "space"
 docstring-code-format = true
 
 [tool.mypy]
