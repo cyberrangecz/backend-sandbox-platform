@@ -9,9 +9,9 @@ For a high-level description, usage examples, and API overview, see the main pro
 
 [README.md](https://github.com/cyberrangecz/backend-topology-definition/blob/master/README.md)
 
-**Repository:** `backend-automated-problem-generation-lib`
+**Repository:** `backend-topology-definition`
 
-A Python library for automated problem generation with a strong focus on code quality,
+A Python library for backend topology definition with a strong focus on code quality,
 security, and test coverage.
 
 Core tooling:

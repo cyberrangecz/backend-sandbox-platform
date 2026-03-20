@@ -316,11 +316,6 @@ class TopologyDefinition(Object):  # type: ignore[misc]
         default=None,
     )
 
-    _indexed: bool = False
-    _hosts_index: dict[str, Host] = {}
-    _routers_index: dict[str, Router] = {}
-    _networks_index: dict[str, Network] = {}
-
     def __init__(self, name: str, wan: WAN) -> None:
         self.name = name
         self.hosts = HostList()
@@ -331,6 +326,10 @@ class TopologyDefinition(Object):  # type: ignore[misc]
         self.router_mappings = RouterMappingList()
         self.groups = GroupList()
         self.monitoring_targets = MonitoringTargetList()
+        self._indexed: bool = False
+        self._hosts_index: dict[str, Host] = {}
+        self._routers_index: dict[str, Router] = {}
+        self._networks_index: dict[str, Network] = {}
 
     @staticmethod
     def from_file(file: str) -> 'TopologyDefinition':
@@ -347,7 +346,7 @@ class TopologyDefinition(Object):  # type: ignore[misc]
         self._hosts_index = {h.name: h for h in self.hosts}
         self._routers_index = {r.name: r for r in self.routers}
         self._networks_index = {n.name: n for n in self.networks}
-        TopologyDefinition._indexed = True
+        self._indexed = True
 
     def find_host_by_name(self, name: str) -> Optional[Host]:
         """
@@ -378,30 +377,35 @@ class TopologyDefinition(Object):  # type: ignore[misc]
         Add host to topology.
         """
         self.hosts.append(host)
+        self._indexed = False
 
     def add_router(self, router: Router) -> None:
         """
         Add router to topology.
         """
         self.routers.append(router)
+        self._indexed = False
 
     def add_net_mapping(self, net_mapping: NetworkMapping) -> None:
         """
         Add network mapping to topology.
         """
         self.net_mappings.append(net_mapping)
+        self._indexed = False
 
     def add_router_mappings(self, router_mapping: RouterMapping) -> None:
         """
         Add router mapping to topology.
         """
         self.router_mappings.append(router_mapping)
+        self._indexed = False
 
     def add_group(self, group: Group) -> None:
         """
         Add group to topology.
         """
         self.groups.append(group)
+        self._indexed = False
 
 
 class Container(Object):  # type: ignore[misc]
