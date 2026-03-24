@@ -9,6 +9,10 @@ authors = [{ name = "cybersecurityhub.cz" }]
 dependencies = [
     "crczp-topology-definition>=1.0.0"
 ]
+[project.optional-dependencies]
+dev = [
+    "types-PyYAML",
+]
 
 [build-system]
 # TODO: Replace this with uv_build when it is it released for GA.

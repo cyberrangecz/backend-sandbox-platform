@@ -1,7 +1,8 @@
-from typing import Union
 from enum import Enum
+from typing import Any, Optional, Union
 
-from crczp.topology_definition.models import BaseBox, Network, Host, Router
+from crczp.topology_definition.models import BaseBox, Host, Network, Router
+from typing_extensions import override
 
 Node = Union['MAN', Host, Router]
 
@@ -10,6 +11,7 @@ class MAN:
     """
     Represents Management Access Node in the TI.
     """
+
     def __init__(self, name: str, flavor: str, image: str, user: str):
         self.name = name
         self.flavor = flavor
@@ -17,7 +19,7 @@ class MAN:
         self.base_box.image = image
         self.base_box.mgmt_user = user
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """
         Return the MAN representation as a dictionary.
         """
@@ -27,17 +29,19 @@ class MAN:
             'base_box': {
                 'image': self.base_box.image,
                 'user': self.base_box.mgmt_user,
-            }
+            },
         }
 
-    def __repr__(self):
-        return 'MAN({0})'.format(self.to_dict())
+    @override
+    def __repr__(self) -> str:
+        return f'MAN({self.to_dict()})'
 
 
 class SecurityGroups(Enum):
     """
     Enumerator for sandboxes OpenStack security groups
     """
+
     SANDBOX_ACCESS = 'sandbox-access-sg'
     SANDBOX_MAN = 'sandbox-man-sg'
     SANDBOX_INTERNAL = 'sandbox-internal-sg'
@@ -48,8 +52,16 @@ class Link:
     """
     Represents a connection between a virtual machine and a virtual network in the TI.
     """
-    def __init__(self, name: str, node: Node, network: Network, security_group: SecurityGroups,
-                 ip: str = None, mac: str = None):
+
+    def __init__(
+        self,
+        name: str,
+        node: Node,
+        network: Network,
+        security_group: SecurityGroups,
+        ip: Optional[str] = None,
+        mac: Optional[str] = None,
+    ):
         self.name = name
         self.node = node
         self.network = network
@@ -57,11 +69,11 @@ class Link:
         self.ip = ip
         self.mac = mac
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """
         Return the Link representation as a dictionary.
         """
-        ret = {
+        ret: dict[str, Any] = {
             'name': self.name,
             'node': self.node.name,
             'network': self.network.name,
@@ -72,27 +84,32 @@ class Link:
             ret['mac'] = self.mac
         return ret
 
-    def __repr__(self):
-        return 'Link({0})'.format(self.to_dict())
+    @override
+    def __repr__(self) -> str:
+        return f'Link({self.to_dict()})'
 
 
 class NodeToNodeLinkPair:
     """
     Represents a connection between two virtual machines over one virtual network in the TI.
     """
+
     def __init__(self, first: Link, second: Link):
         if first.network != second.network:
             msg = 'both links of NodeToNodeLinkPair have to be connected to the same network.'
-            raise ValueError('{0} given links: \'{1}\', \'{2}\''.format(msg, first, second))
+            raise ValueError(f"{msg} given links: '{first}', '{second}'")
         if first.node == second.node:
             msg = 'links of NodeToNodeLinkPair have to be connected to different nodes.'
-            raise ValueError('{0} given links: \'{1}\', \'{2}\''.format(msg, first, second))
+            raise ValueError(f"{msg} given links: '{first}', '{second}'")
         self.first = first
         self.second = second
 
-    def __repr__(self):
+    @override
+    def __repr__(self) -> str:
         first_ip = self.first.ip if self.first.ip else ''
         second_ip = self.second.ip if self.second.ip else ''
-        return 'NodeToNodeLinkPair({0}({1}) <- {2} -> {3}({4}) <- {5} -> {6}({7}))' \
-            .format(self.first.node.name, first_ip, self.first.name, self.first.network.name,
-                    self.first.network.cidr, self.second.name, self.second.node.name, second_ip)
+        return (
+            f'NodeToNodeLinkPair({self.first.node.name}({first_ip}) <- {self.first.name} -> '
+            f'{self.first.network.name}({self.first.network.cidr}) <- {self.second.name} -> '
+            f'{self.second.node.name}({second_ip}))'
+        )

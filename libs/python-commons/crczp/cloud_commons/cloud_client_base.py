@@ -1,7 +1,13 @@
 from abc import ABC, abstractmethod
-from typing import List
+from typing import Any, Optional
 
-from crczp.cloud_commons.cloud_client_elements import Image, NodeDetails, QuotaSet, HardwareUsage, Limits
+from crczp.cloud_commons.cloud_client_elements import (
+    HardwareUsage,
+    Image,
+    Limits,
+    NodeDetails,
+    QuotaSet,
+)
 from crczp.cloud_commons.topology_instance import TopologyInstance
 
 
@@ -12,7 +18,7 @@ class CrczpCloudClientBase(ABC):
 
     @staticmethod
     @abstractmethod
-    def get_private_ip(instance_attrs: dict) -> str:
+    def get_private_ip(instance_attrs: dict[str, Any]) -> str:
         """
         Get IP address of a Terraform instance.
 
@@ -31,8 +37,9 @@ class CrczpCloudClientBase(ABC):
         pass
 
     @abstractmethod
-    def create_terraform_template(self, topology_instance: TopologyInstance, *args, **kwargs)\
-            -> str:
+    def create_terraform_template(
+        self, topology_instance: TopologyInstance, *args: Any, **kwargs: Any
+    ) -> str:
         """
         Create terraform template that will be deployed.
 
@@ -47,7 +54,7 @@ class CrczpCloudClientBase(ABC):
         pass
 
     @abstractmethod
-    def list_images(self) -> List[Image]:
+    def list_images(self) -> list[Image]:
         """
         List all available images on the cloud project.
 
@@ -99,7 +106,7 @@ class CrczpCloudClientBase(ABC):
         pass
 
     @abstractmethod
-    def get_node_details(self, terraform_attrs: dict) -> NodeDetails:
+    def get_node_details(self, terraform_attrs: dict[str, Any]) -> NodeDetails:
         """
         Get node details from the Terraform resource attributes.
         Note, Terraform attributes are backend specific.
@@ -122,7 +129,9 @@ class CrczpCloudClientBase(ABC):
         pass
 
     @abstractmethod
-    def create_keypair(self, name: str, public_key: str = None, key_type: str = 'ssh') -> None:
+    def create_keypair(
+        self, name: str, public_key: Optional[str] = None, key_type: str = 'ssh'
+    ) -> None:
         """
         Create key pair in cloud.
 
@@ -135,7 +144,7 @@ class CrczpCloudClientBase(ABC):
         pass
 
     @abstractmethod
-    def get_keypair(self, name: str):
+    def get_keypair(self, name: str) -> Any:
         """
         Get KeyPair instance from cloud.
 
@@ -175,7 +184,7 @@ class CrczpCloudClientBase(ABC):
         pass
 
     @abstractmethod
-    def get_hardware_usage(self, topology_instance) -> HardwareUsage:
+    def get_hardware_usage(self, topology_instance: TopologyInstance) -> HardwareUsage:
         """
         Get hardware usage of a single sandbox.
 
@@ -185,7 +194,7 @@ class CrczpCloudClientBase(ABC):
         pass
 
     @abstractmethod
-    def get_flavors_dict(self) -> dict:
+    def get_flavors_dict(self) -> dict[str, Any]:
         """
         Gets flavors defined in OpenStack project with their vcpu and ram usage as dictionary
 
