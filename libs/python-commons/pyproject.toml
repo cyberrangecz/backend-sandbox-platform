@@ -1,6 +1,6 @@
 [project]
 name = "crczp-python-commons"
-version = "1.0.2"
+version = "1.0.3"
 description = "crczp python commons"
 readme = "README.md"
 license = "MIT"
