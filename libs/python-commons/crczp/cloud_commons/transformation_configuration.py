@@ -1,3 +1,5 @@
+"""Transformation configuration module for cloud resource settings."""
+
 from typing import Optional
 
 from yamlize import Attribute, Object, StrList
@@ -11,6 +13,8 @@ DNS_NAME_SERVERS: tuple[str, ...] = ()
 
 
 class TransformationConfiguration(Object):  # type: ignore[misc]
+    """Configuration for cloud transformation settings."""
+
     base_network = Attribute(type=str, default=BASE_NETWORK)
     man_out_port = Attribute(type=str, default=MAN_OUT_PORT)
 
@@ -44,4 +48,7 @@ class TransformationConfiguration(Object):  # type: ignore[misc]
 
     @staticmethod
     def from_file(file: str) -> 'TransformationConfiguration':
-        return TransformationConfiguration.load(open(file))  # type: ignore[no-any-return]
+        """Load transformation configuration from a YAML file."""
+        return TransformationConfiguration.load(  # type: ignore[no-any-return]
+            open(file, encoding='utf-8')
+        )

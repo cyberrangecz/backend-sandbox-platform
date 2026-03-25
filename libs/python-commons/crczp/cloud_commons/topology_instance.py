@@ -1,3 +1,5 @@
+"""Topology instance module for managing topology instances."""
+
 from collections.abc import Iterable
 from typing import Optional, cast
 
@@ -238,7 +240,7 @@ class TopologyInstance:
         links = self.get_node_links(node, [network])
         if not links:
             return None
-        elif len(links) > 1:
+        if len(links) > 1:
             msg = (
                 'invalid number of links between server and network,'
                 f'there should be exactly 1 link, got: {links}'

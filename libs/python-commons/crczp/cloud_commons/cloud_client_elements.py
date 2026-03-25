@@ -1,3 +1,5 @@
+"""Cloud client elements module for wrapping cloud resource data."""
+
 from dataclasses import dataclass
 from typing import Union
 
@@ -114,6 +116,7 @@ class Quota:
     in_use: float
 
     def check_limit(self, requested: float, resource_name: str) -> None:
+        """Check if requested amount exceeds the quota limit."""
         required = self.in_use + requested
         if required > self.limit:
             raise CrczpException(
@@ -152,6 +155,7 @@ class QuotaSet:
         )
 
     def check_limits(self, hardware_usage: 'HardwareUsage') -> None:
+        """Check all quota limits against hardware usage."""
         self.vcpu.check_limit(hardware_usage.vcpu, 'vcpu')
         self.ram.check_limit(hardware_usage.ram, 'ram')
         self.instances.check_limit(hardware_usage.instances, 'instances')

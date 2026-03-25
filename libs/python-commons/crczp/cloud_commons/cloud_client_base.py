@@ -1,3 +1,5 @@
+"""Cloud client base module defining abstract cloud client interface."""
+
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
@@ -25,7 +27,6 @@ class CrczpCloudClientBase(ABC):
         :param instance_attrs: Terraform instance attributes
         :return: IP address
         """
-        pass
 
     @abstractmethod
     def get_terraform_provider(self) -> str:
@@ -34,7 +35,6 @@ class CrczpCloudClientBase(ABC):
         :return: Terraform provider template
         :raise InvalidTopologyDefinition: Terraform provider template is incorrect
         """
-        pass
 
     @abstractmethod
     def create_terraform_template(
@@ -51,7 +51,6 @@ class CrczpCloudClientBase(ABC):
         :raise CrczpException: Network validation error
         :raise InvalidTopologyDefinition: Template rendering error
         """
-        pass
 
     @abstractmethod
     def list_images(self) -> list[Image]:
@@ -60,7 +59,6 @@ class CrczpCloudClientBase(ABC):
 
         :return: List of Image objects.
         """
-        pass
 
     @abstractmethod
     def get_image(self, image_id: str) -> Image:
@@ -70,7 +68,6 @@ class CrczpCloudClientBase(ABC):
         :param image_id: The ID of image on the cloud
         :return: Image object
         """
-        pass
 
     @abstractmethod
     def resume_node(self, node_id: str) -> None:
@@ -81,7 +78,6 @@ class CrczpCloudClientBase(ABC):
         :return: None
         :raise CrczpException: Node not found
         """
-        pass
 
     @abstractmethod
     def start_node(self, node_id: str) -> None:
@@ -92,7 +88,6 @@ class CrczpCloudClientBase(ABC):
         :return: None
         :raise CrczpException: Node not found
         """
-        pass
 
     @abstractmethod
     def reboot_node(self, node_id: str) -> None:
@@ -103,7 +98,6 @@ class CrczpCloudClientBase(ABC):
         :return: None
         :raise CrczpException: Node not found
         """
-        pass
 
     @abstractmethod
     def get_node_details(self, terraform_attrs: dict[str, Any]) -> NodeDetails:
@@ -114,7 +108,6 @@ class CrczpCloudClientBase(ABC):
         :param terraform_attrs: Terraform resource attributes of the node
         :return: Node details
         """
-        pass
 
     @abstractmethod
     def get_console_url(self, node_id: str, console_type: str) -> str:
@@ -126,7 +119,6 @@ class CrczpCloudClientBase(ABC):
         :return: Console url
         :raise CrczpException: Node not found
         """
-        pass
 
     @abstractmethod
     def create_keypair(
@@ -141,7 +133,6 @@ class CrczpCloudClientBase(ABC):
         :return: None
         :raise CrczpException: Creation failure
         """
-        pass
 
     @abstractmethod
     def get_keypair(self, name: str) -> Any:
@@ -152,7 +143,6 @@ class CrczpCloudClientBase(ABC):
         :return: KeyPair instance
         :raise CrczpException: Key pair does not exist
         """
-        pass
 
     @abstractmethod
     def delete_keypair(self, name: str) -> None:
@@ -163,7 +153,6 @@ class CrczpCloudClientBase(ABC):
         :return: None
         :raise CrczpException: Key pair does not exist
         """
-        pass
 
     @abstractmethod
     def get_quota_set(self) -> QuotaSet:
@@ -172,7 +161,6 @@ class CrczpCloudClientBase(ABC):
 
         :return: QuotaSet object
         """
-        pass
 
     @abstractmethod
     def get_project_name(self) -> str:
@@ -181,7 +169,6 @@ class CrczpCloudClientBase(ABC):
 
         :return: The name of the cloud project
         """
-        pass
 
     @abstractmethod
     def get_hardware_usage(self, topology_instance: TopologyInstance) -> HardwareUsage:
@@ -191,7 +178,6 @@ class CrczpCloudClientBase(ABC):
         :param topology_instance: Topology instance from which the sandbox is created
         :return: HardwareUsage object
         """
-        pass
 
     @abstractmethod
     def get_flavors_dict(self) -> dict[str, Any]:
@@ -200,7 +186,6 @@ class CrczpCloudClientBase(ABC):
 
         :return: flavors dictionary
         """
-        pass
 
     @abstractmethod
     def get_project_limits(self) -> Limits:
@@ -209,4 +194,3 @@ class CrczpCloudClientBase(ABC):
 
         :return: Limits object
         """
-        pass

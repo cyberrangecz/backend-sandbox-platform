@@ -1,3 +1,6 @@
+"""Topology elements module defining topology building blocks."""
+# pylint: disable=wrong-import-order
+
 from enum import Enum
 from typing import Any, Optional, Union
 
