@@ -51,7 +51,7 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
         Get IP address of an instance.
         Note, AWS driver stores IP address in different format.
 
-        :param instance_attrs: Terraoform instance attributes
+        :param instance_attrs: Terraform instance attributes
         :return: IP address of an instance
         """
         return instance_attrs["all_fixed_ips"][0]
@@ -80,7 +80,7 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
         validates topology definition.
 
         :param topology_instance: TopologyInstance
-        :return HEAT Orchestration Template as a string
+        :return: Terraform template as a string
         :raise CrczpException if not valid
         """
         return self.open_stack_proxy.validate_and_get_terraform_template(topology_instance, *args, **kwargs)

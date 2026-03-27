@@ -13,7 +13,7 @@ def check_authentication(func: Callable[..., Any]) -> Callable[..., Any]:
         except keystone_exception.ClientException as ex:
             raise exceptions.CrczpException(
                 "Error while running CrczpOstackClient function: {}\n"
-                "Either your are not authenticated or your configuration is wrong.".format(ex)
+                "Either you are not authenticated or your configuration is wrong.".format(ex)
             ) from ex
 
     return call
