@@ -242,7 +242,7 @@ class TopologyInstance:
             return None
         if len(links) > 1:
             msg = (
-                'invalid number of links between server and network,'
+                'invalid number of links between server and network, '
                 f'there should be exactly 1 link, got: {links}'
             )
             raise CrczpException(msg)
@@ -258,7 +258,7 @@ class TopologyInstance:
         links = self.get_network_links(network, self.get_routers())
         if len(links) != 1:
             msg = (
-                'invalid number of links between user-defined Network and Router,'
+                'invalid number of links between user-defined Network and Router, '
                 f'there should be exactly 1 link, got: {links}'
             )
             raise CrczpException(msg)
@@ -327,7 +327,7 @@ class TopologyInstance:
         links = self.get_node_to_nodes_link_pairs(self.man, [self.man_network])
         if len(links) != len(self._nodes) - 1:
             msg = (
-                'invalid number of link pairs between MAN and all other machines'
+                'invalid number of link pairs between MAN and all other machines '
                 f'over management network, got: {links}'
             )
             raise CrczpException(msg)
