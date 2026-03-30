@@ -1,7 +1,15 @@
-from abc import ABC, abstractmethod
-from typing import List
+"""Cloud client base module defining abstract cloud client interface."""
 
-from crczp.cloud_commons.cloud_client_elements import Image, NodeDetails, QuotaSet, HardwareUsage, Limits
+from abc import ABC, abstractmethod
+from typing import Any, Optional
+
+from crczp.cloud_commons.cloud_client_elements import (
+    HardwareUsage,
+    Image,
+    Limits,
+    NodeDetails,
+    QuotaSet,
+)
 from crczp.cloud_commons.topology_instance import TopologyInstance
 
 
@@ -12,14 +20,13 @@ class CrczpCloudClientBase(ABC):
 
     @staticmethod
     @abstractmethod
-    def get_private_ip(instance_attrs: dict) -> str:
+    def get_private_ip(instance_attrs: dict[str, Any]) -> str:
         """
         Get IP address of a Terraform instance.
 
         :param instance_attrs: Terraform instance attributes
         :return: IP address
         """
-        pass
 
     @abstractmethod
     def get_terraform_provider(self) -> str:
@@ -28,11 +35,11 @@ class CrczpCloudClientBase(ABC):
         :return: Terraform provider template
         :raise InvalidTopologyDefinition: Terraform provider template is incorrect
         """
-        pass
 
     @abstractmethod
-    def create_terraform_template(self, topology_instance: TopologyInstance, *args, **kwargs)\
-            -> str:
+    def create_terraform_template(
+        self, topology_instance: TopologyInstance, *args: Any, **kwargs: Any
+    ) -> str:
         """
         Create terraform template that will be deployed.
 
@@ -44,16 +51,14 @@ class CrczpCloudClientBase(ABC):
         :raise CrczpException: Network validation error
         :raise InvalidTopologyDefinition: Template rendering error
         """
-        pass
 
     @abstractmethod
-    def list_images(self) -> List[Image]:
+    def list_images(self) -> list[Image]:
         """
         List all available images on the cloud project.
 
         :return: List of Image objects.
         """
-        pass
 
     @abstractmethod
     def get_image(self, image_id: str) -> Image:
@@ -63,7 +68,6 @@ class CrczpCloudClientBase(ABC):
         :param image_id: The ID of image on the cloud
         :return: Image object
         """
-        pass
 
     @abstractmethod
     def resume_node(self, node_id: str) -> None:
@@ -74,7 +78,6 @@ class CrczpCloudClientBase(ABC):
         :return: None
         :raise CrczpException: Node not found
         """
-        pass
 
     @abstractmethod
     def start_node(self, node_id: str) -> None:
@@ -85,7 +88,6 @@ class CrczpCloudClientBase(ABC):
         :return: None
         :raise CrczpException: Node not found
         """
-        pass
 
     @abstractmethod
     def reboot_node(self, node_id: str) -> None:
@@ -96,10 +98,9 @@ class CrczpCloudClientBase(ABC):
         :return: None
         :raise CrczpException: Node not found
         """
-        pass
 
     @abstractmethod
-    def get_node_details(self, terraform_attrs: dict) -> NodeDetails:
+    def get_node_details(self, terraform_attrs: dict[str, Any]) -> NodeDetails:
         """
         Get node details from the Terraform resource attributes.
         Note, Terraform attributes are backend specific.
@@ -107,7 +108,6 @@ class CrczpCloudClientBase(ABC):
         :param terraform_attrs: Terraform resource attributes of the node
         :return: Node details
         """
-        pass
 
     @abstractmethod
     def get_console_url(self, node_id: str, console_type: str) -> str:
@@ -119,10 +119,11 @@ class CrczpCloudClientBase(ABC):
         :return: Console url
         :raise CrczpException: Node not found
         """
-        pass
 
     @abstractmethod
-    def create_keypair(self, name: str, public_key: str = None, key_type: str = 'ssh') -> None:
+    def create_keypair(
+        self, name: str, public_key: Optional[str] = None, key_type: str = 'ssh'
+    ) -> None:
         """
         Create key pair in cloud.
 
@@ -132,10 +133,9 @@ class CrczpCloudClientBase(ABC):
         :return: None
         :raise CrczpException: Creation failure
         """
-        pass
 
     @abstractmethod
-    def get_keypair(self, name: str):
+    def get_keypair(self, name: str) -> Any:
         """
         Get KeyPair instance from cloud.
 
@@ -143,7 +143,6 @@ class CrczpCloudClientBase(ABC):
         :return: KeyPair instance
         :raise CrczpException: Key pair does not exist
         """
-        pass
 
     @abstractmethod
     def delete_keypair(self, name: str) -> None:
@@ -154,7 +153,6 @@ class CrczpCloudClientBase(ABC):
         :return: None
         :raise CrczpException: Key pair does not exist
         """
-        pass
 
     @abstractmethod
     def get_quota_set(self) -> QuotaSet:
@@ -163,7 +161,6 @@ class CrczpCloudClientBase(ABC):
 
         :return: QuotaSet object
         """
-        pass
 
     @abstractmethod
     def get_project_name(self) -> str:
@@ -172,26 +169,23 @@ class CrczpCloudClientBase(ABC):
 
         :return: The name of the cloud project
         """
-        pass
 
     @abstractmethod
-    def get_hardware_usage(self, topology_instance) -> HardwareUsage:
+    def get_hardware_usage(self, topology_instance: TopologyInstance) -> HardwareUsage:
         """
         Get hardware usage of a single sandbox.
 
         :param topology_instance: Topology instance from which the sandbox is created
         :return: HardwareUsage object
         """
-        pass
 
     @abstractmethod
-    def get_flavors_dict(self) -> dict:
+    def get_flavors_dict(self) -> dict[str, Any]:
         """
         Gets flavors defined in OpenStack project with their vcpu and ram usage as dictionary
 
         :return: flavors dictionary
         """
-        pass
 
     @abstractmethod
     def get_project_limits(self) -> Limits:
@@ -200,4 +194,3 @@ class CrczpCloudClientBase(ABC):
 
         :return: Limits object
         """
-        pass
