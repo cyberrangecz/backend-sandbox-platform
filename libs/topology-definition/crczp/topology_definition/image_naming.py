@@ -1,9 +1,19 @@
+"""
+Module for image naming utilities.
+"""
+
 import re
+from re import Pattern
 
-from crczp.topology_definition.models import TopologyDefinition, BaseBox
+from crczp.topology_definition.models import BaseBox, TopologyDefinition
 
 
-def image_name_replace(prefix: str, replacement: str, topology_definition: TopologyDefinition) -> TopologyDefinition:
+def image_name_replace(
+    prefix: str, replacement: str, topology_definition: TopologyDefinition
+) -> TopologyDefinition:
+    """
+    Replace image name prefix.
+    """
     pattern = re.compile(f'^{prefix}')
 
     for host in topology_definition.hosts:
@@ -16,9 +26,15 @@ def image_name_replace(prefix: str, replacement: str, topology_definition: Topol
 
 
 def image_name_strip(prefix: str, topology_definition: TopologyDefinition) -> TopologyDefinition:
+    """
+    Strip image name prefix.
+    """
     return image_name_replace(prefix, '', topology_definition)
 
 
-def _image_name_do_replace(pattern, replacement, base_box: BaseBox):
+def _image_name_do_replace(pattern: Pattern[str], replacement: str, base_box: BaseBox) -> None:
+    """
+    Perform image name replacement.
+    """
     image_name: str = base_box.image
     base_box.image = re.sub(pattern, replacement, image_name, count=1)
