@@ -2,18 +2,18 @@ import os
 
 import pytest
 import yaml
-from crczp.cloud_commons import TransformationConfiguration, TopologyInstance
+from crczp.cloud_commons import TopologyInstance, TransformationConfiguration
 from crczp.topology_definition.models import TopologyDefinition
 
 from crczp.openstack_driver import CrczpOpenStackClient
 
-TESTING_DATA_DIR = "assets"
+TESTING_DATA_DIR = 'assets'
 
-TESTING_DEFINITION = "definition.yml"
-TESTING_DEFINITION_EMPTY = "definition-empty.yml"
-TESTING_TRANSFORMATION_CONFIGURATION = "trc-config.yml"
-TESTING_GENERATED_HEAT_TEMPLATE = "generated-template.tf"
-TESTING_BASE_NETWORK_TEMPLATE = "base-net-template.yml"
+TESTING_DEFINITION = 'definition.yml'
+TESTING_DEFINITION_EMPTY = 'definition-empty.yml'
+TESTING_TRANSFORMATION_CONFIGURATION = 'trc-config.yml'
+TESTING_GENERATED_HEAT_TEMPLATE = 'generated-template.tf'
+TESTING_BASE_NETWORK_TEMPLATE = 'base-net-template.yml'
 
 
 def data_path_join(file: str, data_dir: str = TESTING_DATA_DIR) -> str:
@@ -62,10 +62,10 @@ def base_network_template():
 @pytest.fixture()
 def os_client(mocker, trc):
     kwargs = {
-        "auth_url": mocker.MagicMock(),
-        "application_credential_id": mocker.MagicMock(),
-        "application_credential_secret": mocker.MagicMock(),
-        "trc": trc,
+        'auth_url': mocker.MagicMock(),
+        'application_credential_id': mocker.MagicMock(),
+        'application_credential_secret': mocker.MagicMock(),
+        'trc': trc,
     }
 
     return CrczpOpenStackClient(**kwargs)

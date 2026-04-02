@@ -68,6 +68,10 @@ pretty = true
 enable_error_code = ["deprecated", "explicit-override"]
 explicit_package_bases = true
 
+[[tool.mypy.overrides]]
+ignore_errors = true
+module = "tests.*"
+
 
 [tool.pylint]
 # You can add pylint configs here or in .pylintrc

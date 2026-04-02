@@ -2,41 +2,47 @@
 OpenStackInstance manipulation functions.
 """
 
+from __future__ import annotations
+
 import os
 import re
-from typing import List, Dict
+from typing import TYPE_CHECKING, Any
 
 import novaclient.v2.keypairs
 import structlog
-from jinja2 import Environment, FileSystemLoader
 from crczp.cloud_commons import (
-    InvalidTopologyDefinition,
-    TransformationConfiguration,
     CrczpException,
-    StackException,
-    Image,
     HardwareUsage,
+    Image,
+    InvalidTopologyDefinition,
     Limits,
-    QuotaSet,
     Quota,
+    QuotaSet,
     SecurityGroups,
+    StackException,
     TopologyInstance,
+    TransformationConfiguration,
 )
 from crczp.topology_definition.models import Protocol
+from jinja2 import Environment, FileSystemLoader
 from novaclient.base import TupleWithMeta
-from novaclient.exceptions import ClientException as NovaClientException, UnsupportedConsoleType as NovaUnsupportedConsoleType
+from novaclient.exceptions import ClientException as NovaClientException
+from novaclient.exceptions import UnsupportedConsoleType as NovaUnsupportedConsoleType
 
-from crczp.openstack_driver import utils
+if TYPE_CHECKING:
+    from glanceclient.v2 import client as glance_client
+    from neutronclient.v2_0 import client as neutron_client
+    from novaclient import client as nova_client
 
 LOG = structlog.get_logger()
-SEC_RULES_IP_PREFIX = "0.0.0.0/0"  # "147.251.0.0/16"
+SEC_RULES_IP_PREFIX = '0.0.0.0/0'  # "147.251.0.0/16"
 
-TEMPLATES_DIR_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "templates")
-TERRAFORM_DEPLOY_TEMPLATE_FILE = "terraform-deploy-template.j2"
-TERRAFORM_PROVIDER_TEMPLATE_FILE = "terraform-provider-template.j2"
+TEMPLATES_DIR_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')
+TERRAFORM_DEPLOY_TEMPLATE_FILE = 'terraform-deploy-template.j2'
+TERRAFORM_PROVIDER_TEMPLATE_FILE = 'terraform-provider-template.j2'
 
 
-def regex_replace(string, pattern="", replace=""):
+def regex_replace(string: str, pattern: str = '', replace: str = '') -> str:
     return re.sub(pattern, replace, string)
 
 
@@ -49,14 +55,14 @@ class OpenStackProxy:
 
     def __init__(
         self,
-        glance_client: utils.glance_client.Client,
-        nova_client: utils.nova_client.Client,
-        neutron_client: utils.neutron_client.Client,
+        glance_client: glance_client.Client,
+        nova_client: nova_client.Client,
+        neutron_client: neutron_client.Client,
         auth_url: str,
         app_cred_id: str,
         app_cred_secret: str,
         trc: TransformationConfiguration,
-    ):
+    ) -> None:
         self.nova = nova_client
         self.glance = glance_client
         self.neutron = neutron_client
@@ -64,20 +70,20 @@ class OpenStackProxy:
         self.app_cred_id = app_cred_id
         self.app_cred_secret = app_cred_secret
         self.template_environment = Environment(loader=(FileSystemLoader(TEMPLATES_DIR_PATH)))
-        self.template_environment.filters["regex_replace"] = regex_replace
+        self.template_environment.filters['regex_replace'] = regex_replace
         self.trc = trc
 
     @staticmethod
-    def _get_owner_specified_data(image) -> Dict[str, str]:
+    def _get_owner_specified_data(image: Any) -> dict[str, str]:
         """
         Creates a dictionary of owner specified data from the image
 
         :param image: Image form glance.images
         :return: Dictionary with arbitrary number of owner_specified values from the image
         """
-        return {k: v for (k, v) in image.items() if k.startswith("owner_specified.")}
+        return {k: v for (k, v) in image.items() if k.startswith('owner_specified.')}
 
-    def list_images(self) -> List[Image]:
+    def list_images(self) -> list[Image]:
         """
         Gets image list
 
@@ -85,20 +91,20 @@ class OpenStackProxy:
         """
         images = [
             Image(
-                os_distro=image.get("os_distro"),
-                os_type=image.get("os_type"),
-                disk_format=image.get("disk_format"),
-                container_format=image.get("container_format"),
-                visibility=image.get("visibility"),
-                size=image.get("size"),
-                status=image.get("status"),
-                min_ram=image.get("min_ram"),
-                min_disk=image.get("min_disk"),
-                created_at=image.get("created_at"),
-                updated_at=image.get("updated_at"),
-                tags=image.get("tags"),
-                default_user=image.get("default_user"),
-                name=image.get("name"),
+                os_distro=image.get('os_distro'),
+                os_type=image.get('os_type'),
+                disk_format=image.get('disk_format'),
+                container_format=image.get('container_format'),
+                visibility=image.get('visibility'),
+                size=image.get('size'),
+                status=image.get('status'),
+                min_ram=image.get('min_ram'),
+                min_disk=image.get('min_disk'),
+                created_at=image.get('created_at'),
+                updated_at=image.get('updated_at'),
+                tags=image.get('tags'),
+                default_user=image.get('default_user'),
+                name=image.get('name'),
                 owner_specified=self._get_owner_specified_data(image),
             )
             for image in self.glance.images.list()
@@ -115,7 +121,7 @@ class OpenStackProxy:
         try:
             return self.nova.keypairs.get(keypair_name)
         except NovaClientException as e:
-            raise CrczpException("Failed to get keypair '{0}': {1}".format(keypair_name, e)) from e
+            raise CrczpException(f"Failed to get keypair '{keypair_name}': {e}") from e
 
     def create_keypair(self, name: str, public_key: str, key_type: str) -> novaclient.v2.keypairs.Keypair:
         """
@@ -143,7 +149,7 @@ class OpenStackProxy:
         try:
             return self.nova.keypairs.delete(name)
         except NovaClientException as e:
-            raise CrczpException("Failed to delete keypair '{0}': {1}".format(name, e)) from e
+            raise CrczpException(f"Failed to delete keypair '{name}': {e}") from e
 
     def resume_instance(self, node_id: str) -> None:
         """
@@ -156,7 +162,7 @@ class OpenStackProxy:
         try:
             self.nova.servers.resume(node_id)
         except NovaClientException as e:
-            raise CrczpException(f"Failed to resume instance with id={node_id}: {e}.") from e
+            raise CrczpException(f'Failed to resume instance with id={node_id}: {e}.') from e
 
     def start_instance(self, node_id: str) -> None:
         """
@@ -169,7 +175,7 @@ class OpenStackProxy:
         try:
             self.nova.servers.start(node_id)
         except NovaClientException as e:
-            raise CrczpException(f"Failed to start instance with id={node_id}: {e}.") from e
+            raise CrczpException(f'Failed to start instance with id={node_id}: {e}.') from e
 
     def reboot_instance(self, node_id: str) -> None:
         """
@@ -182,7 +188,7 @@ class OpenStackProxy:
         try:
             self.nova.servers.reboot(node_id)
         except NovaClientException as e:
-            raise CrczpException(f"Failed to reboot instance with id={node_id}: {e}.") from e
+            raise CrczpException(f'Failed to reboot instance with id={node_id}: {e}.') from e
 
     def get_image(self, image_id: str) -> Image:
         """
@@ -193,20 +199,20 @@ class OpenStackProxy:
         """
         image_data = self.glance.images.get(image_id)
         return Image(
-            os_distro=image_data.get("os_distro"),
-            os_type=image_data.get("os_type"),
-            disk_format=image_data.get("disk_format"),
-            container_format=image_data.get("container_format"),
-            visibility=image_data.get("visibility"),
-            size=image_data.get("size"),
-            status=image_data.get("status"),
-            min_ram=image_data.get("min_ram"),
-            min_disk=image_data.get("min_disk"),
-            created_at=image_data.get("created_at"),
-            updated_at=image_data.get("updated_at"),
-            tags=image_data.get("tags"),
-            default_user=image_data.get("default_user"),
-            name=image_data.get("name"),
+            os_distro=image_data.get('os_distro'),
+            os_type=image_data.get('os_type'),
+            disk_format=image_data.get('disk_format'),
+            container_format=image_data.get('container_format'),
+            visibility=image_data.get('visibility'),
+            size=image_data.get('size'),
+            status=image_data.get('status'),
+            min_ram=image_data.get('min_ram'),
+            min_disk=image_data.get('min_disk'),
+            created_at=image_data.get('created_at'),
+            updated_at=image_data.get('updated_at'),
+            tags=image_data.get('tags'),
+            default_user=image_data.get('default_user'),
+            name=image_data.get('name'),
             owner_specified=self._get_owner_specified_data(image_data),
         )
 
@@ -222,9 +228,9 @@ class OpenStackProxy:
         try:
             spice_console = self.nova.servers.get_console_url(node_id, console_type)
         except (NovaUnsupportedConsoleType, NovaClientException) as e:
-            raise StackException(f"OpenStack error while getting console: {e.message}") from e
+            raise StackException(f'OpenStack error while getting console: {e.message}') from e
 
-        return spice_console["remote_console"]["url"]
+        return str(spice_console['remote_console']['url'])
 
     def get_quota_set(self, tenant_id: str) -> QuotaSet:
         """
@@ -239,35 +245,35 @@ class OpenStackProxy:
         instances_quota = nova_quotas.instances
 
         # change MB to GB
-        ram_quotas["limit"] = round(ram_quotas["limit"] / 1000.0, 1)
-        ram_quotas["in_use"] = round(ram_quotas["in_use"] / 1000.0, 1)
+        ram_quotas['limit'] = round(ram_quotas['limit'] / 1000.0, 1)
+        ram_quotas['in_use'] = round(ram_quotas['in_use'] / 1000.0, 1)
 
-        vcpu = Quota(vcpu_quotas["limit"], vcpu_quotas["in_use"])
-        ram = Quota(ram_quotas["limit"], ram_quotas["in_use"])
-        instances = Quota(instances_quota["limit"], instances_quota["in_use"])
+        vcpu = Quota(vcpu_quotas['limit'], vcpu_quotas['in_use'])
+        ram = Quota(ram_quotas['limit'], ram_quotas['in_use'])
+        instances = Quota(instances_quota['limit'], instances_quota['in_use'])
 
-        neutron_quotas = self.neutron.show_quota_details(tenant_id)["quota"]
-        network_quotas = neutron_quotas["network"]
-        subnet_quotas = neutron_quotas["subnet"]
-        port_quotas = neutron_quotas["port"]
+        neutron_quotas = self.neutron.show_quota_details(tenant_id)['quota']
+        network_quotas = neutron_quotas['network']
+        subnet_quotas = neutron_quotas['subnet']
+        port_quotas = neutron_quotas['port']
 
-        network = Quota(network_quotas["limit"], network_quotas["used"])
-        subnet = Quota(subnet_quotas["limit"], subnet_quotas["used"])
-        port = Quota(port_quotas["limit"], port_quotas["used"])
+        network = Quota(network_quotas['limit'], network_quotas['used'])
+        subnet = Quota(subnet_quotas['limit'], subnet_quotas['used'])
+        port = Quota(port_quotas['limit'], port_quotas['used'])
 
         return QuotaSet(vcpu, ram, instances, network, subnet, port)
 
     @staticmethod
-    def _get_flavors_dict(flavors) -> dict:
+    def _get_flavors_dict(flavors: Any) -> dict[str, dict[str, float]]:
         """
         Gets flavors with their vcpu and ram usage
 
         :param flavors: Flavors defined in OpenStack project.
         :return: flavors dictionary
         """
-        return {flavor.name: {"vcpu": flavor.vcpus, "ram": round(flavor.ram / 1000.0, 1)} for flavor in flavors}
+        return {flavor.name: {'vcpu': flavor.vcpus, 'ram': round(flavor.ram / 1000.0, 1)} for flavor in flavors}
 
-    def get_flavors_dict(self) -> dict:
+    def get_flavors_dict(self) -> dict[str, dict[str, float]]:
         """
         Gets flavors defined in OpenStack project with their vcpu and ram usage as dictionary
 
@@ -283,14 +289,20 @@ class OpenStackProxy:
         :return: Hardware usage of Topology instance.
         """
         flavors = self.get_flavors_dict()
-        used_vcpu, used_ram, used_instances = 0, 0, 0
+        used_vcpu: float = 0
+        used_ram: float = 0
+        used_instances = 0
 
         for node in topology_instance.get_nodes():
             if node.flavor not in flavors:
-                raise ValueError(f"Flavor '{node.flavor}' used in topology is not defined in OpenStack project. Please fix your flavor mappings and man flavor in your configuration.")
+                raise ValueError(
+                    f"Flavor '{node.flavor}' used in topology is not defined in "
+                    f'OpenStack project. Please fix your flavor mappings and man '
+                    f'flavor in your configuration.'
+                )
             flavor = flavors[node.flavor]
-            used_vcpu += flavor["vcpu"]
-            used_ram += flavor["ram"]
+            used_vcpu += flavor['vcpu']
+            used_ram += flavor['ram']
             used_instances += 1
 
         networks = [network for network in topology_instance.get_networks()]
@@ -300,7 +312,7 @@ class OpenStackProxy:
 
         return HardwareUsage(used_vcpu, used_ram, used_instances, used_network, used_subnet, used_port)
 
-    def get_project_limits(self, tenant_id) -> Limits:
+    def get_project_limits(self, tenant_id: str) -> Limits:
         """
         Get Absolute limits of OpenStack project.
 
@@ -309,18 +321,18 @@ class OpenStackProxy:
         """
         limits = {}
         for limit in self.nova.limits.get().absolute:
-            if limit.name == "maxTotalCores":
-                limits["vcpu"] = limit.value
-            elif limit.name == "maxTotalRAMSize":
+            if limit.name == 'maxTotalCores':
+                limits['vcpu'] = limit.value
+            elif limit.name == 'maxTotalRAMSize':
                 # change MB to GB
-                limits["ram"] = round(limit.value / 1000.0, 1)
-            elif limit.name == "maxTotalInstances":
-                limits["instances"] = limit.value
+                limits['ram'] = round(limit.value / 1000.0, 1)
+            elif limit.name == 'maxTotalInstances':
+                limits['instances'] = limit.value
 
-        neutron_limits = self.neutron.show_quota(tenant_id)["quota"]
-        limits["network"] = neutron_limits["network"]
-        limits["subnet"] = neutron_limits["subnet"]
-        limits["port"] = neutron_limits["port"]
+        neutron_limits = self.neutron.show_quota(tenant_id)['quota']
+        limits['network'] = neutron_limits['network']
+        limits['subnet'] = neutron_limits['subnet']
+        limits['port'] = neutron_limits['port']
 
         return Limits(**limits)
 
@@ -332,16 +344,18 @@ class OpenStackProxy:
         """
         try:
             template = self.template_environment.get_template(TERRAFORM_PROVIDER_TEMPLATE_FILE)
-            return template.render(auth_url=self.auth_url, app_cred_id=self.app_cred_id, app_cred_secret=self.app_cred_secret)
+            return str(
+                template.render(auth_url=self.auth_url, app_cred_id=self.app_cred_id, app_cred_secret=self.app_cred_secret)
+            )
         except Exception as e:
-            raise InvalidTopologyDefinition("Error while generating provider template: ", e) from e
+            raise InvalidTopologyDefinition('Error while generating provider template: ', e) from e
 
     def validate_and_get_terraform_template(
         self,
         topology_instance: TopologyInstance,
-        key_pair_name_ssh: str = "dummy-ssh-key-pair",
-        key_pair_name_cert: str = "ummy-cert-key-pair",
-        resource_prefix: str = "stack-name",
+        key_pair_name_ssh: str = 'dummy-ssh-key-pair',
+        key_pair_name_cert: str = 'ummy-cert-key-pair',
+        resource_prefix: str = 'stack-name',
     ) -> str:
         """
         Transform TopologyInstance into Terraform Template.
@@ -369,6 +383,6 @@ class OpenStackProxy:
                 app_cred_secret=self.app_cred_secret,
             )
         except Exception as e:
-            raise InvalidTopologyDefinition("Error while generating template: ", e) from e
+            raise InvalidTopologyDefinition('Error while generating template: ', e) from e
 
-        return template_str
+        return str(template_str)
