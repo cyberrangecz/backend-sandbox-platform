@@ -8,6 +8,7 @@ import re
 from ipaddress import ip_address, ip_network
 from itertools import combinations
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from yamlize import StrList
@@ -15,12 +16,16 @@ if TYPE_CHECKING:
     from crczp.topology_definition.models import (
         WAN,
         GroupList,
-        MonitoringTargetList,
+        MonitoringTargetICMPList,
+        MonitoringTargets,
+        MonitoringTargetTCPList,
         Network,
         NetworkList,
         NetworkMappingList,
         RouterMappingList,
-        TargetList,
+        TargetHTTPList,
+        TargetICMPList,
+        TargetTCPList,
         TopologyDefinition,
         VolumeList,
     )
@@ -223,20 +228,42 @@ class TopologyValidation:
             raise ValueError('Volumes must contain at least one entry for system disk')
 
     @staticmethod
-    def validate_monitoring_targets(obj: TopologyDefinition, targets: MonitoringTargetList) -> bool:
+    def validate_monitoring_targets(
+        obj: TopologyDefinition, monitoring_targets: MonitoringTargets
+    ) -> bool:
         """
-        Validate monitoring targets.
+        Validate monitoring targets — referenced nodes must exist in the topology.
+        Called with TopologyDefinition as obj, giving access to hosts and routers.
         """
+        if monitoring_targets is None:
+            return True
+
         node_names = set(
             [host.name for host in obj.hosts] + [router.name for router in obj.routers]
         )
-        used_node_names = set()
+
+        for targets_list, label in (
+            (monitoring_targets.tcp or [], 'TCP'),
+            (monitoring_targets.icmp or [], 'ICMP'),
+        ):
+            for target in targets_list:
+                if target.node not in node_names:
+                    _msg = (
+                        'Invalid node name in {} MonitoringTarget.node. '
+                        'No node with name "{}" found.'
+                    )
+                    raise ValueError(_msg.format(label, target.node))
+
+        return True
+
+    @staticmethod
+    def validate_monitoring_targets_tcp(obj: object, targets: MonitoringTargetTCPList) -> bool:
+        """
+        Validate TCP monitoring targets — node names must be unique.
+        """
+        used_node_names: set[str] = set()
 
         for target in targets:
-            if target.node not in node_names:
-                _msg = 'Invalid node name in MonitoringTarget.node. No node with name "{}" found.'
-                raise ValueError(_msg.format(target.node))
-
             if target.node in used_node_names:
                 _msg = (
                     'Duplicate node name "{}" in MonitoringTarget.node. '
@@ -249,26 +276,76 @@ class TopologyValidation:
         return True
 
     @staticmethod
-    def validate_targets(_obj: object, targets: TargetList) -> bool:
+    def validate_targets_tcp(_obj: object, targets: TargetTCPList) -> bool:
         """
-        Validate targets.
+        Validate TCP targets — exactly one of interface/address required, port must be valid.
+        The same port may appear multiple times (on different interfaces/addresses).
         """
-        used_ports = set()
-
         for target in targets:
-            if target.port in used_ports:
-                _msg = (
-                    'Port "{}" in MonitoringTarget.ports is duplicated. '
-                    'Only define each port once on a single host.'
+            if target.interface is None and target.address is None:
+                raise ValueError(
+                    'A TCP target must specify exactly one of "interface" or "address".'
                 )
-                raise ValueError(_msg.format(target.port))
+            if target.interface is not None and target.address is not None:
+                raise ValueError(
+                    'A TCP target must specify exactly one of "interface" or "address", not both.'
+                )
 
-            used_ports.add(target.port)
             if target.port < 1 or target.port > 65535:
                 _msg = (
                     'Port "{}" in MonitoringTarget.ports is not a valid port number. '
                     'Port number must be in range <1, 65535>.'
                 )
                 raise ValueError(_msg.format(target.port))
+
+        return True
+
+    @staticmethod
+    def validate_monitoring_targets_icmp(obj: object, targets: MonitoringTargetICMPList) -> bool:
+        """
+        Validate ICMP monitoring targets — node names must be unique.
+        Node existence is validated at the TopologyDefinition level via validate_monitoring_targets.
+        """
+        used_node_names: set[str] = set()
+
+        for target in targets:
+            if target.node in used_node_names:
+                _msg = (
+                    'Duplicate node name "{}" in MonitoringTarget.node. '
+                    'Only define each target once.'
+                )
+                raise ValueError(_msg.format(target.node))
+
+            used_node_names.add(target.node)
+
+        return True
+
+    @staticmethod
+    def validate_targets_icmp(_obj: object, targets: TargetICMPList) -> bool:
+        """
+        Validate ICMP targets — exactly one of interface/address required.
+        """
+        for target in targets:
+            if target.interface is None and target.address is None:
+                raise ValueError(
+                    'An ICMP target must specify exactly one of "interface" or "address".'
+                )
+            if target.interface is not None and target.address is not None:
+                raise ValueError(
+                    'An ICMP target must specify exactly one of "interface" or "address", not both.'
+                )
+
+        return True
+
+    @staticmethod
+    def validate_targets_http(_obj: object, targets: TargetHTTPList) -> bool:
+        """
+        Validate HTTP targets — url must be a valid http/https URL.
+        """
+        for target in targets:
+            parsed = urlparse(target.url)
+            if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+                _msg = 'HTTP target url "{}" is not a valid http/https URL.'
+                raise ValueError(_msg.format(target.url))
 
         return True

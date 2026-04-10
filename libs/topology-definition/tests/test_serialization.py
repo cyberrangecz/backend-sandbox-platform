@@ -96,18 +96,32 @@ class TestDummy:
         assert network is not None
         assert not network.accessible_by_user
 
-        assert len(topology_definition_monitoring.monitoring_targets) == 2
-        home = topology_definition_monitoring.monitoring_targets[0]
-        assert len(home.targets) == 2
-        assert home.targets[0].port == 2022
-        assert home.targets[1].port == 2023
-        assert home.targets[0].interface == 'eth0'
-        assert home.targets[1].interface == 'eth1'
-        router = topology_definition_monitoring.monitoring_targets[1]
-        assert len(router.targets) == 1
-        assert router.node == 'server-router'
-        assert router.targets[0].port == 555
-        assert router.targets[0].interface == 'eth0'
+        # TCP targets
+        assert topology_definition_monitoring.monitoring_targets is not None
+        assert len(topology_definition_monitoring.monitoring_targets.tcp) == 1
+        router_tcp = topology_definition_monitoring.monitoring_targets.tcp[0]
+        assert router_tcp.node == 'server-router'
+        assert len(router_tcp.targets) == 2
+        assert router_tcp.targets[0].port == 22
+        assert router_tcp.targets[0].interface == 'ens3'
+        assert router_tcp.targets[1].port == 22
+        assert router_tcp.targets[1].address == '10.10.20.0/24'
+
+        # ICMP targets
+        assert len(topology_definition_monitoring.monitoring_targets.icmp) == 2
+        server_icmp = topology_definition_monitoring.monitoring_targets.icmp[0]
+        assert server_icmp.node == 'server'
+        assert server_icmp.targets[0].interface == 'ens3'
+        home_icmp = topology_definition_monitoring.monitoring_targets.icmp[1]
+        assert home_icmp.node == 'home'
+        assert home_icmp.targets[0].address == '10.10.30.5'
+
+        # HTTP targets
+        assert topology_definition_monitoring.monitoring_targets.http is not None
+        http_targets = topology_definition_monitoring.monitoring_targets.http.targets
+        assert len(http_targets) == 1
+        assert http_targets[0].url == 'https://10.10.20.5'
+        assert http_targets[0].check_string == 'Hello'
 
     def test_indexes(self, topology_definition: TopologyDefinition) -> None:
         """
