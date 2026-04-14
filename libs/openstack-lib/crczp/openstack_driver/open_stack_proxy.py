@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import novaclient.v2.keypairs
 import structlog
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from novaclient.base import TupleWithMeta
 from novaclient.exceptions import ClientException as NovaClientException
 from novaclient.exceptions import UnsupportedConsoleType as NovaUnsupportedConsoleType
@@ -71,7 +71,10 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         self.auth_url = auth_url
         self.app_cred_id = app_cred_id
         self.app_cred_secret = app_cred_secret
-        self.template_environment = Environment(loader=FileSystemLoader(TEMPLATES_DIR_PATH))
+        self.template_environment = Environment(
+            loader=FileSystemLoader(TEMPLATES_DIR_PATH),
+            autoescape=select_autoescape(),
+        )
         self.template_environment.filters['regex_replace'] = regex_replace
         self.trc = trc
 
