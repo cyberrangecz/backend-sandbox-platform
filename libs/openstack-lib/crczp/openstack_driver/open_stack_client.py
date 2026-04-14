@@ -1,6 +1,9 @@
+"""CrczpOpenStackClient — high-level interface for the OpenStack driver."""
+
 from typing import Any, Optional
 
 import novaclient.v2.keypairs
+
 from crczp.cloud_commons import (
     CrczpCloudClientBase,
     HardwareUsage,
@@ -11,7 +14,6 @@ from crczp.cloud_commons import (
     TopologyInstance,
     TransformationConfiguration,
 )
-
 from crczp.openstack_driver import open_stack_proxy, utils
 from crczp.openstack_driver.decorators import check_authentication
 
@@ -31,7 +33,9 @@ class CrczpOpenStackClient(CrczpCloudClientBase):  # type: ignore[misc]
         application_credential_secret: str,
         trc: TransformationConfiguration,
     ):
-        self.session = utils.get_session(auth_url, application_credential_id, application_credential_secret)
+        self.session = utils.get_session(
+            auth_url, application_credential_id, application_credential_secret
+        )
         self.glance_client = utils.get_client('glance', self.session)
         self.nova_client = utils.get_client('nova', self.session)
         self.neutron_client = utils.get_client('neutron', self.session)
@@ -75,15 +79,19 @@ class CrczpOpenStackClient(CrczpCloudClientBase):  # type: ignore[misc]
         return self.open_stack_proxy.get_terraform_provider()
 
     @check_authentication
-    def create_terraform_template(self, topology_instance: TopologyInstance, *args: Any, **kwargs: Any) -> str:
+    def create_terraform_template(
+        self, topology_instance: TopologyInstance, *args: Any, **kwargs: Any
+    ) -> str:
         """
-        validates topology definition.
+        Validates topology definition.
 
         :param topology_instance: TopologyInstance
         :return: Terraform template as a string
         :raise CrczpException if not valid
         """
-        return self.open_stack_proxy.validate_and_get_terraform_template(topology_instance, *args, **kwargs)
+        return self.open_stack_proxy.validate_and_get_terraform_template(
+            topology_instance, *args, **kwargs
+        )
 
     @check_authentication
     def get_image(self, image_id: str) -> Image:
@@ -155,7 +163,9 @@ class CrczpOpenStackClient(CrczpCloudClientBase):  # type: ignore[misc]
         return self.open_stack_proxy.get_console_url(node_id, console_type)
 
     @check_authentication
-    def create_keypair(self, name: str, public_key: Optional[str] = None, key_type: str = 'ssh') -> None:
+    def create_keypair(
+        self, name: str, public_key: Optional[str] = None, key_type: str = 'ssh'
+    ) -> None:
         """
         Create key-pair in OpenStack. If public_key is not specified, new key-pair is created.
 

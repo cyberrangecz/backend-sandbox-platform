@@ -10,6 +10,11 @@ from typing import TYPE_CHECKING, Any
 
 import novaclient.v2.keypairs
 import structlog
+from jinja2 import Environment, FileSystemLoader
+from novaclient.base import TupleWithMeta
+from novaclient.exceptions import ClientException as NovaClientException
+from novaclient.exceptions import UnsupportedConsoleType as NovaUnsupportedConsoleType
+
 from crczp.cloud_commons import (
     CrczpException,
     HardwareUsage,
@@ -24,10 +29,6 @@ from crczp.cloud_commons import (
     TransformationConfiguration,
 )
 from crczp.topology_definition.models import Protocol
-from jinja2 import Environment, FileSystemLoader
-from novaclient.base import TupleWithMeta
-from novaclient.exceptions import ClientException as NovaClientException
-from novaclient.exceptions import UnsupportedConsoleType as NovaUnsupportedConsoleType
 
 if TYPE_CHECKING:
     from glanceclient.v2 import client as glance_client
@@ -43,17 +44,18 @@ TERRAFORM_PROVIDER_TEMPLATE_FILE = 'terraform-provider-template.j2'
 
 
 def regex_replace(string: str, pattern: str = '', replace: str = '') -> str:
+    """Apply a regex substitution on *string* (used as a Jinja2 filter)."""
     return re.sub(pattern, replace, string)
 
 
-class OpenStackProxy:
+class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
     """
     Used for work with instances of virtual machines in openstack.
 
     Uses OpenStack glace, nova, neutron and heat client.
     """
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         glance_client: glance_client.Client,
         nova_client: nova_client.Client,
@@ -69,7 +71,7 @@ class OpenStackProxy:
         self.auth_url = auth_url
         self.app_cred_id = app_cred_id
         self.app_cred_secret = app_cred_secret
-        self.template_environment = Environment(loader=(FileSystemLoader(TEMPLATES_DIR_PATH)))
+        self.template_environment = Environment(loader=FileSystemLoader(TEMPLATES_DIR_PATH))
         self.template_environment.filters['regex_replace'] = regex_replace
         self.trc = trc
 
@@ -123,7 +125,9 @@ class OpenStackProxy:
         except NovaClientException as e:
             raise CrczpException(f"Failed to get keypair '{keypair_name}': {e}") from e
 
-    def create_keypair(self, name: str, public_key: str, key_type: str) -> novaclient.v2.keypairs.Keypair:
+    def create_keypair(
+        self, name: str, public_key: str, key_type: str
+    ) -> novaclient.v2.keypairs.Keypair:
         """
         Create key-pair in nova.
 
@@ -136,7 +140,8 @@ class OpenStackProxy:
         try:
             return self.nova.keypairs.create(name, public_key, key_type=key_type)
         except NovaClientException as e:
-            raise CrczpException(f"Failed to create keypair '{name}' with public key '{public_key}': {e}") from e
+            msg = f"Failed to create keypair '{name}' with public key '{public_key}': {e}"
+            raise CrczpException(msg) from e
 
     def delete_keypair(self, name: str) -> TupleWithMeta:
         """
@@ -232,7 +237,7 @@ class OpenStackProxy:
 
         return str(spice_console['remote_console']['url'])
 
-    def get_quota_set(self, tenant_id: str) -> QuotaSet:
+    def get_quota_set(self, tenant_id: str) -> QuotaSet:  # pylint: disable=too-many-locals
         """
         Get quota set of OpenStack project.
 
@@ -271,7 +276,10 @@ class OpenStackProxy:
         :param flavors: Flavors defined in OpenStack project.
         :return: flavors dictionary
         """
-        return {flavor.name: {'vcpu': flavor.vcpus, 'ram': round(flavor.ram / 1000.0, 1)} for flavor in flavors}
+        return {
+            flavor.name: {'vcpu': flavor.vcpus, 'ram': round(flavor.ram / 1000.0, 1)}
+            for flavor in flavors
+        }
 
     def get_flavors_dict(self) -> dict[str, dict[str, float]]:
         """
@@ -305,12 +313,14 @@ class OpenStackProxy:
             used_ram += flavor['ram']
             used_instances += 1
 
-        networks = [network for network in topology_instance.get_networks()]
+        networks = list(topology_instance.get_networks())
         used_network = len(networks)
         used_subnet = len(networks)
-        used_port = len([link for link in topology_instance.get_links()])
+        used_port = len(list(topology_instance.get_links()))
 
-        return HardwareUsage(used_vcpu, used_ram, used_instances, used_network, used_subnet, used_port)
+        return HardwareUsage(
+            used_vcpu, used_ram, used_instances, used_network, used_subnet, used_port
+        )
 
     def get_project_limits(self, tenant_id: str) -> Limits:
         """
@@ -345,7 +355,11 @@ class OpenStackProxy:
         try:
             template = self.template_environment.get_template(TERRAFORM_PROVIDER_TEMPLATE_FILE)
             return str(
-                template.render(auth_url=self.auth_url, app_cred_id=self.app_cred_id, app_cred_secret=self.app_cred_secret)
+                template.render(
+                    auth_url=self.auth_url,
+                    app_cred_id=self.app_cred_id,
+                    app_cred_secret=self.app_cred_secret,
+                )
             )
         except Exception as e:
             raise InvalidTopologyDefinition('Error while generating provider template: ', e) from e

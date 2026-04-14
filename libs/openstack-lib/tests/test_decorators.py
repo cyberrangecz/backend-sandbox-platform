@@ -1,17 +1,23 @@
+"""Tests for crczp.openstack_driver.decorators module."""
+
 import pytest
-from crczp.cloud_commons import CrczpException
 from keystoneauth1 import exceptions as keystone_exception
 
+from crczp.cloud_commons import CrczpException
 from crczp.openstack_driver.decorators import check_authentication
 
 
 class TestDecorators:
+    """Tests for the check_authentication decorator."""
+
     @pytest.fixture()
     def dummy_function(self, mocker):
+        """Create a MagicMock callable for decorator testing."""
         dummy_function = mocker.MagicMock()
         return dummy_function
 
     def test_check_authentication_not_authenticated(self, dummy_function):
+        """Test that keystone ClientException is wrapped in CrczpException."""
         dummy_function.side_effect = keystone_exception.ClientException('testException')
         decorated_function = check_authentication(dummy_function)
 
@@ -19,6 +25,7 @@ class TestDecorators:
             decorated_function()
 
     def test_check_authentication_decorated_function_raise_exception(self, dummy_function):
+        """Test that non-keystone exceptions propagate unchanged."""
         dummy_function.side_effect = ValueError('testException')
         decorated_function = check_authentication(dummy_function)
 
@@ -26,6 +33,7 @@ class TestDecorators:
             decorated_function()
 
     def test_check_authentication(self, dummy_function):
+        """Test that the decorated function is called with correct args."""
         decorated_function = check_authentication(dummy_function)
 
         decorated_function('args', kwargs='kwargs')

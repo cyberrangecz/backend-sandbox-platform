@@ -1,15 +1,25 @@
+"""Tests for CrczpOpenStackClient."""
+
 import pytest
+
 from crczp.cloud_commons import CrczpException
 
 
 def arguments_for_wait_for_test():
-    arguments = [{'stack_id': 'stack_id', 'poll_period': 50, 'out': 'out'}, {'stack_id': 'stack_id'}]
+    """Yield argument dicts for wait-for tests."""
+    arguments = [
+        {'stack_id': 'stack_id', 'poll_period': 50, 'out': 'out'},
+        {'stack_id': 'stack_id'},
+    ]
 
     yield from arguments
 
 
-class TestOpenStackClient:
+class TestOpenStackClient:  # pylint: disable=too-many-public-methods
+    """Tests for the CrczpOpenStackClient high-level interface."""
+
     def test_list_images(self, mocker, os_client):
+        """Test that list_images delegates to the proxy and returns the result."""
         os_client.open_stack_proxy.list_images = mocker.MagicMock()
         os_client.open_stack_proxy.list_images.return_value = 'imageList'
 
@@ -18,6 +28,7 @@ class TestOpenStackClient:
         assert result == 'imageList'
 
     def test_create_terraform_template(self, mocker, os_client, topology_instance):
+        """Test that create_terraform_template delegates to the proxy."""
         os_client.open_stack_proxy.validate_and_get_terraform_template = mocker.MagicMock()
         os_client.open_stack_proxy.validate_and_get_terraform_template.return_value = 'template'
 
@@ -25,6 +36,7 @@ class TestOpenStackClient:
         assert result == 'template'
 
     def test_get_image(self, mocker, os_client):
+        """Test that get_image delegates to the proxy with the correct image ID."""
         os_client.open_stack_proxy.get_image = mocker.MagicMock()
         os_client.open_stack_proxy.get_image.return_value = 'image'
 
@@ -33,12 +45,14 @@ class TestOpenStackClient:
         os_client.open_stack_proxy.get_image.assert_called_with('image_id')
 
     def test_resume_node(self, mocker, os_client):
+        """Test that resume_node calls resume_instance on the proxy."""
         os_client.open_stack_proxy.resume_instance = mocker.MagicMock()
         os_client.resume_node('node_id')
 
         os_client.open_stack_proxy.resume_instance.assert_called_with('node_id')
 
     def test_resume_node_not_found(self, mocker, os_client):
+        """Test that resume_node propagates CrczpException from the proxy."""
         os_client.open_stack_proxy.resume_instance = mocker.MagicMock()
         os_client.open_stack_proxy.resume_instance.side_effect = CrczpException('testException')
 
@@ -46,12 +60,14 @@ class TestOpenStackClient:
             os_client.resume_node('node_id')
 
     def test_start_node(self, mocker, os_client):
+        """Test that start_node calls start_instance on the proxy."""
         os_client.open_stack_proxy.start_instance = mocker.MagicMock()
         os_client.start_node('node_id')
 
         os_client.open_stack_proxy.start_instance.assert_called_with('node_id')
 
     def test_start_node_not_found(self, mocker, os_client):
+        """Test that start_node propagates CrczpException from the proxy."""
         os_client.open_stack_proxy.start_instance = mocker.MagicMock()
         os_client.open_stack_proxy.start_instance.side_effect = CrczpException('textException')
 
@@ -59,12 +75,14 @@ class TestOpenStackClient:
             os_client.start_node('node_id')
 
     def test_reboot_node(self, mocker, os_client):
+        """Test that reboot_node calls reboot_instance on the proxy."""
         os_client.open_stack_proxy.reboot_instance = mocker.MagicMock()
         os_client.reboot_node('node_id')
 
         os_client.open_stack_proxy.reboot_instance.assert_called_with('node_id')
 
     def test_reboot_node_not_found(self, mocker, os_client):
+        """Test that reboot_node propagates CrczpException from the proxy."""
         os_client.open_stack_proxy.reboot_instance = mocker.MagicMock()
         os_client.open_stack_proxy.reboot_instance.side_effect = CrczpException('testException')
 
@@ -72,6 +90,7 @@ class TestOpenStackClient:
             os_client.reboot_node('node_id')
 
     def test_get_console_url(self, mocker, os_client):
+        """Test that get_console_url returns the console URL from the proxy."""
         os_client.open_stack_proxy.get_console_url = mocker.MagicMock()
         os_client.open_stack_proxy.get_console_url.return_value = 'spiceConsole'
 
@@ -80,6 +99,7 @@ class TestOpenStackClient:
         assert result == 'spiceConsole'
 
     def test_get_console_url_not_found(self, mocker, os_client):
+        """Test that get_console_url propagates CrczpException from the proxy."""
         os_client.open_stack_proxy.get_console_url = mocker.MagicMock()
         os_client.open_stack_proxy.get_console_url.side_effect = CrczpException('testException')
 
@@ -99,6 +119,7 @@ class TestOpenStackClient:
         ],
     )
     def test_create_keypair(self, mocker, os_client, arguments):
+        """Test that create_keypair passes correct arguments to the proxy."""
         os_client.open_stack_proxy.create_keypair = mocker.MagicMock()
         os_client.create_keypair(**arguments)
 
@@ -107,6 +128,7 @@ class TestOpenStackClient:
         )
 
     def test_create_keypair_create_failed(self, mocker, os_client):
+        """Test that create_keypair propagates CrczpException on failure."""
         os_client.open_stack_proxy.create_keypair = mocker.MagicMock()
         os_client.open_stack_proxy.create_keypair.side_effect = CrczpException('testException')
 
@@ -114,6 +136,7 @@ class TestOpenStackClient:
             os_client.create_keypair('key')
 
     def test_get_keypair(self, mocker, os_client):
+        """Test that get_keypair returns the keypair from the proxy."""
         os_client.open_stack_proxy.get_keypair = mocker.MagicMock()
         os_client.open_stack_proxy.get_keypair.return_value = 'keypair'
 
@@ -122,6 +145,7 @@ class TestOpenStackClient:
         assert result == 'keypair'
 
     def test_get_keypair_nonexisting_keypair(self, mocker, os_client):
+        """Test that get_keypair propagates CrczpException when keypair does not exist."""
         os_client.open_stack_proxy.get_keypair = mocker.MagicMock()
         os_client.open_stack_proxy.get_keypair.side_effect = CrczpException('testException')
 
@@ -129,12 +153,14 @@ class TestOpenStackClient:
             os_client.get_keypair('keypair')
 
     def test_delete_keypair(self, mocker, os_client):
+        """Test that delete_keypair calls the proxy with the correct name."""
         os_client.open_stack_proxy.delete_keypair = mocker.MagicMock()
         os_client.delete_keypair('name')
 
         os_client.open_stack_proxy.delete_keypair.assert_called_with('name')
 
     def test_delete_keypair_not_found(self, mocker, os_client):
+        """Test that delete_keypair propagates CrczpException when keypair is not found."""
         os_client.open_stack_proxy.delete_keypair = mocker.MagicMock()
         os_client.open_stack_proxy.delete_keypair.side_effect = CrczpException('testException')
 
@@ -142,6 +168,7 @@ class TestOpenStackClient:
             os_client.delete_keypair('key')
 
     def test_get_project_name(self, mocker, os_client):
+        """Test that get_project_name returns the project name from the auth ref."""
         auth_ref = mocker.MagicMock()
         auth_ref.project_name = 'project_name'
 
@@ -153,6 +180,7 @@ class TestOpenStackClient:
         assert result_project_name == 'project_name'
 
     def test_get_quota_set(self, mocker, os_client):
+        """Test that get_quota_set returns the mocked quota set."""
         os_client.get_quota_set = mocker.MagicMock()
         os_client.get_quota_set.return_value = 'quota_set'
 
@@ -161,6 +189,7 @@ class TestOpenStackClient:
         assert result == 'quota_set'
 
     def test_get_hardware_usage(self, mocker, os_client, topology_instance):
+        """Test that get_hardware_usage delegates to the proxy."""
         os_client.open_stack_proxy.get_hardware_usage = mocker.MagicMock()
         os_client.open_stack_proxy.get_hardware_usage.return_value = 'hardwareUsage'
 
@@ -168,6 +197,7 @@ class TestOpenStackClient:
         assert result == 'hardwareUsage'
 
     def test_get_project_limits(self, mocker, os_client):
+        """Test that get_project_limits delegates to the proxy."""
         os_client.session = mocker.MagicMock()
         os_client.open_stack_proxy.get_project_limits = mocker.MagicMock()
         os_client.open_stack_proxy.get_project_limits.return_value = 'projectLimits'

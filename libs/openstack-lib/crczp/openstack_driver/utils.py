@@ -1,12 +1,15 @@
+"""Utility functions for OpenStack client and network validation."""
+
 from typing import Union
 
 import keystoneauth1.identity
 import keystoneauth1.session
-from crczp.cloud_commons import CrczpException, TopologyInstance
 from glanceclient.v2 import client as glance_client
 from netaddr import AddrFormatError, IPAddress, IPNetwork, IPSet
 from neutronclient.v2_0 import client as neutron_client
 from novaclient import client as nova_client
+
+from crczp.cloud_commons import CrczpException, TopologyInstance
 
 NOVA_CLIENT_VERSION = '2.10'
 HEAT_CLIENT_VERSION = 1

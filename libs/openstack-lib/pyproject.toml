@@ -36,7 +36,7 @@ packages = ["crczp"]
 exclude-packages = ["tests"]
 
 [tool.ruff]
-line-length = 127
+line-length = 100
 preview = true
 
 [tool.ruff.lint]
@@ -55,6 +55,9 @@ select = [
     "I",
 ]
 
+[tool.ruff.lint.isort]
+known-first-party = ["crczp"]
+
 [tool.ruff.format]
 quote-style = "single"
 indent-style = "space"
@@ -71,7 +74,6 @@ explicit_package_bases = true
 [[tool.mypy.overrides]]
 ignore_errors = true
 module = "tests.*"
-
 
 [tool.pylint]
 # You can add pylint configs here or in .pylintrc

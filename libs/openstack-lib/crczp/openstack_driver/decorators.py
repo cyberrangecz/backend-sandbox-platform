@@ -1,7 +1,10 @@
+"""Decorators for OpenStack client authentication checks."""
+
 from typing import Any, Callable, TypeVar
 
-from crczp.cloud_commons import exceptions
 from keystoneauth1 import exceptions as keystone_exception
+
+from crczp.cloud_commons import exceptions
 
 F = TypeVar('F', bound=Callable[..., Any])
 
