@@ -2,6 +2,8 @@
 Module for topology definition validators.
 """
 
+from __future__ import annotations
+
 import re
 from ipaddress import ip_address, ip_network
 from itertools import combinations
@@ -45,9 +47,7 @@ class TopologyValidation:
             raise ValueError(_msg.format(obj.__class__.__name__, name, VALID_NAMES_REGEX))
 
     @staticmethod
-    def validate_net_mappings(
-        obj: 'TopologyDefinition', net_mappings: 'NetworkMappingList'
-    ) -> bool:
+    def validate_net_mappings(obj: TopologyDefinition, net_mappings: NetworkMappingList) -> bool:
         """
         Validate network mappings.
         """
@@ -61,7 +61,7 @@ class TopologyValidation:
 
     @staticmethod
     def validate_router_mappings(
-        obj: 'TopologyDefinition', router_mappings: 'RouterMappingList'
+        obj: TopologyDefinition, router_mappings: RouterMappingList
     ) -> bool:
         """
         Validate router mappings.
@@ -72,9 +72,7 @@ class TopologyValidation:
         return True
 
     @staticmethod
-    def validate_name_mappings(
-        obj: 'TopologyDefinition', router_mappings: 'RouterMappingList'
-    ) -> None:
+    def validate_name_mappings(obj: TopologyDefinition, router_mappings: RouterMappingList) -> None:
         """
         Validate name mappings.
         """
@@ -86,9 +84,7 @@ class TopologyValidation:
                 raise ValueError(_msg.format(router_mapping.ip, 'network', router_mapping.network))
 
     @staticmethod
-    def validate_cidrs_and_ips(
-        obj: 'TopologyDefinition', router_mappings: 'RouterMappingList'
-    ) -> None:
+    def validate_cidrs_and_ips(obj: TopologyDefinition, router_mappings: RouterMappingList) -> None:
         """
         Validate CIDRs and IP addresses.
         """
@@ -104,7 +100,7 @@ class TopologyValidation:
         TopologyValidation.raise_if_ip_not_unique(net_mappings + router_mappings_list)
 
     @staticmethod
-    def raise_if_overlaps(networks: list['Network' | 'WAN']) -> None:
+    def raise_if_overlaps(networks: list[Network | WAN]) -> None:
         """
         Raise error if networks overlap.
         """
@@ -116,8 +112,8 @@ class TopologyValidation:
 
     @staticmethod
     def raise_if_not_in_network(
-        mappings: 'NetworkMappingList | RouterMappingList',
-        networks: 'NetworkList',
+        mappings: NetworkMappingList | RouterMappingList,
+        networks: NetworkList,
     ) -> None:
         """
         Raise error if IP is not in network.
@@ -131,7 +127,7 @@ class TopologyValidation:
 
     @staticmethod
     def raise_if_ip_not_unique(
-        mappings: list['NetworkMappingList | RouterMappingList'],
+        mappings: list[NetworkMappingList | RouterMappingList],
     ) -> None:
         """
         Raise error if IP is not unique.
@@ -147,7 +143,7 @@ class TopologyValidation:
             raise ValueError(_msg.format(duplicates_ip))
 
     @staticmethod
-    def validate_groups(obj: 'TopologyDefinition', groups: 'GroupList') -> bool:
+    def validate_groups(obj: TopologyDefinition, groups: GroupList) -> bool:
         """
         Validate groups.
         """
@@ -161,7 +157,7 @@ class TopologyValidation:
         return True
 
     @staticmethod
-    def validate_group_nodes(_obj: object, nodes: 'StrList') -> bool:
+    def validate_group_nodes(_obj: object, nodes: StrList) -> bool:
         """
         Validate group nodes.
         """
@@ -175,7 +171,7 @@ class TopologyValidation:
         return True
 
     @staticmethod
-    def validate_name_uniqueness(obj: 'TopologyDefinition', networks: 'NetworkList') -> bool:
+    def validate_name_uniqueness(obj: TopologyDefinition, networks: NetworkList) -> bool:
         """
         Validate name uniqueness.
         """
@@ -219,7 +215,7 @@ class TopologyValidation:
         return list(result)
 
     @staticmethod
-    def is_volumes_valid(_obj: object, volumes: 'VolumeList') -> None:
+    def is_volumes_valid(_obj: object, volumes: VolumeList) -> None:
         """
         Validate volumes.
         """
@@ -227,9 +223,7 @@ class TopologyValidation:
             raise ValueError('Volumes must contain at least one entry for system disk')
 
     @staticmethod
-    def validate_monitoring_targets(
-        obj: 'TopologyDefinition', targets: 'MonitoringTargetList'
-    ) -> bool:
+    def validate_monitoring_targets(obj: TopologyDefinition, targets: MonitoringTargetList) -> bool:
         """
         Validate monitoring targets.
         """
@@ -255,7 +249,7 @@ class TopologyValidation:
         return True
 
     @staticmethod
-    def validate_targets(_obj: object, targets: 'TargetList') -> bool:
+    def validate_targets(_obj: object, targets: TargetList) -> bool:
         """
         Validate targets.
         """

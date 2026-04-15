@@ -352,7 +352,7 @@ class TopologyDefinition(Object):  # type: ignore[misc]
         """
         Find host by name.
         """
-        if not self._indexed:
+        if not getattr(self, '_indexed', False):
             self.index()
         return self._hosts_index.get(name, None)
 
@@ -360,7 +360,7 @@ class TopologyDefinition(Object):  # type: ignore[misc]
         """
         Find router by name.
         """
-        if not self._indexed:
+        if not getattr(self, '_indexed', False):
             self.index()
         return self._routers_index.get(name, None)
 
@@ -368,7 +368,7 @@ class TopologyDefinition(Object):  # type: ignore[misc]
         """
         Find network by name.
         """
-        if not self._indexed:
+        if not getattr(self, '_indexed', False):
             self.index()
         return self._networks_index.get(name, None)
 
