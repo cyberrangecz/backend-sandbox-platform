@@ -376,7 +376,24 @@ class TopologyInstance:
             'monitoring_targets_icmp': [
                 str(monitored_host) for monitored_host in self.get_monitored_hosts_icmp()
             ],
-            'monitoring_targets_http': str(self.get_monitored_hosts_http()),
+def __str__(self) -> str:
+http_monitored_hosts = self.get_monitored_hosts_http()
+ret = {
+'hosts': [str(host) for host in self.get_hosts()],
+'routers': [str(router) for router in self.get_routers()],
+'hosts_networks': [str(host_network) for host_network in self.get_hosts_networks()],
+'wan': str(self.wan),
+'man': str(self.man),
+'man_network': str(self.man_network),
+'links': [str(link) for link in self.get_links()],
+'groups': [str(group) for group in self.get_groups()],
+            'monitoring_targets_tcp': [
+                str(monitored_host) for monitored_host in self.get_monitored_hosts_tcp()
+            ],
+            'monitoring_targets_icmp': [
+                str(monitored_host) for monitored_host in self.get_monitored_hosts_icmp()
+],
+           'monitoring_targets_http': [str(t) for t in http_monitored_hosts.targets] if http_monitored_hosts else [],
         }
         if self.ip:
             ret['ip'] = self.ip
