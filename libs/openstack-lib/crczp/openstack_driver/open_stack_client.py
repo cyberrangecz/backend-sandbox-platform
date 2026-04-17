@@ -176,7 +176,7 @@ class CrczpOpenStackClient(CrczpCloudClientBase):  # type: ignore[misc]
         :return: None
         :raise: CrczpException on creation failure
         """
-        self.open_stack_proxy.create_keypair(name, public_key or '', key_type)
+        self.open_stack_proxy.create_keypair(name, public_key, key_type)
 
     @check_authentication
     def get_keypair(self, name: str) -> novaclient.v2.keypairs.Keypair:

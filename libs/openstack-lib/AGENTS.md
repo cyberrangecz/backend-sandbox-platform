@@ -11,7 +11,7 @@ For a high-level description, usage examples, and API overview, see the main pro
 
 **Repository:** `backend-openstack-lib`
 
-This repository hosts Openstack cloud libraries that are imlemented for CyberRangeCZ Platform.
+This repository hosts Openstack cloud libraries that are implemented for CyberRangeCZ Platform.
 
 Core tooling:
 

@@ -266,15 +266,14 @@ class TestOpenStackProxy:  # pylint: disable=too-many-public-methods
 
     def test_get_console_url(self, mocker, open_stack_proxy, stack_resources):
         """Test that get_console_url returns the expected console URL."""
-        open_stack_proxy.nova.servers.get_console_url = mocker.MagicMock()
-
-        expected_console = open_stack_proxy.nova.servers.get_console_url(
-            stack_resources['physical_resource_id'], 'spice-html5'
-        )['console']['url']
+        expected_url = 'https://console.example.com/spice'
+        open_stack_proxy.nova.servers.get_console_url = mocker.MagicMock(
+            return_value={'remote_console': {'url': expected_url}}
+        )
 
         result = open_stack_proxy.get_console_url('node_id', 'spice-html5')
 
-        assert result == expected_console
+        assert result == expected_url
         open_stack_proxy.nova.servers.get_console_url.assert_called_with(
             stack_resources['physical_resource_id'], 'spice-html5'
         )

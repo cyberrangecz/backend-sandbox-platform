@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 import novaclient.v2.keypairs
 import structlog
@@ -129,7 +129,7 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
             raise CrczpException(f"Failed to get keypair '{keypair_name}': {e}") from e
 
     def create_keypair(
-        self, name: str, public_key: str, key_type: str
+        self, name: str, public_key: Optional[str], key_type: str
     ) -> novaclient.v2.keypairs.Keypair:
         """
         Create key-pair in nova.
