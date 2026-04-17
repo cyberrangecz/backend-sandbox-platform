@@ -257,10 +257,13 @@ class TopologyValidation:
         return True
 
     @staticmethod
-    def validate_monitoring_targets_tcp(obj: object, targets: MonitoringTargetTCPList) -> bool:
+    def validate_monitoring_targets_tcp(obj: object, targets: MonitoringTargetTCPList | None) -> bool:
         """
         Validate TCP monitoring targets — node names must be unique.
         """
+        if targets is None:
+            return True
+
         used_node_names: set[str] = set()
 
         for target in targets:
@@ -276,11 +279,14 @@ class TopologyValidation:
         return True
 
     @staticmethod
-    def validate_targets_tcp(_obj: object, targets: TargetTCPList) -> bool:
+    def validate_targets_tcp(_obj: object, targets: TargetTCPList | None) -> bool:
         """
         Validate TCP targets — exactly one of interface/address required, port must be valid.
         The same port may appear multiple times (on different interfaces/addresses).
         """
+        if targets is None:
+            return True
+
         for target in targets:
             if target.interface is None and target.address is None:
                 raise ValueError(
@@ -301,11 +307,14 @@ class TopologyValidation:
         return True
 
     @staticmethod
-    def validate_monitoring_targets_icmp(obj: object, targets: MonitoringTargetICMPList) -> bool:
+    def validate_monitoring_targets_icmp(obj: object, targets: MonitoringTargetICMPList | None) -> bool:
         """
         Validate ICMP monitoring targets — node names must be unique.
         Node existence is validated at the TopologyDefinition level via validate_monitoring_targets.
         """
+        if targets is None:
+            return True
+
         used_node_names: set[str] = set()
 
         for target in targets:
@@ -321,10 +330,13 @@ class TopologyValidation:
         return True
 
     @staticmethod
-    def validate_targets_icmp(_obj: object, targets: TargetICMPList) -> bool:
+    def validate_targets_icmp(_obj: object, targets: TargetICMPList | None) -> bool:
         """
         Validate ICMP targets — exactly one of interface/address required.
         """
+        if targets is None:
+            return True
+
         for target in targets:
             if target.interface is None and target.address is None:
                 raise ValueError(
@@ -338,10 +350,13 @@ class TopologyValidation:
         return True
 
     @staticmethod
-    def validate_targets_http(_obj: object, targets: TargetHTTPList) -> bool:
+    def validate_targets_http(_obj: object, targets: TargetHTTPList | None) -> bool:
         """
         Validate HTTP targets — url must be a valid http/https URL.
         """
+        if targets is None:
+            return True
+
         for target in targets:
             parsed = urlparse(target.url)
             if parsed.scheme not in ('http', 'https') or not parsed.netloc:
