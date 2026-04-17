@@ -165,14 +165,14 @@ class TopologyInstance:
         Return a list of monitored hosts and their TCP monitored interfaces/ports.
         """
         mt = self.topology_definition.monitoring_targets
-        return cast(list[MonitoringTargetTCP], mt.tcp if mt else None)
+        return mt.tcp or [] if mt else []
 
     def get_monitored_hosts_icmp(self) -> list[MonitoringTargetICMP]:
         """
         Return a list of monitored hosts and their ICMP monitored interfaces/addresses.
         """
         mt = self.topology_definition.monitoring_targets
-        return cast(list[MonitoringTargetICMP], mt.icmp if mt else None)
+        return mt.icmp or [] if mt else []
 
     def get_monitored_hosts_http(self) -> Optional[MonitoringTargetHTTP]:
         """
