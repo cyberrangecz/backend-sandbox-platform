@@ -8,7 +8,9 @@ from crczp.topology_definition.models import (
     DockerContainers,
     Group,
     Host,
-    MonitoringTarget,
+    MonitoringTargetHTTP,
+    MonitoringTargetICMP,
+    MonitoringTargetTCP,
     Network,
     NetworkMappingList,
     Router,
@@ -158,12 +160,26 @@ class TopologyInstance:
         """
         return cast(Iterable[Network], self.topology_definition.networks)
 
-    def get_monitored_hosts(self) -> list[MonitoringTarget]:
+    def get_monitored_hosts_tcp(self) -> list[MonitoringTargetTCP]:
         """
-        Return a list of monitored hosts and their monitored
-        interfaces/ports.
+        Return a list of monitored hosts and their TCP monitored interfaces/ports.
         """
-        return cast(list[MonitoringTarget], self.topology_definition.monitoring_targets)
+        mt = self.topology_definition.monitoring_targets
+        return cast(list[MonitoringTargetTCP], mt.tcp if mt else None)
+
+    def get_monitored_hosts_icmp(self) -> list[MonitoringTargetICMP]:
+        """
+        Return a list of monitored hosts and their ICMP monitored interfaces/addresses.
+        """
+        mt = self.topology_definition.monitoring_targets
+        return cast(list[MonitoringTargetICMP], mt.icmp if mt else None)
+
+    def get_monitored_hosts_http(self) -> Optional[MonitoringTargetHTTP]:
+        """
+        Return the HTTP monitoring target configuration (URL list).
+        """
+        mt = self.topology_definition.monitoring_targets
+        return mt.http if mt else None
 
     def get_user_accessible_hosts_networks(self) -> list[Network]:
         """
@@ -354,9 +370,13 @@ class TopologyInstance:
             'man_network': str(self.man_network),
             'links': [str(link) for link in self.get_links()],
             'groups': [str(group) for group in self.get_groups()],
-            'monitoring_targets': [
-                str(monitored_host) for monitored_host in self.get_monitored_hosts()
+            'monitoring_targets_tcp': [
+                str(monitored_host) for monitored_host in self.get_monitored_hosts_tcp()
             ],
+            'monitoring_targets_icmp': [
+                str(monitored_host) for monitored_host in self.get_monitored_hosts_icmp()
+            ],
+            'monitoring_targets_http': str(self.get_monitored_hosts_http()),
         }
         if self.ip:
             ret['ip'] = self.ip
