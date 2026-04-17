@@ -229,7 +229,7 @@ class TopologyValidation:
 
     @staticmethod
     def validate_monitoring_targets(
-        obj: TopologyDefinition, monitoring_targets: MonitoringTargets
+        obj: TopologyDefinition, monitoring_targets: MonitoringTargets | None
     ) -> bool:
         """
         Validate monitoring targets — referenced nodes must exist in the topology.
