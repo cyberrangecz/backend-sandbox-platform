@@ -61,13 +61,21 @@ groups:
       - home-router
 
 monitoring_targets:
-  - node: home
+  tcp:
+    - node: server-router
+      targets:
+        - port: 22
+          interface: ens3
+        - port: 22
+          address: 10.10.20.0/24
+  icmp:
+    - node: server
+      targets:
+        - interface: ens3
+    - node: home
+      targets:
+        - address: 10.10.30.5
+  http:
     targets:
-      - port: 2022
-        interface: eth0
-      - port: 2023
-        interface: eth1
-  - node: server-router
-    targets:
-      - port: 555
-        interface: eth0
+      - url: https://10.10.20.5
+        check_string: "Hello"

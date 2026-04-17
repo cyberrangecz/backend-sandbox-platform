@@ -257,38 +257,116 @@ class GroupList(Sequence):  # type: ignore[misc]
     item_type = Group
 
 
-class Target(Object):  # type: ignore[misc]
+class TargetTCP(Object):  # type: ignore[misc]
     """
-    Target definition.
+    TCP monitoring target definition. Exactly one of interface or address must be specified.
     """
 
-    interface = Attribute(type=str)
+    interface = Attribute(type=str, default=None)
+    address = Attribute(type=str, default=None)
     port = Attribute(type=int)
 
 
-class TargetList(Sequence):  # type: ignore[misc]
+class TargetTCPList(Sequence):  # type: ignore[misc]
     """
-    List of targets.
+    List of TCP targets.
     """
 
-    item_type = Target
+    item_type = TargetTCP
 
 
-class MonitoringTarget(Object):  # type: ignore[misc]
+class MonitoringTargetTCP(Object):  # type: ignore[misc]
     """
-    Monitoring target definition.
+    TCP monitoring target node definition.
     """
 
     node = Attribute(type=str)
-    targets = Attribute(type=TargetList, validator=TopologyValidation.validate_targets)
+    targets = Attribute(type=TargetTCPList, validator=TopologyValidation.validate_targets_tcp)
 
 
-class MonitoringTargetList(Sequence):  # type: ignore[misc]
+class MonitoringTargetTCPList(Sequence):  # type: ignore[misc]
     """
-    List of monitoring targets.
+    List of TCP monitoring targets.
     """
 
-    item_type = MonitoringTarget
+    item_type = MonitoringTargetTCP
+
+
+class TargetICMP(Object):  # type: ignore[misc]
+    """
+    ICMP monitoring target definition. Exactly one of interface or address must be specified.
+    """
+
+    interface = Attribute(type=str, default=None)
+    address = Attribute(type=str, default=None)
+
+
+class TargetICMPList(Sequence):  # type: ignore[misc]
+    """
+    List of ICMP targets.
+    """
+
+    item_type = TargetICMP
+
+
+class MonitoringTargetICMP(Object):  # type: ignore[misc]
+    """
+    ICMP monitoring target node definition.
+    """
+
+    node = Attribute(type=str)
+    targets = Attribute(type=TargetICMPList, validator=TopologyValidation.validate_targets_icmp)
+
+
+class MonitoringTargetICMPList(Sequence):  # type: ignore[misc]
+    """
+    List of ICMP monitoring targets.
+    """
+
+    item_type = MonitoringTargetICMP
+
+
+class TargetHTTP(Object):  # type: ignore[misc]
+    """
+    HTTP monitoring target definition.
+    """
+
+    url = Attribute(type=str)
+    check_string = Attribute(type=str, default=None)
+
+
+class TargetHTTPList(Sequence):  # type: ignore[misc]
+    """
+    List of HTTP targets.
+    """
+
+    item_type = TargetHTTP
+
+
+class MonitoringTargetHTTP(Object):  # type: ignore[misc]
+    """
+    HTTP monitoring targets (not bound to a specific node).
+    """
+
+    targets = Attribute(type=TargetHTTPList, validator=TopologyValidation.validate_targets_http)
+
+
+class MonitoringTargets(Object):  # type: ignore[misc]
+    """
+    Consolidated monitoring targets definition.
+    """
+
+    tcp = Attribute(
+        type=MonitoringTargetTCPList,
+        validator=TopologyValidation.validate_monitoring_targets_tcp,
+        default=None,
+    )
+    icmp = Attribute(
+        type=MonitoringTargetICMPList,
+        validator=TopologyValidation.validate_monitoring_targets_icmp,
+        default=None,
+    )
+    http = Attribute(type=MonitoringTargetHTTP, default=None)
 
 
 class TopologyDefinition(Object):  # type: ignore[misc]
@@ -311,10 +389,16 @@ class TopologyDefinition(Object):  # type: ignore[misc]
     # the validation of router_mappings is also used to validate CIDRs and IP addresses
     groups = Attribute(type=GroupList, validator=TopologyValidation.validate_groups)
     monitoring_targets = Attribute(
-        type=MonitoringTargetList,
+        type=MonitoringTargets,
         validator=TopologyValidation.validate_monitoring_targets,
         default=None,
     )
+
+    # Class-level defaults so yamlize (which bypasses __init__) finds these attributes
+    _indexed: bool = False
+    _hosts_index: dict[str, 'Host'] = {}
+    _routers_index: dict[str, 'Router'] = {}
+    _networks_index: dict[str, 'Network'] = {}
 
     def __init__(self, name: str, wan: WAN) -> None:
         self.name = name
@@ -325,7 +409,7 @@ class TopologyDefinition(Object):  # type: ignore[misc]
         self.net_mappings = NetworkMappingList()
         self.router_mappings = RouterMappingList()
         self.groups = GroupList()
-        self.monitoring_targets = MonitoringTargetList()
+        self.monitoring_targets: Optional[MonitoringTargets] = None
         self._indexed: bool = False
         self._hosts_index: dict[str, Host] = {}
         self._routers_index: dict[str, Router] = {}
