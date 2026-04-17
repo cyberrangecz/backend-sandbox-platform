@@ -123,6 +123,33 @@ class TestDummy:
         assert http_targets[0].url == 'https://10.10.20.5'
         assert http_targets[0].check_string == 'Hello'
 
+    def test_read_yaml_monitoring_with_only_http(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        Test reading YAML with only HTTP monitoring targets configured.
+        """
+        topology_definition_with_http_only = (
+            topology_definition_string
+            + """
+monitoring_targets:
+  http:
+    targets:
+      - url: https://10.10.20.5
+        check_string: Hello
+"""
+        )
+
+        topology_definition = TopologyDefinition.load(topology_definition_with_http_only)
+
+        assert topology_definition.monitoring_targets is not None
+        assert topology_definition.monitoring_targets.http is not None
+        http_targets = topology_definition.monitoring_targets.http.targets
+        assert len(http_targets) == 1
+        assert http_targets[0].url == 'https://10.10.20.5'
+        assert http_targets[0].check_string == 'Hello'
+        assert topology_definition.monitoring_targets.tcp in (None, [])
+        assert topology_definition.monitoring_targets.icmp in (None, [])
     def test_indexes(self, topology_definition: TopologyDefinition) -> None:
         """
         Test indexes.
