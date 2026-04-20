@@ -1,13 +1,13 @@
 [project]
 name = "crczp-terraform-client"
-version = "1.0.2"
+version = "1.0.3"
 description = "Terraform Client"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
 authors = [{ name = "cybersecurityhub.cz" }]
 dependencies = [
-    "crczp-python-commons~=1.0.1",
+    "crczp-python-commons>=1.0.1,<3.0",
     "crczp-openstack-lib~=1.0.0",
     "crczp-aws-lib~=1.0.1",
     "Jinja2>=3.1.6"
