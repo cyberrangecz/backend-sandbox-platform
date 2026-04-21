@@ -1,22 +1,24 @@
-from typing import List
+"""CrczpOpenStackClient — high-level interface for the OpenStack driver."""
+
+from typing import Any, Optional
 
 import novaclient.v2.keypairs
+
 from crczp.cloud_commons import (
     CrczpCloudClientBase,
-    Image,
-    TransformationConfiguration,
-    TopologyInstance,
-    QuotaSet,
     HardwareUsage,
+    Image,
     Limits,
     NodeDetails,
+    QuotaSet,
+    TopologyInstance,
+    TransformationConfiguration,
 )
-
-from crczp.openstack_driver import utils, open_stack_proxy
+from crczp.openstack_driver import open_stack_proxy, utils
 from crczp.openstack_driver.decorators import check_authentication
 
 
-class CrczpOpenStackClient(CrczpCloudClientBase):
+class CrczpOpenStackClient(CrczpCloudClientBase):  # type: ignore[misc]
     """
     client used as interface providing functions of this library
 
@@ -31,10 +33,12 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
         application_credential_secret: str,
         trc: TransformationConfiguration,
     ):
-        self.session = utils.get_session(auth_url, application_credential_id, application_credential_secret)
-        self.glance_client = utils.get_client("glance", self.session)
-        self.nova_client = utils.get_client("nova", self.session)
-        self.neutron_client = utils.get_client("neutron", self.session)
+        self.session = utils.get_session(
+            auth_url, application_credential_id, application_credential_secret
+        )
+        self.glance_client = utils.get_client('glance', self.session)
+        self.nova_client = utils.get_client('nova', self.session)
+        self.neutron_client = utils.get_client('neutron', self.session)
         self.open_stack_proxy = open_stack_proxy.OpenStackProxy(
             self.glance_client,
             self.nova_client,
@@ -46,18 +50,18 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
         )
 
     @staticmethod
-    def get_private_ip(instance_attrs: dict) -> str:
+    def get_private_ip(instance_attrs: dict[str, Any]) -> str:
         """
         Get IP address of an instance.
         Note, AWS driver stores IP address in different format.
 
-        :param instance_attrs: Terraoform instance attributes
+        :param instance_attrs: Terraform instance attributes
         :return: IP address of an instance
         """
-        return instance_attrs["all_fixed_ips"][0]
+        return str(instance_attrs['all_fixed_ips'][0])
 
     @check_authentication
-    def list_images(self) -> List[Image]:
+    def list_images(self) -> list[Image]:
         """
         Lists all images in openstack project.
 
@@ -66,7 +70,7 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
         return self.open_stack_proxy.list_images()
 
     @check_authentication
-    def get_terraform_provider(self):
+    def get_terraform_provider(self) -> str:
         """
         Get OpenStack Terraform provider
         :return: Terraform provider template
@@ -75,15 +79,19 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
         return self.open_stack_proxy.get_terraform_provider()
 
     @check_authentication
-    def create_terraform_template(self, topology_instance: TopologyInstance, *args, **kwargs) -> str:
+    def create_terraform_template(
+        self, topology_instance: TopologyInstance, *args: Any, **kwargs: Any
+    ) -> str:
         """
-        validates topology definition.
+        Validates topology definition.
 
         :param topology_instance: TopologyInstance
-        :return HEAT Orchestration Template as a string
+        :return: Terraform template as a string
         :raise CrczpException if not valid
         """
-        return self.open_stack_proxy.validate_and_get_terraform_template(topology_instance, *args, **kwargs)
+        return self.open_stack_proxy.validate_and_get_terraform_template(
+            topology_instance, *args, **kwargs
+        )
 
     @check_authentication
     def get_image(self, image_id: str) -> Image:
@@ -128,7 +136,7 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
         """
         self.open_stack_proxy.reboot_instance(node_id)
 
-    def get_node_details(self, terraform_attrs: dict) -> NodeDetails:
+    def get_node_details(self, terraform_attrs: dict[str, Any]) -> NodeDetails:
         """
         Get node details from the Terraform resource attributes.
         Note, Terraform attributes are backend specific.
@@ -136,9 +144,9 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
         :param terraform_attrs: Terraform resource attributes of the node
         :return: Node details
         """
-        image_id = terraform_attrs["image_id"]
-        status = terraform_attrs["power_state"]
-        flavor = terraform_attrs["flavor_name"]
+        image_id = terraform_attrs['image_id']
+        status = terraform_attrs['power_state']
+        flavor = terraform_attrs['flavor_name']
 
         return NodeDetails(image_id=image_id, status=status, flavor=flavor)
 
@@ -155,7 +163,9 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
         return self.open_stack_proxy.get_console_url(node_id, console_type)
 
     @check_authentication
-    def create_keypair(self, name: str, public_key: str = None, key_type: str = "ssh") -> None:
+    def create_keypair(
+        self, name: str, public_key: Optional[str] = None, key_type: str = 'ssh'
+    ) -> None:
         """
         Create key-pair in OpenStack. If public_key is not specified, new key-pair is created.
 
@@ -206,7 +216,7 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
 
         :return The name of the OpenStack project
         """
-        return self.session.auth.get_auth_ref(self.session).project_name
+        return str(self.session.auth.get_auth_ref(self.session).project_name)
 
     @check_authentication
     def get_hardware_usage(self, topology_instance: TopologyInstance) -> HardwareUsage:
@@ -219,7 +229,7 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
         return self.open_stack_proxy.get_hardware_usage(topology_instance)
 
     @check_authentication
-    def get_flavors_dict(self) -> dict:
+    def get_flavors_dict(self) -> dict[str, dict[str, float]]:
         """
         Gets flavors defined in OpenStack project with their vcpu and ram usage as dictionary
 

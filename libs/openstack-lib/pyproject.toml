@@ -1,6 +1,6 @@
 [project]
 name = "crczp-openstack-lib"
-version = "1.0.3"
+version = "1.0.4"
 description = "Cyberrangecz platform OpenStack Driver Python lib"
 readme = "README.md"
 license = "MIT"
@@ -36,7 +36,7 @@ packages = ["crczp"]
 exclude-packages = ["tests"]
 
 [tool.ruff]
-line-length = 127
+line-length = 100
 preview = true
 
 [tool.ruff.lint]
@@ -55,22 +55,31 @@ select = [
     "I",
 ]
 
+[tool.ruff.lint.isort]
+known-first-party = ["crczp"]
+
 [tool.ruff.format]
 quote-style = "single"
-indent-style = "tab"
+indent-style = "space"
 docstring-code-format = true
 
 [tool.mypy]
 check_untyped_defs = true
 ignore_missing_imports = true
 strict = true
+pretty = true
 enable_error_code = ["deprecated", "explicit-override"]
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+ignore_errors = true
+module = "tests.*"
 
 [tool.pylint]
 # You can add pylint configs here or in .pylintrc
 
 [tool.bandit]
-skips = ["B101"]
+skips = ["B101", "B311"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"

@@ -1,18 +1,21 @@
+"""Utility functions for OpenStack client and network validation."""
+
 from typing import Union
 
 import keystoneauth1.identity
 import keystoneauth1.session
 from glanceclient.v2 import client as glance_client
-from crczp.cloud_commons import CrczpException, TopologyInstance
-from netaddr import IPNetwork, IPSet, AddrFormatError, IPAddress
+from netaddr import AddrFormatError, IPAddress, IPNetwork, IPSet
 from neutronclient.v2_0 import client as neutron_client
 from novaclient import client as nova_client
 
-NOVA_CLIENT_VERSION = "2.10"
+from crczp.cloud_commons import CrczpException, TopologyInstance
+
+NOVA_CLIENT_VERSION = '2.10'
 HEAT_CLIENT_VERSION = 1
 KEYSTONE_CLIENT_VERSION = 3
 
-NAMES_REGEX = r"^[a-z]([a-z0-9A-Z-])*$"
+NAMES_REGEX = r'^[a-z]([a-z0-9A-Z-])*$'
 
 
 def get_session(
@@ -58,14 +61,14 @@ def get_client(
 
     :raise: ValueError if given client does not exists.
     """
-    if client_type == "neutron":
+    if client_type == 'neutron':
         client = neutron_client.Client(session=session)
-    elif client_type == "glance":
+    elif client_type == 'glance':
         client = glance_client.Client(session=session)
-    elif client_type == "nova":
+    elif client_type == 'nova':
         client = nova_client.Client(session=session, version=NOVA_CLIENT_VERSION)
     else:
-        raise ValueError("Unknown client type: {}".format(client_type))
+        raise ValueError(f'Unknown client type: {client_type}')
 
     return client
 
@@ -88,7 +91,7 @@ def validate_topology_instance_networks(topology_instance: TopologyInstance) -> 
             ip_network = IPNetwork(network.cidr)
 
             if ip_network in all_net_ip_pool:
-                raise CrczpException("network collision: {0}".format(network.cidr))
+                raise CrczpException(f'network collision: {network.cidr}')
 
             all_net_ip_pool.add(ip_network)
 
@@ -98,8 +101,8 @@ def validate_topology_instance_networks(topology_instance: TopologyInstance) -> 
 
                     if ip not in ip_network:
                         msg = (
-                            f"Hosts IP not in network range. Host: {link.node.name}, {link.ip},"
-                            f" Network: {network.name, network.cidr}"
+                            f'Hosts IP not in network range. Host: {link.node.name}, {link.ip},'
+                            f' Network: {network.name, network.cidr}'
                         )
                         raise CrczpException(msg)
 
