@@ -362,7 +362,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "crczp-python-commons", specifier = "~=1.0.1" },
+    { name = "crczp-python-commons", specifier = ">=1.0.1,<3.0" },
     { name = "deepdiff", specifier = ">=8.4.2" },
     { name = "jinja2", specifier = ">=3.1.3" },
     { name = "keystoneauth1", specifier = ">=5.11.0" },

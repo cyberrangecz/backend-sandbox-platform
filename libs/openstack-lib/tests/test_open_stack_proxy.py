@@ -334,7 +334,9 @@ class TestOpenStackProxy:  # pylint: disable=too-many-public-methods
         assert result['test_flavor'].get('vcpu') == 1
         assert result['test_flavor'].get('ram') == 2
 
-    def test_get_hardware_usage(self, open_stack_proxy, topology_instance, expected_hardware_usage):
+    def test_get_hardware_usage(
+        self, open_stack_proxy, topology_instance, expected_hardware_usage, mock_flavors
+    ):
         """Test that get_hardware_usage returns the correct HardwareUsage for a topology."""
         result = open_stack_proxy.get_hardware_usage(topology_instance)
 

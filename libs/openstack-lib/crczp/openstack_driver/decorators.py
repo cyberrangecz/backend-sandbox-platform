@@ -1,18 +1,19 @@
 """Decorators for OpenStack client authentication checks."""
 
-from typing import Any, Callable, TypeVar
+from typing import Callable, ParamSpec, TypeVar
 
 from keystoneauth1 import exceptions as keystone_exception
 
 from crczp.cloud_commons import exceptions
 
-F = TypeVar('F', bound=Callable[..., Any])
+P = ParamSpec('P')
+T = TypeVar('T')
 
 
-def check_authentication(func: F) -> F:
+def check_authentication(func: Callable[P, T]) -> Callable[P, T]:
     """Decorator for testing of OpenStackClient authentication and correct settings"""
 
-    def call(*args: Any, **kwargs: Any) -> Any:
+    def call(*args: P.args, **kwargs: P.kwargs) -> T:
         try:
             return func(*args, **kwargs)
         except keystone_exception.ClientException as ex:
@@ -21,4 +22,4 @@ def check_authentication(func: F) -> F:
                 'Either you are not authenticated or your configuration is wrong.'
             ) from ex
 
-    return call  # type: ignore[return-value]
+    return call
