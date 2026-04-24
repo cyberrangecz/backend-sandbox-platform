@@ -4,7 +4,7 @@ Module containing CyberRangeCZ Platform Terraform backend configuration.
 
 import os
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from crczp.terraform_driver.terraform_client_elements import CrczpTerraformBackendType
 from crczp.terraform_driver.terraform_exceptions import TerraformImproperlyConfigured
@@ -26,7 +26,10 @@ class CrczpTerraformBackend:  # pylint: disable=too-few-public-methods
         self.backend_type = backend_type
         self.db_configuration = db_configuration
         self.kube_namespace = kube_namespace
-        self.template_environment = Environment(loader=FileSystemLoader(TEMPLATES_DIR_PATH))
+        self.template_environment = Environment(
+            loader=FileSystemLoader(TEMPLATES_DIR_PATH),
+            autoescape=select_autoescape(),
+        )
         self.template = self._create_terraform_backend_template()
 
     def _get_local_settings(self) -> str:
