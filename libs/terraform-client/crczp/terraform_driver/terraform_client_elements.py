@@ -1,10 +1,16 @@
+"""
+Module containing CyberRangeCZ Platform Terraform client data elements.
+"""
+
 from enum import Enum
 from typing import Union
 
 from crczp.cloud_commons.cloud_client_elements import Image
 
 
-class CrczpTerraformBackendType(Enum):
+class CrczpTerraformBackendType(Enum):  # pylint: disable=too-few-public-methods
+    """Supported Terraform backend types."""
+
     LOCAL = 'local'
     POSTGRES = 'pg'
     KUBERNETES = 'kubernetes'
@@ -15,7 +21,9 @@ class TerraformInstance:
     Used to represent terraform stack instance
     """
 
-    def __init__(self, name: str, instance_id: str, status: str, image: Image, flavor_name: str):
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self, name: str, instance_id: str, status: str, image: Image, flavor_name: str
+    ):
         self.name = name
         self.id = instance_id
         self.status = status
@@ -26,6 +34,7 @@ class TerraformInstance:
         self.links: dict[str, dict[str, Union[str, int]]] = {}
 
     def add_link(self, network: str, ip: dict[str, Union[str, int]]) -> None:
+        """Add a network link with its IP attributes to this instance."""
         self.links[network] = ip
 
     def __repr__(self) -> str:  # type: ignore[explicit-override]

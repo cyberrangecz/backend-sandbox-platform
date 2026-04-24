@@ -1,3 +1,7 @@
+"""
+Module containing CyberRangeCZ Platform Terraform backend configuration.
+"""
+
 import os
 
 from jinja2 import Environment, FileSystemLoader
@@ -10,7 +14,9 @@ TEMPLATES_DIR_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), '
 TERRAFORM_BACKEND_FILE_NAME = 'terraform_backend.j2'
 
 
-class CrczpTerraformBackend:
+class CrczpTerraformBackend:  # pylint: disable=too-few-public-methods
+    """Manages Terraform backend configuration and template rendering."""
+
     def __init__(
         self,
         backend_type: CrczpTerraformBackendType,
@@ -20,7 +26,7 @@ class CrczpTerraformBackend:
         self.backend_type = backend_type
         self.db_configuration = db_configuration
         self.kube_namespace = kube_namespace
-        self.template_environment = Environment(loader=(FileSystemLoader(TEMPLATES_DIR_PATH)))
+        self.template_environment = Environment(loader=FileSystemLoader(TEMPLATES_DIR_PATH))
         self.template = self._create_terraform_backend_template()
 
     def _get_local_settings(self) -> str:
@@ -32,7 +38,10 @@ class CrczpTerraformBackend:
                 'Provide database configuration when using the postgres backend.'
             )
 
-        conn_str = f'postgres://{self.db_configuration["user"]}:{self.db_configuration["password"]}@{self.db_configuration["host"]}/{self.db_configuration["name"]}?sslmode=disable'
+        conn_str = (
+            f'postgres://{self.db_configuration["user"]}:{self.db_configuration["password"]}'
+            f'@{self.db_configuration["host"]}/{self.db_configuration["name"]}?sslmode=disable'
+        )
         return f'conn_str = "{conn_str}"'
 
     def _get_kubernetes_settings(self) -> str:

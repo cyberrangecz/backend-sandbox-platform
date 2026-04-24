@@ -16,12 +16,8 @@ class TerraformInitFailed(CrczpException):  # type: ignore[misc]
     This exception is raised if 'terraform init' command fails.
     """
 
-    pass
-
 
 class TerraformWorkspaceFailed(CrczpException):  # type: ignore[misc]
     """
     This exception is raised if `terraform workspace` command fails.
     """
-
-    pass

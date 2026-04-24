@@ -1,3 +1,7 @@
+"""
+Module containing CyberRangeCZ Platform Terraform exception handlers.
+"""
+
 from typing import Any, NoReturn
 
 import structlog

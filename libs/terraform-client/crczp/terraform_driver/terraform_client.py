@@ -1,3 +1,7 @@
+"""
+Module containing CyberRangeCZ Platform Terraform client.
+"""
+
 import subprocess
 from collections.abc import Iterator
 from enum import Enum
@@ -26,17 +30,19 @@ from crczp.terraform_driver.terraform_client_elements import (
 from crczp.terraform_driver.terraform_client_manager import CrczpTerraformClientManager
 
 
-class AvailableCloudLibraries(Enum):
+class AvailableCloudLibraries(Enum):  # pylint: disable=too-few-public-methods
+    """Enum of available cloud client libraries."""
+
     OPENSTACK = CrczpOpenStackClient
     AWS = CrczpAwsClient
 
 
-class CrczpTerraformClient:
+class CrczpTerraformClient:  # pylint: disable=too-many-public-methods
     """
     Client used as an interface providing functions of this Terraform library
     """
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments,keyword-arg-before-vararg
         self,
         cloud_client: AvailableCloudLibraries,
         trc: TransformationConfiguration,
@@ -80,7 +86,7 @@ class CrczpTerraformClient:
         """
         return self.client_manager.wait_for_process(process, timeout)
 
-    def create_stack(
+    def create_stack(  # pylint: disable=too-many-arguments,too-many-positional-arguments,keyword-arg-before-vararg
         self,
         topology_definition: TopologyDefinition,
         stack_name: str = 'stack-name',
