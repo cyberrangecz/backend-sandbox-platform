@@ -103,7 +103,7 @@ class CrczpAwsClient(CrczpCloudClientBase):  # type: ignore[misc]
             aws_secret_access_key=aws_secret_key,
             config=boto_client_config,
         )
-        self.jinja2_env = Environment(loader=FileSystemLoader(TEMPLATE_DIR_PATH))
+        self.jinja2_env = Environment(loader=FileSystemLoader(TEMPLATE_DIR_PATH))  # nosec B701 - renders Terraform templates, not HTML
         self.jinja2_env.filters['regex_replace'] = regex_replace
         self.trc = trc
 
