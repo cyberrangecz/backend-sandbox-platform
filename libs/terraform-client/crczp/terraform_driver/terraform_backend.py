@@ -11,8 +11,12 @@ TERRAFORM_BACKEND_FILE_NAME = 'terraform_backend.j2'
 
 
 class CrczpTerraformBackend:
-
-    def __init__(self, backend_type: CrczpTerraformBackendType, db_configuration=None, kube_namespace=None):
+    def __init__(
+        self,
+        backend_type: CrczpTerraformBackendType,
+        db_configuration: dict[str, str] | None = None,
+        kube_namespace: str | None = None,
+    ):
         self.backend_type = backend_type
         self.db_configuration = db_configuration
         self.kube_namespace = kube_namespace
@@ -24,17 +28,24 @@ class CrczpTerraformBackend:
 
     def _get_postgres_settings(self) -> str:
         if self.db_configuration is None:
-            raise TerraformImproperlyConfigured('Provide database configuration when using the postgres backend.')
+            raise TerraformImproperlyConfigured(
+                'Provide database configuration when using the postgres backend.'
+            )
 
-        conn_str = 'postgres://{0[user]}:{0[password]}@{0[host]}/{0[name]}?sslmode=disable'\
-                   .format(self.db_configuration)
+        conn_str = f'postgres://{self.db_configuration["user"]}:{self.db_configuration["password"]}@{self.db_configuration["host"]}/{self.db_configuration["name"]}?sslmode=disable'
         return f'conn_str = "{conn_str}"'
 
     def _get_kubernetes_settings(self) -> str:
         if self.kube_namespace is None:
-            raise TerraformImproperlyConfigured('Provide Kubernetes namespace when using the kubernetes backend.')
+            raise TerraformImproperlyConfigured(
+                'Provide Kubernetes namespace when using the kubernetes backend.'
+            )
 
-        return f'secret_suffix = "state"\nin_cluster_config = "true"\nnamespace = "{self.kube_namespace}"'
+        return (
+            f'secret_suffix = "state"\n'
+            f'in_cluster_config = "true"\n'
+            f'namespace = "{self.kube_namespace}"'
+        )
 
     def _get_backend_settings(self) -> str:
         backend_settings = {
@@ -51,7 +62,9 @@ class CrczpTerraformBackend:
         :return: Terraform backend configuration
         """
         template = self.template_environment.get_template(TERRAFORM_BACKEND_FILE_NAME)
-        return template.render(
-            tf_backend=self.backend_type.value,
-            tf_backend_settings=self._get_backend_settings(),
+        return str(
+            template.render(
+                tf_backend=self.backend_type.value,
+                tf_backend_settings=self._get_backend_settings(),
+            )
         )

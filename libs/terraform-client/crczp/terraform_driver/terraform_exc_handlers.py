@@ -1,9 +1,13 @@
+from typing import Any, NoReturn
+
 import structlog
 
 LOG = structlog.get_logger()
 
 
-def command_error_handler(exception_class, exception_message, *args, **kwargs):
+def command_error_handler(
+    exception_class: type[BaseException], exception_message: str, *args: Any, **kwargs: Any
+) -> NoReturn:
     """
     Handles exceptions raised by the Terraform CLI.
     :param exception_class: The exception class raised.

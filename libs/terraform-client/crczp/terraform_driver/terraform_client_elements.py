@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Union, Dict
+from typing import Union
 
 from crczp.cloud_commons.cloud_client_elements import Image
 
@@ -20,19 +20,21 @@ class TerraformInstance:
         self.id = instance_id
         self.status = status
         if self.status is None:
-            self.status = "UNKNOWN"
+            self.status = 'UNKNOWN'
         self.image = image
         self.flavor_name = flavor_name
-        self.links = {}
+        self.links: dict[str, dict[str, Union[str, int]]] = {}
 
-    def add_link(self, network: str, ip: Dict[str, Union[str, int]]) -> None:
+    def add_link(self, network: str, ip: dict[str, Union[str, int]]) -> None:
         self.links[network] = ip
 
-    def __repr__(self):
-        return "<TerraformStackInstance\n" \
-               "  name: {0.name},\n" \
-               "  id: {0.id},\n" \
-               "  status: {0.status},\n" \
-               "  image: {0.image},\n" \
-               "  flavor_name: {0.flavor_name},\n" \
-               "  links: {0.links}>\n".format(self)
+    def __repr__(self) -> str:  # type: ignore[explicit-override]
+        return (
+            '<TerraformStackInstance\n'
+            f'  name: {self.name},\n'
+            f'  id: {self.id},\n'
+            f'  status: {self.status},\n'
+            f'  image: {self.image},\n'
+            f'  flavor_name: {self.flavor_name},\n'
+            f'  links: {self.links}>\n'
+        )
