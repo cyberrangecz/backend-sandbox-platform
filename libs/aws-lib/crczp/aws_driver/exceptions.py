@@ -1,3 +1,5 @@
+"""Exceptions for the CyberRangeCZ AWS driver."""
+
 from typing import override
 
 from crczp.cloud_commons import CrczpException
@@ -7,8 +9,6 @@ class CrczpAwsClientException(CrczpException):  # type: ignore[misc]
     """
     Base exception for all AWS client exceptions
     """
-
-    pass
 
 
 class ImageDoesNotExist(CrczpAwsClientException):

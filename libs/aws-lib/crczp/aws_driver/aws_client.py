@@ -1,3 +1,5 @@
+"""AWS client implementation for the CyberRangeCZ platform."""
+
 import os
 import re
 from datetime import datetime, timedelta, timezone
@@ -22,7 +24,8 @@ from jinja2 import Environment, FileSystemLoader
 from .exceptions import ImageDoesNotExist, KeyPairDoesNotExist
 
 # sandbox-service sets REQUESTS_CA_BUNDLE to directory, but boto3 expects file
-os.environ['AWS_CA_BUNDLE'] = '/etc/ssl/certs/ca-certificates.crt'  # TODO: check if must exist
+# The file must exist on the system; boto3 requires a path to a CA bundle file, not a directory.
+os.environ['AWS_CA_BUNDLE'] = '/etc/ssl/certs/ca-certificates.crt'
 
 AWS_CREDENTIALS_FILE_TEMPLATE = """[default]
 aws_access_key_id = {}
@@ -36,6 +39,7 @@ TEMPLATE_DIR_PATH = os.path.join(os.path.dirname(__file__), 'templates')
 
 
 def regex_replace(string: str, pattern: str = '', replace: str = '') -> str:
+    """Apply a regex substitution on the given string."""
     return re.sub(pattern, replace, string)
 
 
@@ -104,7 +108,7 @@ class CrczpAwsClient(CrczpCloudClientBase):  # type: ignore[misc]
         self.trc = trc
 
     @staticmethod
-    def get_private_ip(link_tf_resource: dict[str, Any]) -> str:
+    def get_private_ip(link_tf_resource: dict[str, Any]) -> str:  # pylint: disable=arguments-renamed
         """
         Counter incomatibility of AWS and OpenStack terraform resources
         """
@@ -121,11 +125,11 @@ class CrczpAwsClient(CrczpCloudClientBase):  # type: ignore[misc]
             )
         )
 
-    def create_terraform_template(
+    def create_terraform_template(  # pylint: disable=arguments-differ
         self,
         topology_instance: TopologyInstance,
         key_pair_name_ssh: str = 'dummy-ssh-key',
-        key_pair_name_cert: str = 'dummy-cert',
+        _key_pair_name_cert: str = 'dummy-cert',
         resource_prefix: str = 'dummy-prefix',
     ) -> str:
         """
@@ -229,7 +233,9 @@ class CrczpAwsClient(CrczpCloudClientBase):  # type: ignore[misc]
         """
         return ''
 
-    def create_keypair(self, name: str, public_key: str, key_type: str = 'ssh') -> None:
+    def create_keypair(  # pylint: disable=signature-differs
+        self, name: str, public_key: str, key_type: str = 'ssh'
+    ) -> None:
         """
         Create key pair in cloud.
 
@@ -356,10 +362,10 @@ class CrczpAwsClient(CrczpCloudClientBase):  # type: ignore[misc]
             used_ram += flavor['ram']
             used_instances += 1
 
-        networks = [network for network in topology_instance.get_networks()]
+        networks = list(topology_instance.get_networks())
         used_network = len(networks)
         used_subnet = len(networks)
-        used_port = len([link for link in topology_instance.get_links()])
+        used_port = len(list(topology_instance.get_links()))
 
         return HardwareUsage(
             used_vcpu, used_ram, used_instances, used_network, used_subnet, used_port
