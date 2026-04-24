@@ -52,7 +52,7 @@ Agents **must not** push directly to `master`.
 ```
 
 * **`crczp/aws_driver`** contains all production Python code for AWS client classes
-* **`tests/`** contains the complete automated test suite
+* **`tests/`** is the conventional location for automated tests; at present, it does not contain a complete test suite
 * **`.github/workflows/`** defines CI behavior
 
 Agents must respect this structure and must not introduce alternative layouts without

@@ -63,7 +63,7 @@ explicit_package_bases = true
 # You can add pylint configs here or in .pylintrc
 
 [tool.bandit]
-skips = ["B101", "B311"]
+skips = ["B101"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"

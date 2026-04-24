@@ -23,9 +23,11 @@ from jinja2 import Environment, FileSystemLoader
 
 from .exceptions import ImageDoesNotExist, KeyPairDoesNotExist
 
-# sandbox-service sets REQUESTS_CA_BUNDLE to directory, but boto3 expects file
-# The file must exist on the system; boto3 requires a path to a CA bundle file, not a directory.
-os.environ['AWS_CA_BUNDLE'] = '/etc/ssl/certs/ca-certificates.crt'
+# Only provide a default CA bundle when the environment does not already specify one
+# and the fallback file exists on the system.
+DEFAULT_AWS_CA_BUNDLE = '/etc/ssl/certs/ca-certificates.crt'
+if 'AWS_CA_BUNDLE' not in os.environ and os.path.isfile(DEFAULT_AWS_CA_BUNDLE):
+    os.environ['AWS_CA_BUNDLE'] = DEFAULT_AWS_CA_BUNDLE
 
 AWS_CREDENTIALS_FILE_TEMPLATE = """[default]
 aws_access_key_id = {}
@@ -84,24 +86,30 @@ class CrczpAwsClient(CrczpCloudClientBase):  # type: ignore[misc]
         self.secret_key = aws_secret_key
         self.base_vpc_name = base_vpc_name
         self.base_subnet_name = base_subnet_name
-        boto_client_config = Config(region_name=region, client_cert=ca_bundle)
+        boto_client_config = Config(region_name=region)
+        # Pass ca_bundle as verify= to control TLS server certificate validation.
+        # boto3 accepts a path to a CA bundle file or None to use the system default.
+        verify: str | None = ca_bundle if ca_bundle else None
         self.ec2_client = boto3.client(
             'ec2',
             aws_access_key_id=aws_access_key,
             aws_secret_access_key=aws_secret_key,
             config=boto_client_config,
+            verify=verify,
         )
-        self.cloadwatch_client = boto3.client(
+        self.cloudwatch_client = boto3.client(
             'cloudwatch',
             aws_access_key_id=aws_access_key,
             aws_secret_access_key=aws_secret_key,
             config=boto_client_config,
+            verify=verify,
         )
         self.service_quotas_client = boto3.client(
             'service-quotas',
             aws_access_key_id=aws_access_key,
             aws_secret_access_key=aws_secret_key,
             config=boto_client_config,
+            verify=verify,
         )
         self.jinja2_env = Environment(loader=FileSystemLoader(TEMPLATE_DIR_PATH))  # nosec B701 - renders Terraform templates, not HTML
         self.jinja2_env.filters['regex_replace'] = regex_replace
@@ -110,7 +118,7 @@ class CrczpAwsClient(CrczpCloudClientBase):  # type: ignore[misc]
     @staticmethod
     def get_private_ip(link_tf_resource: dict[str, Any]) -> str:  # pylint: disable=arguments-renamed
         """
-        Counter incomatibility of AWS and OpenStack terraform resources
+        Counter incompatibility of AWS and OpenStack terraform resources
         """
         return str(link_tf_resource['private_ip_list'][0])
 
@@ -129,7 +137,7 @@ class CrczpAwsClient(CrczpCloudClientBase):  # type: ignore[misc]
         self,
         topology_instance: TopologyInstance,
         key_pair_name_ssh: str = 'dummy-ssh-key',
-        _key_pair_name_cert: str = 'dummy-cert',
+        key_pair_name_cert: str = 'dummy-cert',
         resource_prefix: str = 'dummy-prefix',
     ) -> str:
         """
@@ -279,7 +287,7 @@ class CrczpAwsClient(CrczpCloudClientBase):  # type: ignore[misc]
         )
 
     def _get_vcpu_quota(self) -> Quota:
-        vcpu_usage = self.cloadwatch_client.get_metric_statistics(
+        vcpu_usage = self.cloudwatch_client.get_metric_statistics(
             MetricName='ResourceCount',
             Namespace='AWS/Usage',
             Dimensions=[
@@ -373,9 +381,9 @@ class CrczpAwsClient(CrczpCloudClientBase):  # type: ignore[misc]
 
     def get_flavors_dict(self) -> dict[str, Any]:
         """
-        Gets flavors defined in OpenStack project with their vcpu and ram usage as dictionary
-        Boto3 does not support 'no-paggination' parameter yet.
-        Hence, to get all flavors, we need paginator (iterator over pages).
+        Gets instance types available in the AWS account with their vcpu and ram usage
+        as a dictionary. Boto3 does not support 'no-pagination' parameter yet.
+        Hence, to get all instance types, we need paginator (iterator over pages).
         """
         flavors_pages = self.ec2_client.get_paginator('describe_instance_types').paginate(
             InstanceTypes=[],
