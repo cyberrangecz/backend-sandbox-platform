@@ -2,8 +2,6 @@
 CyberRangeCZ Platform Terraform driver package.
 """
 
-__version__ = 'v1.0.0'
-
 # pylint: disable=useless-import-alias
 from .terraform_client import (
     AvailableCloudLibraries as AvailableCloudLibraries,

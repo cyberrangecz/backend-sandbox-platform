@@ -74,8 +74,9 @@ class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
         :param stderr: Redirect stderr to file
         :return: subprocess.Popen object
         """
+        full_command = command if '-no-color' in command else command + ['-no-color']
         return subprocess.Popen(  # nosec B603
-            command + ['-no-color'], cwd=cwd, stdout=stdout, stderr=stderr, text=True
+            full_command, cwd=cwd, stdout=stdout, stderr=stderr, text=True
         )
 
     def _create_terraform_backend_file(self, stack_dir: str) -> None:
