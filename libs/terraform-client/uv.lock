@@ -308,7 +308,7 @@ wheels = [
 
 [[package]]
 name = "crczp-terraform-client"
-version = "1.0.3"
+version = "1.0.4"
 source = { editable = "." }
 dependencies = [
     { name = "crczp-aws-lib" },

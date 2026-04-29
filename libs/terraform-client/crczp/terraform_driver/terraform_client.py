@@ -1,42 +1,71 @@
-from enum import Enum
-from typing import List, Tuple
+"""
+Module containing CyberRangeCZ Platform Terraform client.
+"""
 
-from crczp.cloud_commons import CrczpCloudClientBase, TopologyInstance, TransformationConfiguration, \
-    Image, Limits, QuotaSet, HardwareUsage
+import subprocess  # nosec B404
+from collections.abc import Iterator
+from enum import Enum
+from typing import Any
+
+from crczp.aws_driver.aws_client import CrczpAwsClient
+from crczp.cloud_commons import (
+    CrczpCloudClientBase,
+    HardwareUsage,
+    Image,
+    Limits,
+    QuotaSet,
+    TopologyInstance,
+    TransformationConfiguration,
+)
+
 # Available cloud clients
 from crczp.openstack_driver import CrczpOpenStackClient
-from crczp.aws_driver.aws_client import CrczpAwsClient
-from crczp.topology_definition.models import TopologyDefinition, DockerContainers
+from crczp.topology_definition.models import DockerContainers, TopologyDefinition
 
 from crczp.terraform_driver.terraform_backend import CrczpTerraformBackend
-from crczp.terraform_driver.terraform_client_elements import TerraformInstance, \
-    CrczpTerraformBackendType
+from crczp.terraform_driver.terraform_client_elements import (
+    CrczpTerraformBackendType,
+    TerraformInstance,
+)
 from crczp.terraform_driver.terraform_client_manager import CrczpTerraformClientManager
 
 
-class AvailableCloudLibraries(Enum):
+class AvailableCloudLibraries(Enum):  # pylint: disable=too-few-public-methods
+    """Enum of available cloud client libraries."""
+
     OPENSTACK = CrczpOpenStackClient
     AWS = CrczpAwsClient
 
 
-class CrczpTerraformClient:
+class CrczpTerraformClient:  # pylint: disable=too-many-public-methods
     """
     Client used as an interface providing functions of this Terraform library
     """
 
-    def __init__(self, cloud_client: AvailableCloudLibraries, trc: TransformationConfiguration,
-                 stacks_dir: str = None, template_file_name: str = None,
-                 backend_type: CrczpTerraformBackendType = CrczpTerraformBackendType('local'),
-                 db_configuration=None, kube_namespace=None, *args, **kwargs):
-        self.cloud_client: CrczpCloudClientBase = cloud_client.value(trc=trc, *args, **kwargs)
-        terraform_backend = CrczpTerraformBackend(backend_type=backend_type,
-                                                 db_configuration=db_configuration,
-                                                 kube_namespace=kube_namespace)
-        self.client_manager = CrczpTerraformClientManager(stacks_dir, self.cloud_client, trc,
-                                                         template_file_name, terraform_backend)
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments,keyword-arg-before-vararg
+        self,
+        cloud_client: AvailableCloudLibraries,
+        trc: TransformationConfiguration,
+        stacks_dir: str | None = None,
+        template_file_name: str | None = None,
+        backend_type: CrczpTerraformBackendType = CrczpTerraformBackendType.LOCAL,
+        db_configuration: dict[str, str] | None = None,
+        kube_namespace: str | None = None,
+        *args: Any,
+        **kwargs: Any,
+    ):
+        self.cloud_client: CrczpCloudClientBase = cloud_client.value(*args, trc=trc, **kwargs)
+        terraform_backend = CrczpTerraformBackend(
+            backend_type=backend_type,
+            db_configuration=db_configuration,
+            kube_namespace=kube_namespace,
+        )
+        self.client_manager = CrczpTerraformClientManager(
+            stacks_dir, self.cloud_client, trc, template_file_name, terraform_backend
+        )
         self.trc = trc
 
-    def get_process_output(self, process):
+    def get_process_output(self, process: subprocess.Popen[str]) -> Iterator[str]:
         """
         Get the standard output of process.
 
@@ -45,7 +74,9 @@ class CrczpTerraformClient:
         """
         return self.client_manager.get_process_output(process)
 
-    def wait_for_process(self, process, timeout) -> Tuple[str, str, int]:
+    def wait_for_process(
+        self, process: subprocess.Popen[str], timeout: float | None = None
+    ) -> tuple[str, str, int]:
         """
         Wait for the process to finish. Close all file descriptors when proces is finished.
 
@@ -55,10 +86,16 @@ class CrczpTerraformClient:
         """
         return self.client_manager.wait_for_process(process, timeout)
 
-    def create_stack(self, topology_definition: TopologyDefinition, stack_name: str = 'stack-name',
-                     key_pair_name_ssh: str = 'dummy-ssh-key-pair',
-                     key_pair_name_cert: str = 'dummy-cert-key-pair', dry_run: bool = False,
-                     *args, **kwargs):
+    def create_stack(  # pylint: disable=too-many-arguments,too-many-positional-arguments,keyword-arg-before-vararg
+        self,
+        topology_definition: TopologyDefinition,
+        stack_name: str = 'stack-name',
+        key_pair_name_ssh: str = 'dummy-ssh-key-pair',
+        key_pair_name_cert: str = 'dummy-cert-key-pair',
+        dry_run: bool = False,
+        *args: Any,
+        **kwargs: Any,
+    ) -> subprocess.Popen[str]:
         """
         Create Terraform stack on the cloud.
 
@@ -72,12 +109,19 @@ class CrczpTerraformClient:
         :raise CrczpException: Stack creation has failed
         """
         topology_instance = self.get_topology_instance(topology_definition)
-        return self.client_manager.create_stack(topology_instance, dry_run, stack_name,
-                                                key_pair_name_ssh, key_pair_name_cert, *args,
-                                                **kwargs)
+        return self.client_manager.create_stack(
+            topology_instance,
+            dry_run,
+            stack_name,
+            key_pair_name_ssh,
+            key_pair_name_cert,
+            *args,
+            **kwargs,
+        )
 
-    def create_terraform_template(self, topology_definition: TopologyDefinition, *args, **kwargs)\
-            -> str:
+    def create_terraform_template(
+        self, topology_definition: TopologyDefinition, *args: Any, **kwargs: Any
+    ) -> str:
         """
         Create Terraform template.
 
@@ -99,7 +143,7 @@ class CrczpTerraformClient:
         """
         self.create_terraform_template(topology_definition)
 
-    def delete_stack(self, stack_name: str):
+    def delete_stack(self, stack_name: str) -> subprocess.Popen[str] | None:
         """
         Delete Terraform stack.
 
@@ -129,15 +173,15 @@ class CrczpTerraformClient:
         """
         self.client_manager.delete_terraform_workspace(stack_name)
 
-    def list_images(self) -> List[Image]:
+    def list_images(self) -> list[Image]:
         """
         List all available images on the cloud project.
 
         :return: List of Image objects.
         """
-        return self.cloud_client.list_images()
+        return self.cloud_client.list_images()  # type: ignore[no-any-return]
 
-    def list_stacks(self) -> List[str]:
+    def list_stacks(self) -> list[str]:
         """
         List created Terraform stacks.
 
@@ -145,9 +189,9 @@ class CrczpTerraformClient:
         """
         return self.client_manager.list_stacks()
 
-    def get_topology_instance(self, topology_definition: TopologyDefinition,
-                              containers: DockerContainers = None)\
-            -> TopologyInstance:
+    def get_topology_instance(
+        self, topology_definition: TopologyDefinition, containers: DockerContainers = None
+    ) -> TopologyInstance:
         """
         Get TopologyInstance from topology definition.
 
@@ -157,8 +201,12 @@ class CrczpTerraformClient:
         """
         return TopologyInstance(topology_definition, self.trc, containers)
 
-    def get_enriched_topology_instance(self, stack_name: str, topology_definition: TopologyDefinition,
-                                       containers: DockerContainers = None) -> TopologyInstance:
+    def get_enriched_topology_instance(
+        self,
+        stack_name: str,
+        topology_definition: TopologyDefinition,
+        containers: DockerContainers = None,
+    ) -> TopologyInstance:
         """
         Get enriched TopologyInstance.
 
@@ -239,7 +287,7 @@ class CrczpTerraformClient:
         """
         return self.client_manager.get_console_url(stack_name, node_name, console_type)
 
-    def list_stack_resources(self, stack_name: str) -> List[dict]:
+    def list_stack_resources(self, stack_name: str) -> list[dict[str, Any]]:
         """
         List stack resources and its attributes.
 
@@ -248,7 +296,9 @@ class CrczpTerraformClient:
         """
         return self.client_manager.list_stack_resources(stack_name)
 
-    def create_keypair(self, name: str, public_key: str = None, key_type: str = 'ssh') -> None:
+    def create_keypair(
+        self, name: str, public_key: str | None = None, key_type: str = 'ssh'
+    ) -> None:
         """
         Create key pair in cloud.
 
@@ -260,7 +310,7 @@ class CrczpTerraformClient:
         """
         self.cloud_client.create_keypair(name, public_key, key_type)
 
-    def get_keypair(self, name: str):
+    def get_keypair(self, name: str) -> Any:
         """
         Get KeyPair instance from cloud.
 
@@ -294,10 +344,11 @@ class CrczpTerraformClient:
 
         :return: The name of the cloud project
         """
-        return self.cloud_client.get_project_name()
+        return self.cloud_client.get_project_name()  # type: ignore[no-any-return]
 
-    def validate_hardware_usage_of_stacks(self, topology_instance: TopologyInstance, count: int)\
-            -> None:
+    def validate_hardware_usage_of_stacks(
+        self, topology_instance: TopologyInstance, count: int
+    ) -> None:
         """
         Validate hardware usage of Terraform stack.
 
@@ -320,13 +371,13 @@ class CrczpTerraformClient:
         """
         return self.cloud_client.get_hardware_usage(topology_instance)
 
-    def get_flavors_dict(self) -> dict:
+    def get_flavors_dict(self) -> dict[str, Any]:
         """
         Gets flavors defined in OpenStack project with their vcpu and ram usage as dictionary
 
         :return: flavors dictionary
         """
-        return self.cloud_client.get_flavors_dict()
+        return self.cloud_client.get_flavors_dict()  # type: ignore[no-any-return]
 
     def get_project_limits(self) -> Limits:
         """

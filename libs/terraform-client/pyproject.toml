@@ -1,6 +1,6 @@
 [project]
 name = "crczp-terraform-client"
-version = "1.0.3"
+version = "1.0.4"
 description = "Terraform Client"
 readme = "README.md"
 license = "MIT"
@@ -27,7 +27,7 @@ packages = ["crczp"]
 exclude-packages = ["tests"]
 
 [tool.ruff]
-line-length = 127
+line-length = 100
 preview = true
 
 [tool.ruff.lint]
@@ -48,14 +48,16 @@ select = [
 
 [tool.ruff.format]
 quote-style = "single"
-indent-style = "tab"
+indent-style = "space"
 docstring-code-format = true
 
 [tool.mypy]
 check_untyped_defs = true
 ignore_missing_imports = true
 strict = true
+pretty = true
 enable_error_code = ["deprecated", "explicit-override"]
+explicit_package_bases = true
 
 [tool.pylint]
 # You can add pylint configs here or in .pylintrc

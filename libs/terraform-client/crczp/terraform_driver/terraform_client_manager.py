@@ -1,17 +1,35 @@
+"""
+Module containing CyberRangeCZ Platform Terraform client manager.
+"""
+
 import json
 import os
 import shutil
-import subprocess
-from typing import List, Tuple
+import subprocess  # nosec B404
+from collections.abc import Iterator
+from typing import IO, Any
 
-from crczp.cloud_commons import CrczpCloudClientBase, StackNotFound, CrczpException, Image, TopologyInstance
+from crczp.cloud_commons import (
+    CrczpCloudClientBase,
+    CrczpException,
+    Image,
+    StackNotFound,
+    TopologyInstance,
+    TransformationConfiguration,
+)
 
+from crczp.terraform_driver.terraform_backend import (
+    TERRAFORM_STATE_FILE_NAME,
+    CrczpTerraformBackend,
+)
 from crczp.terraform_driver.terraform_client_elements import TerraformInstance
-from crczp.terraform_driver.terraform_backend import CrczpTerraformBackend, TERRAFORM_STATE_FILE_NAME
-from crczp.terraform_driver.terraform_exceptions import TerraformInitFailed, TerraformWorkspaceFailed
 from crczp.terraform_driver.terraform_exc_handlers import command_error_handler
+from crczp.terraform_driver.terraform_exceptions import (
+    TerraformInitFailed,
+    TerraformWorkspaceFailed,
+)
 
-STACKS_DIR = '/var/tmp/crczp/terraform-stacks/'
+STACKS_DIR = '/var/tmp/crczp/terraform-stacks/'  # nosec B108
 TEMPLATE_FILE_NAME = 'deploy.tf'
 TERRAFORM_BACKEND_FILE_NAME = 'backend.tf'
 TERRAFORM_PROVIDER_FILE_NAME = 'provider.tf'
@@ -20,13 +38,19 @@ TERRAFORM_DEFAULT_WORKSPACE = 'default'
 TERRAFORM_RETRY_NEW_WORKSPACE_COMMAND = 5
 
 
-class CrczpTerraformClientManager:
+class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
     """
     Manager class for CrczpTerraformClient
     """
 
-    def __init__(self, stacks_dir, cloud_client: CrczpCloudClientBase, trc, template_file_name,
-                 terraform_backend: CrczpTerraformBackend):
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        stacks_dir: str | None,
+        cloud_client: CrczpCloudClientBase,
+        trc: TransformationConfiguration,
+        template_file_name: str | None,
+        terraform_backend: CrczpTerraformBackend,
+    ):
         self.cloud_client = cloud_client
         self.stacks_dir = stacks_dir if stacks_dir else STACKS_DIR
         self.template_file_name = template_file_name if template_file_name else TEMPLATE_FILE_NAME
@@ -35,8 +59,12 @@ class CrczpTerraformClientManager:
         self.terraform_backend = terraform_backend
 
     @staticmethod
-    def _execute_command(command: List[str], cwd: str, stdout=None, stderr=None)\
-            -> subprocess.Popen:
+    def _execute_command(
+        command: list[str],
+        cwd: str,
+        stdout: IO[Any] | int | None = None,
+        stderr: IO[Any] | int | None = None,
+    ) -> subprocess.Popen[str]:
         """
         Execute command in cwd and return subprocess.Popen object.
 
@@ -46,8 +74,10 @@ class CrczpTerraformClientManager:
         :param stderr: Redirect stderr to file
         :return: subprocess.Popen object
         """
-        return subprocess.Popen(command + ['-no-color'], cwd=cwd, stdout=stdout, stderr=stderr,
-                                text=True)
+        full_command = command if '-no-color' in command else command + ['-no-color']
+        return subprocess.Popen(  # nosec B603
+            full_command, cwd=cwd, stdout=stdout, stderr=stderr, text=True
+        )
 
     def _create_terraform_backend_file(self, stack_dir: str) -> None:
         """
@@ -60,7 +90,7 @@ class CrczpTerraformClientManager:
 
         self.create_file(os.path.join(stack_dir, TERRAFORM_BACKEND_FILE_NAME), template)
 
-    def _create_terraform_provider(self, stack_dir) -> None:
+    def _create_terraform_provider(self, stack_dir: str) -> None:
         """
         Create file with Terraform provider configuration.
         :param stack_dir: The path to the stack directory
@@ -70,7 +100,7 @@ class CrczpTerraformClientManager:
 
         self.create_file(os.path.join(stack_dir, TERRAFORM_PROVIDER_FILE_NAME), provider)
 
-    def _initialize_stack_dir(self, stack_name: str, terraform_template: str = None) -> None:
+    def _initialize_stack_dir(self, stack_name: str, terraform_template: str | None = None) -> None:
         """
 
         :param stack_name: The name of Terraform stack.
@@ -99,21 +129,24 @@ class CrczpTerraformClientManager:
         stack_dir = self.get_stack_dir(stack_name)
         try:
             self._switch_terraform_workspace(stack_name, stack_dir)
-        except TerraformWorkspaceFailed:
-            raise CrczpException('Failed to switch Terraform workspace')
+        except TerraformWorkspaceFailed as exc:
+            raise CrczpException('Failed to switch Terraform workspace') from exc
 
         terraform_state_file_path = os.path.join(stack_dir, TERRAFORM_STATE_FILE_NAME)
-        terraform_state_file = open(terraform_state_file_path, 'w')
         command = ['tofu', 'state', 'pull']
-        process = self._execute_command(command, cwd=stack_dir, stdout=terraform_state_file,
-                                        stderr=subprocess.PIPE)
-        _, stderr, return_code = self.wait_for_process(process)
-        if return_code:
-            command_error_handler(CrczpException, 'Failed to pull Terraform state',
-                                  command=' '.join(command), stack_name=stack_name, stderr=stderr)
-
-        terraform_state_file.flush()
-        terraform_state_file.close()
+        with open(terraform_state_file_path, 'w', encoding='utf-8') as terraform_state_file:
+            process = self._execute_command(
+                command, cwd=stack_dir, stdout=terraform_state_file, stderr=subprocess.PIPE
+            )
+            _, stderr, return_code = self.wait_for_process(process)
+            if return_code:
+                command_error_handler(
+                    CrczpException,
+                    'Failed to pull Terraform state',
+                    command=' '.join(command),
+                    stack_name=stack_name,
+                    stderr=stderr,
+                )
 
     def _switch_terraform_workspace(self, workspace: str, stack_dir: str) -> None:
         """
@@ -124,12 +157,18 @@ class CrczpTerraformClientManager:
         :return: None
         """
         command = ['tofu', 'workspace', 'select', workspace]
-        process = self._execute_command(command, cwd=stack_dir, stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE)
+        process = self._execute_command(
+            command, cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
         _, stderr, return_code = self.wait_for_process(process)
         if return_code:
-            command_error_handler(TerraformWorkspaceFailed, 'Failed to switch Terraform workspace',
-                                  command=' '.join(command), workspace=workspace, stderr=stderr)
+            command_error_handler(
+                TerraformWorkspaceFailed,
+                'Failed to switch Terraform workspace',
+                command=' '.join(command),
+                workspace=workspace,
+                stderr=stderr,
+            )
 
     @staticmethod
     def create_directories(dir_path: str) -> None:
@@ -150,7 +189,7 @@ class CrczpTerraformClientManager:
         :param content: The content of the file
         :return: None
         """
-        with open(file_path, 'w') as file:
+        with open(file_path, 'w', encoding='utf-8') as file:
             file.write(content)
             file.flush()
 
@@ -166,10 +205,12 @@ class CrczpTerraformClientManager:
         try:
             shutil.rmtree(dir_path)
         except FileNotFoundError as exc:
-            raise StackNotFound(exc)
+            raise StackNotFound(exc) from exc
 
     @staticmethod
-    def wait_for_process(process, timeout=None) -> Tuple[str, str, int]:
+    def wait_for_process(
+        process: subprocess.Popen[str], timeout: float | None = None
+    ) -> tuple[str, str, int]:
         """
         Wait for process to finish and return stdout, stderr and return code.
         :param process: The process to wait for
@@ -189,15 +230,15 @@ class CrczpTerraformClientManager:
         return stdout, stderr, return_code
 
     @staticmethod
-    def get_process_output(process) -> str:
+    def get_process_output(process: subprocess.Popen[str]) -> Iterator[str]:
         """
         Get the standard output of process.
 
         :param process: The process creating output
         :return: Standard output of process line by line
         """
-        for stdout_line in iter(process.stdout.readline, ''):
-            yield stdout_line
+        assert process.stdout is not None
+        yield from iter(process.stdout.readline, '')
 
     def get_stack_dir(self, stack_name: str) -> str:
         """
@@ -219,15 +260,22 @@ class CrczpTerraformClientManager:
         :raise TerraformWorkspaceFailed: Could not create new workspace.
         """
         command = ['tofu', 'init']
-        process = self._execute_command(command, cwd=stack_dir,
-                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        process = self._execute_command(
+            command, cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
         _, stderr, return_code = self.wait_for_process(process)
         if return_code:
-            command_error_handler(TerraformInitFailed, 'Failed to initialize Terraform',
-                                  command=' '.join(command), stack_name=stack_name, stderr=stderr)
+            command_error_handler(
+                TerraformInitFailed,
+                'Failed to initialize Terraform',
+                command=' '.join(command),
+                stack_name=stack_name,
+                stderr=stderr,
+            )
 
-    def create_terraform_workspace(self, stack_dir: str, stack_name: str,
-                                   should_raise: bool = True) -> None:
+    def create_terraform_workspace(
+        self, stack_dir: str, stack_name: str, should_raise: bool = True
+    ) -> None:
         """
         Create new Terraform workspace.
 
@@ -238,22 +286,28 @@ class CrczpTerraformClientManager:
         :raise TerraformWorkspaceFailed: Could not create new workspace.
         """
         retry_count = 1
-        stderr = ""
+        stderr = ''
         command = ['tofu', 'workspace', 'new', stack_name]
         while retry_count <= TERRAFORM_RETRY_NEW_WORKSPACE_COMMAND:
-            process = self._execute_command(command, cwd=stack_dir, stdout=subprocess.PIPE,
-                                            stderr=subprocess.PIPE)
+            process = self._execute_command(
+                command, cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
             _, stderr, return_code = self.wait_for_process(process)
             if not (return_code and should_raise) or ('already exists' in stderr):
                 break
             retry_count += 1
         if retry_count > TERRAFORM_RETRY_NEW_WORKSPACE_COMMAND:
-            command_error_handler(TerraformWorkspaceFailed, 'Failed to create new workspace: '
-                                                            'command retry limit exceeded',
-                                  command=' '.join(command), stack_name=stack_name, stderr=stderr)
+            command_error_handler(
+                TerraformWorkspaceFailed,
+                'Failed to create new workspace: command retry limit exceeded',
+                command=' '.join(command),
+                stack_name=stack_name,
+                stderr=stderr,
+            )
 
-    def create_terraform_template(self, topology_instance: TopologyInstance, *args, **kwargs)\
-            -> str:
+    def create_terraform_template(
+        self, topology_instance: TopologyInstance, *args: Any, **kwargs: Any
+    ) -> str:
         """
         Create Terraform template.
 
@@ -262,10 +316,20 @@ class CrczpTerraformClientManager:
         :return: Rendered Terraform template
         :raise CrczpException: Invalid template of attributes.
         """
-        return self.cloud_client.create_terraform_template(topology_instance, *args, **kwargs)
+        return self.cloud_client.create_terraform_template(  # type: ignore[no-any-return]
+            topology_instance, *args, **kwargs
+        )
 
-    def create_stack(self, topology_instance: TopologyInstance, dry_run, stack_name: str,
-                     key_pair_name_ssh: str, key_pair_name_cert: str, *args, **kwargs):
+    def create_stack(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self,
+        topology_instance: TopologyInstance,
+        dry_run: bool,
+        stack_name: str,
+        key_pair_name_ssh: str,
+        key_pair_name_cert: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> subprocess.Popen[str]:
         """
         Create Terraform stack on the cloud.
 
@@ -278,23 +342,31 @@ class CrczpTerraformClientManager:
         :return: The process that is executing the creation
         :raise CrczpException: Stack creation has failed
         """
-        terraform_template = self.create_terraform_template(topology_instance,
-                                                            key_pair_name_ssh=key_pair_name_ssh,
-                                                            key_pair_name_cert=key_pair_name_cert,
-                                                            resource_prefix=stack_name, *args,
-                                                            **kwargs)
+        terraform_template = self.create_terraform_template(
+            topology_instance,
+            *args,
+            key_pair_name_ssh=key_pair_name_ssh,
+            key_pair_name_cert=key_pair_name_cert,
+            resource_prefix=stack_name,
+            **kwargs,
+        )
         stack_dir = self.get_stack_dir(stack_name)
         self._initialize_stack_dir(stack_name, terraform_template)
         self.create_terraform_workspace(stack_dir, stack_name)
 
         if dry_run:
-            return self._execute_command(['tofu', 'plan'], cwd=stack_dir,
-                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            return self._execute_command(
+                ['tofu', 'plan'], cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
 
-        return self._execute_command(['tofu', 'apply', '-auto-approve', '-no-color'],
-                                     cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return self._execute_command(
+            ['tofu', 'apply', '-auto-approve', '-no-color'],
+            cwd=stack_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
-    def delete_stack(self, stack_name):
+    def delete_stack(self, stack_name: str) -> subprocess.Popen[str] | None:
         """
         Delete Terraform stack.
 
@@ -308,10 +380,14 @@ class CrczpTerraformClientManager:
             self._switch_terraform_workspace(stack_name, stack_dir)
         except (TerraformInitFailed, TerraformWorkspaceFailed):
             return None
-        return self._execute_command(['tofu', 'destroy', '-auto-approve', '-no-color'],
-                                     cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return self._execute_command(
+            ['tofu', 'destroy', '-auto-approve', '-no-color'],
+            cwd=stack_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
-    def delete_stack_directory(self, stack_name) -> None:
+    def delete_stack_directory(self, stack_name: str) -> None:
         """
         Delete the stack directory.
 
@@ -322,7 +398,7 @@ class CrczpTerraformClientManager:
         stack_dir = self.get_stack_dir(stack_name)
         self.remove_directory(stack_dir)
 
-    def delete_terraform_workspace(self, stack_name) -> None:
+    def delete_terraform_workspace(self, stack_name: str) -> None:
         """
         Delete Terraform workspace.
 
@@ -333,14 +409,19 @@ class CrczpTerraformClientManager:
         stack_dir = self.get_stack_dir(stack_name)
         self._switch_terraform_workspace(TERRAFORM_DEFAULT_WORKSPACE, stack_dir)
         command = ['tofu', 'workspace', 'delete', stack_name]
-        process = self._execute_command(command, cwd=stack_dir, stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE)
+        process = self._execute_command(
+            command, cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
         _, stderr, return_code = self.wait_for_process(process)
         if return_code:
-            command_error_handler(TerraformWorkspaceFailed, 'Failed to delete Terraform workspace',
-                                  command=' '.join(command), stderr=stderr)
+            command_error_handler(
+                TerraformWorkspaceFailed,
+                'Failed to delete Terraform workspace',
+                command=' '.join(command),
+                stderr=stderr,
+            )
 
-    def get_image(self, image_id) -> Image:
+    def get_image(self, image_id: str) -> Image:
         """
         Get image data from cloud.
 
@@ -349,7 +430,7 @@ class CrczpTerraformClientManager:
         """
         return self.cloud_client.get_image(image_id)
 
-    def list_stacks(self) -> List[str]:
+    def list_stacks(self) -> list[str]:
         """
         List created Terraform stacks.
 
@@ -357,7 +438,7 @@ class CrczpTerraformClientManager:
         """
         return os.listdir(self.stacks_dir)
 
-    def list_stack_resources(self, stack_name: str) -> List[dict]:
+    def list_stack_resources(self, stack_name: str) -> list[dict[str, Any]]:
         """
         List stack resources and its attributes.
 
@@ -366,11 +447,10 @@ class CrczpTerraformClientManager:
         """
         self._pull_terraform_state(stack_name)
         stack_dir = self.get_stack_dir(stack_name)
-        with open(os.path.join(stack_dir, TERRAFORM_STATE_FILE_NAME), 'r')\
-                as file:
+        with open(os.path.join(stack_dir, TERRAFORM_STATE_FILE_NAME), encoding='utf-8') as file:
             return list(filter(lambda res: res['mode'] == 'managed', json.load(file)['resources']))
 
-    def get_resource_dict(self, stack_name) -> dict:
+    def get_resource_dict(self, stack_name: str) -> dict[str, Any]:
         """
         Get dictionary of resources. The keys are resource names and values are attributes
 
@@ -380,7 +460,7 @@ class CrczpTerraformClientManager:
         list_of_resources = self.list_stack_resources(stack_name)
         return {res['name']: res['instances'] for res in list_of_resources}
 
-    def get_resource_id(self, stack_name, node_name) -> str:
+    def get_resource_id(self, stack_name: str, node_name: str) -> str:
         """
         Get ID of stack's resource.
 
@@ -389,9 +469,10 @@ class CrczpTerraformClientManager:
         :return: The ID of resource
         """
         resource_dict = self.get_resource_dict(stack_name)
-        return resource_dict[f'{stack_name}-{node_name}'][0]['attributes']['id']
+        resource_id = resource_dict[f'{stack_name}-{node_name}'][0]['attributes']['id']
+        return resource_id  # type: ignore[no-any-return]
 
-    def get_node(self, stack_name, node_name) -> TerraformInstance:
+    def get_node(self, stack_name: str, node_name: str) -> TerraformInstance:
         """
         Get data about node.
 
@@ -403,9 +484,12 @@ class CrczpTerraformClientManager:
         resource_dict = resource_dict[f'{stack_name}-{node_name}'][0]['attributes']
         node_details = self.cloud_client.get_node_details(resource_dict)
         image_id = node_details.image_id
-        if image_id == "Attempt to boot from volume - no image supplied":
-            if 'block_device' in resource_dict and len(resource_dict['block_device']) \
-                    and 'uuid' in resource_dict['block_device'][0]:
+        if image_id == 'Attempt to boot from volume - no image supplied':
+            if (
+                'block_device' in resource_dict
+                and len(resource_dict['block_device'])
+                and 'uuid' in resource_dict['block_device'][0]
+            ):
                 image_id = resource_dict['block_device'][0]['uuid']
             else:
                 raise CrczpException('Image id could not be retrieved from the node')
@@ -413,9 +497,13 @@ class CrczpTerraformClientManager:
         image = self.get_image(image_id)
         status = node_details.status
         flavor = node_details.flavor
-        instance = TerraformInstance(name=node_name, instance_id=resource_dict['id'],
-                                     status=status, image=image,
-                                     flavor_name=flavor)
+        instance = TerraformInstance(
+            name=node_name,
+            instance_id=resource_dict['id'],
+            status=status,
+            image=image,
+            flavor_name=flavor,
+        )
 
         for network in resource_dict.get('network', []):
             name = network['name']
@@ -424,7 +512,7 @@ class CrczpTerraformClientManager:
 
         return instance
 
-    def get_console_url(self, stack_name, node_name, console_type: str) -> str:
+    def get_console_url(self, stack_name: str, node_name: str, console_type: str) -> str:
         """
         Get console url of a node.
 
@@ -438,10 +526,13 @@ class CrczpTerraformClientManager:
             raise CrczpException(f'Cannot get {console_type} console from inactive machine')
 
         resource_id = self.get_resource_id(stack_name, node_name)
-        return self.cloud_client.get_console_url(resource_id, console_type)
+        return self.cloud_client.get_console_url(  # type: ignore[no-any-return]
+            resource_id, console_type
+        )
 
-    def get_enriched_topology_instance(self, stack_name: str,
-                                       topology_instance: TopologyInstance) -> TopologyInstance:
+    def get_enriched_topology_instance(
+        self, stack_name: str, topology_instance: TopologyInstance
+    ) -> TopologyInstance:
         """
         Get enriched TopologyInstance.
 
@@ -456,7 +547,9 @@ class CrczpTerraformClientManager:
         list_of_resources = self.list_stack_resources(stack_name)
         resources_dict = {res['name']: res for res in list_of_resources}
 
-        man_out_port_dict = resources_dict[f'{stack_name}-{self.trc.man_out_port}']['instances'][0]['attributes']
+        man_out_port_dict = resources_dict[f'{stack_name}-{self.trc.man_out_port}']['instances'][0][
+            'attributes'
+        ]
         topology_instance.ip = self.cloud_client.get_private_ip(man_out_port_dict)
 
         for link in topology_instance.get_links():
