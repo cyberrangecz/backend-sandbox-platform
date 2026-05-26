@@ -369,6 +369,53 @@ class MonitoringTargets(Object):  # type: ignore[misc]
     http = Attribute(type=MonitoringTargetHTTP, default=None)
 
 
+class VpnEntrypoint(Object):  # type: ignore[misc]
+    """
+    VPN entrypoint definition. Declares a topology host or router that acts as a
+    Netbird VPN gateway.
+    """
+
+    name = Attribute(type=str, validator=TopologyValidation.validate_vpn_entrypoint_name)
+    routes = Attribute(type=StrList, validator=TopologyValidation.validate_vpn_routes)
+
+
+class VpnEntrypointList(Sequence):  # type: ignore[misc]
+    """
+    List of VPN entrypoints.
+    """
+
+    item_type = VpnEntrypoint
+
+
+class VpnDns(Object):  # type: ignore[misc]
+    """
+    VPN DNS settings distributed to every client in the sandbox access group.
+
+    ``servers`` is the (non-empty) list of nameserver IPs the clients should use;
+    ``search_domains`` is an optional list of DNS search/match domains.
+    """
+
+    servers = Attribute(type=StrList, validator=TopologyValidation.validate_vpn_dns_servers)
+    search_domains = Attribute(
+        type=StrList,
+        default=None,
+        validator=TopologyValidation.validate_vpn_dns_search_domains,
+    )
+
+
+class Vpn(Object):  # type: ignore[misc]
+    """
+    VPN settings for the sandbox (Netbird).
+
+    ``entrypoints`` declares the hosts/routers acting as VPN gateways; ``dns`` is
+    an optional DNS configuration applied to the shared access group, i.e. handed
+    out to every VPN client of the sandbox.
+    """
+
+    entrypoints = Attribute(type=VpnEntrypointList, default=None)
+    dns = Attribute(type=VpnDns, default=None)
+
+
 class TopologyDefinition(Object):  # type: ignore[misc]
     """
     Topology definition.
@@ -393,6 +440,11 @@ class TopologyDefinition(Object):  # type: ignore[misc]
         validator=TopologyValidation.validate_monitoring_targets,
         default=None,
     )
+    vpn = Attribute(
+        type=Vpn,
+        validator=TopologyValidation.validate_vpn,
+        default=None,
+    )
 
     # Class-level defaults so yamlize (which bypasses __init__) finds these attributes
     _indexed: bool = False
@@ -410,6 +462,7 @@ class TopologyDefinition(Object):  # type: ignore[misc]
         self.router_mappings = RouterMappingList()
         self.groups = GroupList()
         self.monitoring_targets: Optional[MonitoringTargets] = None
+        self.vpn: Optional[Vpn] = None
         self._indexed: bool = False
         self._hosts_index: dict[str, Host] = {}
         self._routers_index: dict[str, Router] = {}
