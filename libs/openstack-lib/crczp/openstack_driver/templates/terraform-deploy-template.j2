@@ -136,7 +136,10 @@ data "{{ tf_data_secgroup }}" "{{ group.value }}" {
 
     {%- for link in topology_instance.get_network_links(network) -%}
         {%- set link_name = resource_prefix ~ '-' ~ link.name -%}
-        {%- if link.node.name in hosts_names or network == topology_instance.man_network %}
+        {%- if network == topology_instance.man_network and link.node.name == man.name %}
+            {# MAN's management interface routes for the whole sandbox: allow any source #}
+            {{ tf_port(link_name, network_name, link.security_group, link.ip, subnet_name) }}
+        {%- elif link.node.name in hosts_names or network == topology_instance.man_network %}
             {{ tf_port(link_name, network_name, link.security_group, link.ip, subnet_name,
                        allowed_address_pairs=true) }}
         {%- else %}
