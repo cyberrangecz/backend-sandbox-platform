@@ -44,7 +44,7 @@ _UNIQ_MSG = (
 )
 
 
-class TopologyValidation:
+class TopologyValidation:  # pylint: disable=too-many-public-methods
     """
     Class for topology definition validation.
     """
@@ -265,7 +265,7 @@ class TopologyValidation:
 
     @staticmethod
     def validate_monitoring_targets_tcp(
-        obj: object, targets: MonitoringTargetTCPList | None
+        _obj: object, targets: MonitoringTargetTCPList | None
     ) -> bool:
         """
         Validate TCP monitoring targets — node names must be unique.
@@ -317,7 +317,7 @@ class TopologyValidation:
 
     @staticmethod
     def validate_monitoring_targets_icmp(
-        obj: object, targets: MonitoringTargetICMPList | None
+        _obj: object, targets: MonitoringTargetICMPList | None
     ) -> bool:
         """
         Validate ICMP monitoring targets — node names must be unique.

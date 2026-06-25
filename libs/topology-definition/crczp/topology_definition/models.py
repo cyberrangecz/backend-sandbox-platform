@@ -3,7 +3,7 @@ Module for topology definition models.
 """
 
 from enum import Enum
-from typing import Any, Optional, Self
+from typing import Any, Self
 
 from yamlize import Attribute, Dynamic, Map, Object, Sequence, StrList, Typed
 
@@ -96,14 +96,14 @@ class Host(Object):  # type: ignore[misc]
         type=VolumeList, default=None, validator=TopologyValidation.is_volumes_valid
     )
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         name: str,
         base_box: BaseBox,
         flavor: str,
         block_internet: bool,
         hidden: bool,
-        volumes: Optional[VolumeList],
+        volumes: VolumeList | None,
     ) -> None:
         self.name = name
         self.base_box = base_box
@@ -416,7 +416,7 @@ class Vpn(Object):  # type: ignore[misc]
     dns = Attribute(type=VpnDns, default=None)
 
 
-class TopologyDefinition(Object):  # type: ignore[misc]
+class TopologyDefinition(Object):  # type: ignore[misc]  # pylint: disable=too-many-instance-attributes
     """
     Topology definition.
     """
@@ -461,8 +461,8 @@ class TopologyDefinition(Object):  # type: ignore[misc]
         self.net_mappings = NetworkMappingList()
         self.router_mappings = RouterMappingList()
         self.groups = GroupList()
-        self.monitoring_targets: Optional[MonitoringTargets] = None
-        self.vpn: Optional[Vpn] = None
+        self.monitoring_targets = None
+        self.vpn = None
         self._indexed: bool = False
         self._hosts_index: dict[str, Host] = {}
         self._routers_index: dict[str, Router] = {}
@@ -485,7 +485,7 @@ class TopologyDefinition(Object):  # type: ignore[misc]
         self._networks_index = {n.name: n for n in self.networks}
         self._indexed = True
 
-    def find_host_by_name(self, name: str) -> Optional[Host]:
+    def find_host_by_name(self, name: str) -> Host | None:
         """
         Find host by name.
         """
@@ -493,7 +493,7 @@ class TopologyDefinition(Object):  # type: ignore[misc]
             self.index()
         return self._hosts_index.get(name, None)
 
-    def find_router_by_name(self, name: str) -> Optional[Router]:
+    def find_router_by_name(self, name: str) -> Router | None:
         """
         Find router by name.
         """
@@ -501,7 +501,7 @@ class TopologyDefinition(Object):  # type: ignore[misc]
             self.index()
         return self._routers_index.get(name, None)
 
-    def find_network_by_name(self, name: str) -> Optional[Network]:
+    def find_network_by_name(self, name: str) -> Network | None:
         """
         Find network by name.
         """

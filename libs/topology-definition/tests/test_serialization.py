@@ -4,7 +4,7 @@ Tests for topology definition serialization.
 
 import io
 import os
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 from ruamel.yaml import YAML
@@ -63,7 +63,7 @@ def topology_definition_monitoring() -> TopologyDefinition:
 
 
 @pytest.mark.integration
-class TestDummy:
+class TestDummy:  # pylint: disable=too-many-public-methods
     """
     Test class for topology definition.
     """
@@ -126,9 +126,7 @@ class TestDummy:
         assert http_targets[0].url == 'https://10.10.20.5'
         assert http_targets[0].check_string == 'Hello'
 
-    def test_read_yaml_monitoring_with_only_http(
-        self, topology_definition_string: str
-    ) -> None:
+    def test_read_yaml_monitoring_with_only_http(self, topology_definition_string: str) -> None:
         """
         Test reading YAML with only HTTP monitoring targets configured.
         """
@@ -248,11 +246,11 @@ monitoring_targets:
         """
         td = image_name_replace('w', 'X', topology_definition)
 
-        home: Optional[Host] = td.find_host_by_name('home')
+        home: Host | None = td.find_host_by_name('home')
         assert home is not None
         assert home.base_box.image == 'Xindows/windows-10-amd64'
 
-        home_router: Optional[Router] = td.find_router_by_name('home-router')
+        home_router: Router | None = td.find_router_by_name('home-router')
         assert home_router is not None
         assert home_router.base_box.image == 'debian/debian-12-x86_64'
 
@@ -262,11 +260,11 @@ monitoring_targets:
         """
         td = image_name_replace(r'.*/', 'crczp-', topology_definition)
 
-        home: Optional[Host] = td.find_host_by_name('home')
+        home: Host | None = td.find_host_by_name('home')
         assert home is not None
         assert home.base_box.image == 'crczp-windows-10-amd64'
 
-        home_router: Optional[Router] = td.find_router_by_name('home-router')
+        home_router: Router | None = td.find_router_by_name('home-router')
         assert home_router is not None
         assert home_router.base_box.image == 'crczp-debian-12-x86_64'
 
@@ -280,9 +278,7 @@ monitoring_targets:
         """
         vpn.entrypoints: [] is valid — an empty list is not an error.
         """
-        td = TopologyDefinition.load(
-            topology_definition_string + '\nvpn:\n  entrypoints: []\n'
-        )
+        td = TopologyDefinition.load(topology_definition_string + '\nvpn:\n  entrypoints: []\n')
         assert td.vpn is not None
         assert td.vpn.entrypoints is not None
         assert len(td.vpn.entrypoints) == 0
@@ -585,10 +581,10 @@ vpn:
         """
         td = image_name_strip('crczp/', topology_definition)
 
-        home: Optional[Host] = td.find_host_by_name('home')
+        home: Host | None = td.find_host_by_name('home')
         assert home is not None
         assert home.base_box.image == 'windows/windows-10-amd64'
 
-        server_router: Optional[Router] = td.find_router_by_name('server-router')
+        server_router: Router | None = td.find_router_by_name('server-router')
         assert server_router is not None
         assert server_router.base_box.image == 'debian-12-x86_64'
