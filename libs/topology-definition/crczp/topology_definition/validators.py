@@ -432,7 +432,7 @@ class TopologyValidation:
         """
         Validate VPN entrypoint routes: non-empty list, each element a valid CIDR.
         """
-        if routes is None or len(routes) == 0:
+        if not routes:
             raise ValueError('VpnEntrypoint.routes must be a non-empty list.')
         for cidr in routes:
             try:
