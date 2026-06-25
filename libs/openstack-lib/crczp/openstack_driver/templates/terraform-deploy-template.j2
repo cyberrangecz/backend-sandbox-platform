@@ -138,12 +138,14 @@ data "{{ tf_data_secgroup }}" "{{ group.value }}" {
         {%- set link_name = resource_prefix ~ '-' ~ link.name -%}
         {%- if network == topology_instance.man_network and link.node.name == man.name %}
             {#- Allow any source IP on MAN's management interface to enable VPN traffic to relay server -#}
-            {{ tf_port(link_name, network_name, link.security_group, link.ip, subnet_name) }}
+            {{ tf_port(link_name, network_name, link.security_group, link.ip, subnet_name,
+                       allowed_address_pairs=false) }}
         {%- elif link.node.name in hosts_names or network == topology_instance.man_network %}
             {{ tf_port(link_name, network_name, link.security_group, link.ip, subnet_name,
                        allowed_address_pairs=true) }}
         {%- else %}
-            {{ tf_port(link_name, network_name, link.security_group, link.ip, subnet_name) }}
+            {{ tf_port(link_name, network_name, link.security_group, link.ip, subnet_name,
+                       allowed_address_pairs=false) }}
         {%- endif %}
     {%- endfor %}
 {% endfor -%}
