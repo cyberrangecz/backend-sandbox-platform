@@ -264,7 +264,9 @@ class TopologyValidation:
         return True
 
     @staticmethod
-    def validate_monitoring_targets_tcp(obj: object, targets: MonitoringTargetTCPList | None) -> bool:
+    def validate_monitoring_targets_tcp(
+        obj: object, targets: MonitoringTargetTCPList | None
+    ) -> bool:
         """
         Validate TCP monitoring targets — node names must be unique.
         """
@@ -314,7 +316,9 @@ class TopologyValidation:
         return True
 
     @staticmethod
-    def validate_monitoring_targets_icmp(obj: object, targets: MonitoringTargetICMPList | None) -> bool:
+    def validate_monitoring_targets_icmp(
+        obj: object, targets: MonitoringTargetICMPList | None
+    ) -> bool:
         """
         Validate ICMP monitoring targets — node names must be unique.
         Node existence is validated at the TopologyDefinition level via validate_monitoring_targets.
