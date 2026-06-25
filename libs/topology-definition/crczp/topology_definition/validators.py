@@ -406,7 +406,7 @@ class TopologyValidation:
                 )
 
     @staticmethod
-    def validate_vpn_dns_search_domains(_obj: object, domains: StrList) -> None:
+    def validate_vpn_dns_search_domains(_obj: object, domains: StrList | None) -> None:
         """
         Validate VPN DNS search domains: optional list, each a valid DNS domain.
         """
