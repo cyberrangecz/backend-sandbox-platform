@@ -210,7 +210,7 @@ resource "openstack_networking_port_v2" "stack-name-link-1" {
   }
 
   allowed_address_pairs {
-    ip_address = openstack_networking_subnet_v2.stack-name-man-network-subnet.cidr
+    ip_address = "0.0.0.0/0"
   }
 }
 
