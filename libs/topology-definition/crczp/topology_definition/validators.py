@@ -389,7 +389,7 @@ class TopologyValidation:
         """
         Validate VPN DNS servers: non-empty list, each element a valid IPv4 address.
         """
-        if servers is None or len(servers) == 0:
+        if not servers:
             raise ValueError('vpn.dns.servers must be a non-empty list when vpn.dns is set.')
         for server in servers:
             try:
