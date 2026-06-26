@@ -3,7 +3,7 @@ Module for topology definition models.
 """
 
 from enum import Enum
-from typing import Any, Optional, Self
+from typing import Any, Self
 
 from yamlize import Attribute, Dynamic, Map, Object, Sequence, StrList, Typed
 
@@ -96,14 +96,14 @@ class Host(Object):  # type: ignore[misc]
         type=VolumeList, default=None, validator=TopologyValidation.is_volumes_valid
     )
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         name: str,
         base_box: BaseBox,
         flavor: str,
         block_internet: bool,
         hidden: bool,
-        volumes: Optional[VolumeList],
+        volumes: VolumeList | None,
     ) -> None:
         self.name = name
         self.base_box = base_box
@@ -369,7 +369,54 @@ class MonitoringTargets(Object):  # type: ignore[misc]
     http = Attribute(type=MonitoringTargetHTTP, default=None)
 
 
-class TopologyDefinition(Object):  # type: ignore[misc]
+class VpnEntrypoint(Object):  # type: ignore[misc]
+    """
+    VPN entrypoint definition. Declares a topology host or router that acts as a
+    Netbird VPN gateway.
+    """
+
+    name = Attribute(type=str, validator=TopologyValidation.validate_vpn_entrypoint_name)
+    routes = Attribute(type=StrList, validator=TopologyValidation.validate_vpn_routes)
+
+
+class VpnEntrypointList(Sequence):  # type: ignore[misc]
+    """
+    List of VPN entrypoints.
+    """
+
+    item_type = VpnEntrypoint
+
+
+class VpnDns(Object):  # type: ignore[misc]
+    """
+    VPN DNS settings distributed to every client in the sandbox access group.
+
+    ``servers`` is the (non-empty) list of nameserver IPs the clients should use;
+    ``search_domains`` is an optional list of DNS search/match domains.
+    """
+
+    servers = Attribute(type=StrList, validator=TopologyValidation.validate_vpn_dns_servers)
+    search_domains = Attribute(
+        type=StrList,
+        default=None,
+        validator=TopologyValidation.validate_vpn_dns_search_domains,
+    )
+
+
+class Vpn(Object):  # type: ignore[misc]
+    """
+    VPN settings for the sandbox (Netbird).
+
+    ``entrypoints`` declares the hosts/routers acting as VPN gateways; ``dns`` is
+    an optional DNS configuration applied to the shared access group, i.e. handed
+    out to every VPN client of the sandbox.
+    """
+
+    entrypoints = Attribute(type=VpnEntrypointList, default=None)
+    dns = Attribute(type=VpnDns, default=None)
+
+
+class TopologyDefinition(Object):  # type: ignore[misc]  # pylint: disable=too-many-instance-attributes
     """
     Topology definition.
     """
@@ -393,6 +440,11 @@ class TopologyDefinition(Object):  # type: ignore[misc]
         validator=TopologyValidation.validate_monitoring_targets,
         default=None,
     )
+    vpn = Attribute(
+        type=Vpn,
+        validator=TopologyValidation.validate_vpn,
+        default=None,
+    )
 
     # Class-level defaults so yamlize (which bypasses __init__) finds these attributes
     _indexed: bool = False
@@ -409,7 +461,8 @@ class TopologyDefinition(Object):  # type: ignore[misc]
         self.net_mappings = NetworkMappingList()
         self.router_mappings = RouterMappingList()
         self.groups = GroupList()
-        self.monitoring_targets: Optional[MonitoringTargets] = None
+        self.monitoring_targets = None
+        self.vpn = None
         self._indexed: bool = False
         self._hosts_index: dict[str, Host] = {}
         self._routers_index: dict[str, Router] = {}
@@ -432,7 +485,7 @@ class TopologyDefinition(Object):  # type: ignore[misc]
         self._networks_index = {n.name: n for n in self.networks}
         self._indexed = True
 
-    def find_host_by_name(self, name: str) -> Optional[Host]:
+    def find_host_by_name(self, name: str) -> Host | None:
         """
         Find host by name.
         """
@@ -440,7 +493,7 @@ class TopologyDefinition(Object):  # type: ignore[misc]
             self.index()
         return self._hosts_index.get(name, None)
 
-    def find_router_by_name(self, name: str) -> Optional[Router]:
+    def find_router_by_name(self, name: str) -> Router | None:
         """
         Find router by name.
         """
@@ -448,7 +501,7 @@ class TopologyDefinition(Object):  # type: ignore[misc]
             self.index()
         return self._routers_index.get(name, None)
 
-    def find_network_by_name(self, name: str) -> Optional[Network]:
+    def find_network_by_name(self, name: str) -> Network | None:
         """
         Find network by name.
         """

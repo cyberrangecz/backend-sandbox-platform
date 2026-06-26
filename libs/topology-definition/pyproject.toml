@@ -1,13 +1,14 @@
 [project]
 name = "crczp-topology-definition"
-version = "2.0.0"
+version = "2.1.0"
 description = "topology-definition"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 authors = [{ name = "cybersecurityhub.cz" }]
 dependencies = [
     "yamlize>=0.6",
+    "ruamel.yaml>=0.19.1",
     "structlog>=19.2",
     "netaddr>=0.7"
 ]

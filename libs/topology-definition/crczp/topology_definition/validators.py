@@ -28,16 +28,23 @@ if TYPE_CHECKING:
         TargetTCPList,
         TopologyDefinition,
         VolumeList,
+        Vpn,
     )
 
 VALID_NAMES_REGEX = r'^[a-z]([a-z0-9A-Z-])*$'
+# A DNS domain: dot-separated labels, each 1-63 chars, starting and ending with
+# an alphanumeric. Accepts single-label domains (e.g. "local") as valid search domains.
+DNS_DOMAIN_REGEX = (
+    r'^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)'
+    r'(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$'
+)
 _UNIQ_MSG = (
     'Uniqueness violation. The following name identifiers are not unique '
     'within the [{}] definition: {}.'
 )
 
 
-class TopologyValidation:
+class TopologyValidation:  # pylint: disable=too-many-public-methods
     """
     Class for topology definition validation.
     """
@@ -257,7 +264,9 @@ class TopologyValidation:
         return True
 
     @staticmethod
-    def validate_monitoring_targets_tcp(obj: object, targets: MonitoringTargetTCPList | None) -> bool:
+    def validate_monitoring_targets_tcp(
+        _obj: object, targets: MonitoringTargetTCPList | None
+    ) -> bool:
         """
         Validate TCP monitoring targets — node names must be unique.
         """
@@ -307,7 +316,9 @@ class TopologyValidation:
         return True
 
     @staticmethod
-    def validate_monitoring_targets_icmp(obj: object, targets: MonitoringTargetICMPList | None) -> bool:
+    def validate_monitoring_targets_icmp(
+        _obj: object, targets: MonitoringTargetICMPList | None
+    ) -> bool:
         """
         Validate ICMP monitoring targets — node names must be unique.
         Node existence is validated at the TopologyDefinition level via validate_monitoring_targets.
@@ -348,6 +359,94 @@ class TopologyValidation:
                 )
 
         return True
+
+    @staticmethod
+    def validate_vpn(obj: TopologyDefinition, vpn: Vpn | None) -> None:
+        """
+        Validate VPN settings.
+
+        Each entrypoint name must reference an existing host or router. The
+        structural validation of entrypoints (name/routes) and DNS (servers/
+        search_domains) is handled by the per-attribute validators; this
+        TopologyDefinition-level validator only performs the cross-reference
+        check that requires access to hosts and routers.
+        """
+        if vpn is None:
+            return
+        entrypoints = vpn.entrypoints
+        if not entrypoints:
+            return
+        known_node_names = {h.name for h in obj.hosts} | {r.name for r in obj.routers}
+        for ep in entrypoints:
+            if ep.name not in known_node_names:
+                raise ValueError(
+                    f'vpn.entrypoints references "{ep.name}" '
+                    'which does not exist in hosts or routers.'
+                )
+
+    @staticmethod
+    def validate_vpn_dns_servers(_obj: object, servers: StrList) -> None:
+        """
+        Validate VPN DNS servers: non-empty list, each element a valid IPv4 address.
+        """
+        if not servers:
+            raise ValueError('vpn.dns.servers must be a non-empty list when vpn.dns is set.')
+        for server in servers:
+            try:
+                addr = ip_address(server)
+            except ValueError as exc:
+                raise ValueError(
+                    f'vpn.dns.servers contains invalid IP address "{server}". '
+                    'Each DNS server must be a valid IPv4 address.'
+                ) from exc
+            if addr.version != 4:
+                raise ValueError(
+                    f'vpn.dns.servers contains non-IPv4 address "{server}". '
+                    'Only IPv4 DNS servers are supported.'
+                )
+
+    @staticmethod
+    def validate_vpn_dns_search_domains(_obj: object, domains: StrList | None) -> None:
+        """
+        Validate VPN DNS search domains: optional list, each a valid DNS domain.
+        """
+        if not domains:
+            return
+        for domain in domains:
+            if not re.match(DNS_DOMAIN_REGEX, domain):
+                raise ValueError(
+                    f'vpn.dns.search_domains contains invalid domain "{domain}". '
+                    'Each search domain must be a valid DNS domain name.'
+                )
+
+    @staticmethod
+    def validate_vpn_entrypoint_name(_obj: object, name: str) -> None:
+        """
+        Validate VPN entrypoint name is a non-empty string.
+        """
+        if not name:
+            raise ValueError('VpnEntrypoint.name must be a non-empty string.')
+
+    @staticmethod
+    def validate_vpn_routes(_obj: object, routes: StrList) -> None:
+        """
+        Validate VPN entrypoint routes: non-empty list, each element a valid CIDR.
+        """
+        if not routes:
+            raise ValueError('VpnEntrypoint.routes must be a non-empty list.')
+        for cidr in routes:
+            try:
+                network = ip_network(cidr, strict=False)
+            except ValueError as exc:
+                raise ValueError(
+                    f'VpnEntrypoint.routes contains invalid CIDR "{cidr}". '
+                    'Each route must be a valid IPv4 CIDR string.'
+                ) from exc
+            if network.version != 4:
+                raise ValueError(
+                    f'VpnEntrypoint.routes contains non-IPv4 CIDR "{cidr}". '
+                    'Only IPv4 routes are supported.'
+                )
 
     @staticmethod
     def validate_targets_http(_obj: object, targets: TargetHTTPList | None) -> bool:
