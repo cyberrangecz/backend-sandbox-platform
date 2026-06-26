@@ -77,7 +77,7 @@ class TestValidateTopologyInstanceNetworks:
         empty_topology_definition.networks.append(Network('net1', '147.251.0.0/16', True, False))
         base_box = BaseBox()
         base_box.image = ''
-        empty_topology_definition.hosts.append(Host('host1', base_box, '', False, False, []))
+        empty_topology_definition.hosts.append(Host('host1', base_box, '', False, False, None))
         empty_topology_definition.net_mappings.append(
             NetworkMapping('host1', 'net1', '147.250.0.0')
         )
