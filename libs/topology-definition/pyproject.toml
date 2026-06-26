@@ -8,9 +8,29 @@ requires-python = ">=3.12"
 authors = [{ name = "cybersecurityhub.cz" }]
 dependencies = [
     "yamlize>=0.6",
-    "ruamel.yaml>=0.19.1",
     "structlog>=19.2",
     "netaddr>=0.7"
+]
+
+[dependency-groups]
+test = [
+    "pytest",
+    "pytest-mock",
+    "pytest-structlog",
+]
+
+lint = [
+    "pylint",
+    "pytest",
+]
+
+security = [
+    "bandit",
+    "pip-audit",
+]
+
+dev = [
+    "pre-commit",
 ]
 
 [build-system]

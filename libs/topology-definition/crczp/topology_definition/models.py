@@ -5,9 +5,16 @@ Module for topology definition models.
 from enum import Enum
 from typing import Any, Self
 
+from ruamel.yaml.loader import RoundTripLoader as _RoundTripLoader
 from yamlize import Attribute, Dynamic, Map, Object, Sequence, StrList, Typed
 
 from crczp.topology_definition.utils import rename_deprecated_attribute
+
+# ruamel.yaml >=0.19.1 added a max_depth check in Composer.compose_node that
+# accesses self.loader.max_depth, but RoundTripLoader (used by yamlize directly)
+# does not define this attribute. Patch the class so the depth check is a no-op.
+if not hasattr(_RoundTripLoader, 'max_depth'):
+    _RoundTripLoader.max_depth = None
 from crczp.topology_definition.validators import TopologyValidation
 
 
