@@ -1,6 +1,6 @@
 [project]
 name = "crczp-openstack-lib"
-version = "1.0.5"
+version = "1.0.6"
 description = "Cyberrangecz platform OpenStack Driver Python lib"
 readme = "README.md"
 license = "MIT"
