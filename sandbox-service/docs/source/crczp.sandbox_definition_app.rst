@@ -8,3 +8,4 @@ crczp.sandbox_definition_app package
     content/crczp.sandbox_definition_app.serializers
     content/crczp.sandbox_definition_app.urls
     content/crczp.sandbox_definition_app.views
+

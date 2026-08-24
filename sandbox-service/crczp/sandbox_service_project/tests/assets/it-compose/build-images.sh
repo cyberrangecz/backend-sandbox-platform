@@ -5,3 +5,4 @@ docker build \
   -t crczp/docker-ansible-runner \
   git@github.com:cyberrangecz/backend-ansible-runner.git
 
+
