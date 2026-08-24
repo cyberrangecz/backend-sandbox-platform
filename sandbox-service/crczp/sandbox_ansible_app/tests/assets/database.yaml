@@ -1,0 +1,116 @@
+- model: auth.user
+  pk: 1
+  fields:
+    username: test-username
+    first_name: test-first-name
+    last_name: test-last-name
+
+- model: sandbox_definition_app.definition
+  pk: 1
+  fields:
+    name: test-def-name
+    url: test-def-url
+    rev: test-def-rev
+    created_by: 1
+
+- model: sandbox_instance_app.pool
+  pk: 1
+  fields:
+    definition: 1
+    max_size: 3
+    private_management_key: -----RSA PRIVATE KEY-----
+    public_management_key: ssh-rsa
+    uuid: 0fb3160d
+    created_by: 1
+
+- model: sandbox_instance_app.pool
+  pk: 2
+  fields:
+    definition: 1
+    max_size: 0
+    private_management_key: -----RSA PRIVATE KEY-----
+    public_management_key: ssh-rsa
+    uuid: 0fb3160d
+    created_by: 1
+
+- model: sandbox_instance_app.sandboxallocationunit
+  pk: 1
+  fields:
+    pool: 1
+    created_by: 1
+
+- model: sandbox_instance_app.sandbox
+  pk: 1
+  fields:
+    allocation_unit: 1
+    private_user_key: private_user_key
+    public_user_key: public_user_key
+
+- model: sandbox_instance_app.allocationrequest
+  pk: 1
+  fields:
+    created: 2020-03-25 09:22:51.318412+00:00
+    allocation_unit: 1
+
+- model: sandbox_instance_app.allocationstage
+  pk: 1
+  fields:
+    start: null
+    end: null
+    failed: true
+    error_message: null
+    allocation_request_fk_many: 1
+- model: sandbox_instance_app.allocationstage
+  pk: 2
+  fields:
+    start: null
+    end: null
+    failed: true
+    error_message: null
+    allocation_request_fk_many: 1
+- model: sandbox_instance_app.allocationstage
+  pk: 3
+  fields:
+    start: null
+    end: null
+    failed: true
+    error_message: null
+    allocation_request_fk_many: 1
+
+- model: sandbox_instance_app.stackallocationstage
+  pk: 1
+  fields:
+    status: null
+    status_reason: null
+    allocation_request: 1
+- model: sandbox_ansible_app.networkingansibleallocationstage
+  pk: 2
+  fields:
+    repo_url: git@gitlab.com:small-sandbox.git
+    rev: 04e97bb05456b37a74cd28732547b65f213e1b99
+    allocation_request: 1
+- model: sandbox_ansible_app.useransibleallocationstage
+  pk: 3
+  fields:
+    repo_url: git@gitlab.com:small-sandbox.git
+    rev: 04e97bb05456b37a74cd28732547b65f213e1b99
+    allocation_request: 1
+
+- model: sandbox_instance_app.allocationrqjob
+  pk: 1
+  fields:
+    job_id: fd9bc4e6-87ad-4922-b273-7ae89270b23f
+- model: sandbox_instance_app.allocationrqjob
+  pk: 2
+  fields:
+    job_id: 93a2012d-97de-48c5-9533-0b995b652915
+- model: sandbox_instance_app.allocationrqjob
+  pk: 3
+  fields:
+    job_id: d5ae9629-e8c2-4ff5-9c49-cca056556d2d
+
+- model: sandbox_instance_app.terraformstack
+  pk: 1
+  fields:
+    stack_id: terraformstack-stack-id
+    allocation_stage_id: 1

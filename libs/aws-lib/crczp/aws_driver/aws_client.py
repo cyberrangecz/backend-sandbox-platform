@@ -1,29 +1,33 @@
+"""AWS client implementation for the CyberRangeCZ platform."""
+
 import os
 import re
+from datetime import datetime, timedelta, timezone
+from typing import Any, cast
+
 import boto3
 from botocore.config import Config
-
-from typing import List, Dict
-from datetime import datetime, timedelta
-from jinja2 import Environment, FileSystemLoader
-
 from crczp.cloud_commons import (
     CrczpCloudClientBase,
-    TransformationConfiguration,
-    TopologyInstance,
     HardwareUsage,
     Image,
-    QuotaSet,
-    Quota,
     Limits,
     NodeDetails,
+    Quota,
+    QuotaSet,
+    TopologyInstance,
+    TransformationConfiguration,
 )
 from crczp.cloud_commons.topology_elements import Host
+from jinja2 import Environment, FileSystemLoader
 
 from .exceptions import ImageDoesNotExist, KeyPairDoesNotExist
 
-# sandbox-service sets REQUESTS_CA_BUNDLE to directory, but boto3 expects file
-os.environ["AWS_CA_BUNDLE"] = "/etc/ssl/certs/ca-certificates.crt"  # TODO: check if must exist
+# Only provide a default CA bundle when the environment does not already specify one
+# and the fallback file exists on the system.
+DEFAULT_AWS_CA_BUNDLE = '/etc/ssl/certs/ca-certificates.crt'
+if 'AWS_CA_BUNDLE' not in os.environ and os.path.isfile(DEFAULT_AWS_CA_BUNDLE):
+    os.environ['AWS_CA_BUNDLE'] = DEFAULT_AWS_CA_BUNDLE
 
 AWS_CREDENTIALS_FILE_TEMPLATE = """[default]
 aws_access_key_id = {}
@@ -33,10 +37,11 @@ aws_secret_access_key = {}
 AWS_CONFIG_FILE_TEMPLATE = """[default]
 region = {}
 """
-TEMPLATE_DIR_PATH = os.path.join(os.path.dirname(__file__), "templates")
+TEMPLATE_DIR_PATH = os.path.join(os.path.dirname(__file__), 'templates')
 
 
-def regex_replace(string, pattern="", replace=""):
+def regex_replace(string: str, pattern: str = '', replace: str = '') -> str:
+    """Apply a regex substitution on the given string."""
     return re.sub(pattern, replace, string)
 
 
@@ -46,10 +51,10 @@ def get_default_route_ip(topology_instance: TopologyInstance, node: Host) -> str
     """
     host_networks = topology_instance.get_hosts_networks()
     host_link = topology_instance.get_node_links(node, host_networks)[0]
-    return topology_instance.get_network_default_gateway_link(host_link.network).ip
+    return str(topology_instance.get_network_default_gateway_link(host_link.network).ip)
 
 
-class CrczpAwsClient(CrczpCloudClientBase):
+class CrczpAwsClient(CrczpCloudClientBase):  # type: ignore[misc]
     """
     AWS client for Cyberrangecz platform.
     """
@@ -63,7 +68,7 @@ class CrczpAwsClient(CrczpCloudClientBase):
         base_subnet_name: str,
         availability_zone: str,
         trc: TransformationConfiguration,
-        ca_bundle: str = "",
+        ca_bundle: str = '',
     ):
         """
         :param aws_access_key: AWS access key
@@ -81,41 +86,60 @@ class CrczpAwsClient(CrczpCloudClientBase):
         self.secret_key = aws_secret_key
         self.base_vpc_name = base_vpc_name
         self.base_subnet_name = base_subnet_name
-        boto_client_config = Config(region_name=region, client_cert=ca_bundle)
+        boto_client_config = Config(region_name=region)
+        # Pass ca_bundle as verify= to control TLS server certificate validation.
+        # boto3 accepts a path to a CA bundle file or None to use the system default.
+        verify: str | None = ca_bundle if ca_bundle else None
         self.ec2_client = boto3.client(
-            "ec2", aws_access_key_id=aws_access_key, aws_secret_access_key=aws_secret_key, config=boto_client_config
+            'ec2',
+            aws_access_key_id=aws_access_key,
+            aws_secret_access_key=aws_secret_key,
+            config=boto_client_config,
+            verify=verify,
         )
-        self.cloadwatch_client = boto3.client(
-            "cloudwatch", aws_access_key_id=aws_access_key, aws_secret_access_key=aws_secret_key, config=boto_client_config
+        self.cloudwatch_client = boto3.client(
+            'cloudwatch',
+            aws_access_key_id=aws_access_key,
+            aws_secret_access_key=aws_secret_key,
+            config=boto_client_config,
+            verify=verify,
         )
         self.service_quotas_client = boto3.client(
-            "service-quotas", aws_access_key_id=aws_access_key, aws_secret_access_key=aws_secret_key, config=boto_client_config
+            'service-quotas',
+            aws_access_key_id=aws_access_key,
+            aws_secret_access_key=aws_secret_key,
+            config=boto_client_config,
+            verify=verify,
         )
-        self.jinja2_env = Environment(loader=FileSystemLoader(TEMPLATE_DIR_PATH))
-        self.jinja2_env.filters["regex_replace"] = regex_replace
+        self.jinja2_env = Environment(loader=FileSystemLoader(TEMPLATE_DIR_PATH))  # nosec B701 - renders Terraform templates, not HTML
+        self.jinja2_env.filters['regex_replace'] = regex_replace
         self.trc = trc
 
     @staticmethod
-    def get_private_ip(link_tf_resource: Dict[str, dict]) -> str:
+    def get_private_ip(link_tf_resource: dict[str, Any]) -> str:  # pylint: disable=arguments-renamed
         """
-        Counter incomatibility of AWS and OpenStack terraform resources
+        Counter incompatibility of AWS and OpenStack terraform resources
         """
-        return link_tf_resource["private_ip_list"][0]
+        return str(link_tf_resource['private_ip_list'][0])
 
     def get_terraform_provider(self) -> str:
         """
         Provider is included in the terraform template (created by cdktf).
         """
-        template = self.jinja2_env.get_template("terraform-provider-template.j2")
-        return template.render(region=self.region, access_key=self.access_key, secret_key=self.secret_key)
+        template = self.jinja2_env.get_template('terraform-provider-template.j2')
+        return str(
+            template.render(
+                region=self.region, access_key=self.access_key, secret_key=self.secret_key
+            )
+        )
 
-    def create_terraform_template(
+    def create_terraform_template(  # pylint: disable=arguments-differ
         self,
         topology_instance: TopologyInstance,
-        key_pair_name_ssh: str = "dummy-ssh-key",
-        key_pair_name_cert: str = "dummy-cert",
-        resource_prefix: str = "dummy-prefix",
-    ):
+        key_pair_name_ssh: str = 'dummy-ssh-key',
+        key_pair_name_cert: str = 'dummy-cert',
+        resource_prefix: str = 'dummy-prefix',
+    ) -> str:
         """
         Create terraform template that will be deployed.
 
@@ -125,50 +149,52 @@ class CrczpAwsClient(CrczpCloudClientBase):
         :keyword resource_prefix: The prefix of all resources
         :return: Terraform template as a string
         """
-        template = self.jinja2_env.get_template("terraform-deploy-template.j2")
-        return template.render(
-            availability_zone=self.availability_zone,
-            topology_instance=topology_instance,
-            resource_prefix=resource_prefix,
-            key_pair_name_ssh=key_pair_name_ssh,
-            base_vpc_name=self.base_vpc_name,
-            base_subnet_name=self.base_subnet_name,
-            trc=self.trc,
-            get_default_route_ip=get_default_route_ip,
+        template = self.jinja2_env.get_template('terraform-deploy-template.j2')
+        return str(
+            template.render(
+                availability_zone=self.availability_zone,
+                topology_instance=topology_instance,
+                resource_prefix=resource_prefix,
+                key_pair_name_ssh=key_pair_name_ssh,
+                base_vpc_name=self.base_vpc_name,
+                base_subnet_name=self.base_subnet_name,
+                trc=self.trc,
+                get_default_route_ip=get_default_route_ip,
+            )
         )
 
     @staticmethod
-    def _map_aws_image(image_raw: dict) -> Image:
-        os_type = "windows" if "windows" in image_raw["PlatformDetails"].lower() else "linux"
+    def _map_aws_image(image_raw: dict[str, Any]) -> Image:
+        os_type = 'windows' if 'windows' in image_raw['PlatformDetails'].lower() else 'linux'
         return Image(
-            os_distro=image_raw["Name"],
+            os_distro=image_raw['Name'],
             os_type=os_type,
             disk_format=None,
             container_format=None,
-            visibility=image_raw["Public"],
+            visibility=image_raw['Public'],
             size=0,
-            status=image_raw["State"],
+            status=image_raw['State'],
             min_ram=0,
             min_disk=0,
-            created_at=image_raw["CreationDate"],
+            created_at=image_raw['CreationDate'],
             updated_at=None,
             tags=[],
             default_user=None,
-            name=image_raw["ImageId"],
+            name=image_raw['ImageId'],
             owner_specified={},
         )
 
-    def list_images(self, public_images: bool = True) -> List[Image]:
+    def list_images(self, public_images: bool = True) -> list[Image]:
         """
         List all available images on the cloud project.
 
         :return: List of Image objects.
         """
-        owners = ["self"]
+        owners = ['self']
         if public_images:
-            owners.append("amazon")
+            owners.append('amazon')
 
-        images_raw = self.ec2_client.describe_images(Owners=owners)["Images"]
+        images_raw = self.ec2_client.describe_images(Owners=owners)['Images']
         return [self._map_aws_image(image_raw) for image_raw in images_raw]
 
     def get_image(self, image_id: str) -> Image:
@@ -178,7 +204,7 @@ class CrczpAwsClient(CrczpCloudClientBase):
         :param image_id: The ID of image on the cloud
         :return: Image object
         """
-        image_raw = self.ec2_client.describe_images(ImageIds=[image_id])["Images"]
+        image_raw = self.ec2_client.describe_images(ImageIds=[image_id])['Images']
         if not image_raw:
             raise ImageDoesNotExist(image_id)
 
@@ -209,13 +235,15 @@ class CrczpAwsClient(CrczpCloudClientBase):
         """
         self.ec2_client.reboot_instances(InstanceIds=[node_id])
 
-    def get_console_url(self, node_id: str, console_type: str):
+    def get_console_url(self, node_id: str, console_type: str) -> str:
         """
         AWS does not support any URL-based connection to running instances.
         """
-        return ""
+        return ''
 
-    def create_keypair(self, name: str, public_key: str, key_type: str = "ssh") -> None:
+    def create_keypair(  # pylint: disable=signature-differs
+        self, name: str, public_key: str, key_type: str = 'ssh'
+    ) -> None:
         """
         Create key pair in cloud.
 
@@ -227,7 +255,7 @@ class CrczpAwsClient(CrczpCloudClientBase):
         public_base64 = public_key.encode()
         self.ec2_client.import_key_pair(KeyName=name, PublicKeyMaterial=public_base64)
 
-    def get_keypair(self, name: str) -> dict:
+    def get_keypair(self, name: str) -> dict[str, Any]:
         """
         Get KeyPair instance from cloud.
 
@@ -235,11 +263,11 @@ class CrczpAwsClient(CrczpCloudClientBase):
         :return: Key pair information
         :raise KeyPairDoesNotExist: Key pair does not exist
         """
-        key_pair = self.ec2_client.describe_key_pairs(KeyNames=[name])["KeyPairs"]
+        key_pair = self.ec2_client.describe_key_pairs(KeyNames=[name])['KeyPairs']
         if not key_pair:
             raise KeyPairDoesNotExist(name)
 
-        return key_pair[0]
+        return cast(dict[str, Any], key_pair[0])
 
     def delete_keypair(self, name: str) -> None:
         """
@@ -251,44 +279,49 @@ class CrczpAwsClient(CrczpCloudClientBase):
         self.ec2_client.delete_key_pair(KeyName=name)
 
     def _get_service_quota(self, service_code: str, quota_code: str) -> float:
-        return self.service_quotas_client.get_service_quota(ServiceCode=service_code, QuotaCode=quota_code)["Quota"]["Value"]
-
-    def _get_vcpu_quota(self) -> Quota:
-        vcpu_usage = self.cloadwatch_client.get_metric_statistics(
-            MetricName="ResourceCount",
-            Namespace="AWS/Usage",
-            Dimensions=[
-                {"Name": "Type", "Value": "Resource"},
-                {"Name": "Resource", "Value": "vCPU"},
-                {"Name": "Service", "Value": "EC2"},
-                {"Name": "Class", "Value": "Standard/OnDemand"},
-            ],
-            StartTime=datetime.utcnow() - timedelta(days=1),
-            EndTime=datetime.utcnow(),
-            Period=300,
-            Statistics=["Maximum"],
+        return cast(
+            float,
+            self.service_quotas_client.get_service_quota(
+                ServiceCode=service_code, QuotaCode=quota_code
+            )['Quota']['Value'],
         )
 
-        datapoints = vcpu_usage["Datapoints"] or [{"Maximum": 0}]
-        vcpu_usage = datapoints[0]["Maximum"]
-        vcpu_limit = self._get_service_quota(service_code="ec2", quota_code="L-1216C47A")
+    def _get_vcpu_quota(self) -> Quota:
+        vcpu_usage = self.cloudwatch_client.get_metric_statistics(
+            MetricName='ResourceCount',
+            Namespace='AWS/Usage',
+            Dimensions=[
+                {'Name': 'Type', 'Value': 'Resource'},
+                {'Name': 'Resource', 'Value': 'vCPU'},
+                {'Name': 'Service', 'Value': 'EC2'},
+                {'Name': 'Class', 'Value': 'Standard/OnDemand'},
+            ],
+            StartTime=datetime.now(timezone.utc) - timedelta(days=1),
+            EndTime=datetime.now(timezone.utc),
+            Period=300,
+            Statistics=['Maximum'],
+        )
+
+        datapoints = vcpu_usage['Datapoints'] or [{'Maximum': 0}]
+        vcpu_usage = datapoints[0]['Maximum']
+        vcpu_limit = self._get_service_quota(service_code='ec2', quota_code='L-1216C47A')
         vcpu_quota = Quota(limit=vcpu_limit, in_use=vcpu_usage)
         return vcpu_quota
 
     def _get_network_quota(self) -> Quota:
-        vpcs_usage = len(self.ec2_client.describe_vpcs()["Vpcs"])
+        vpcs_usage = len(self.ec2_client.describe_vpcs()['Vpcs'])
         vpcs_limit = self._get_service_quota(
-            service_code="vpc",
-            quota_code="L-F678F1CE",
+            service_code='vpc',
+            quota_code='L-F678F1CE',
         )
 
         return Quota(limit=vpcs_limit, in_use=vpcs_usage)
 
     def _get_ports_quota(self) -> Quota:
-        ports_usage = len(self.ec2_client.describe_network_interfaces()["NetworkInterfaces"])
+        ports_usage = len(self.ec2_client.describe_network_interfaces()['NetworkInterfaces'])
         ports_limit = self._get_service_quota(
-            service_code="vpc",
-            quota_code="L-DF5E4CA3",
+            service_code='vpc',
+            quota_code='L-DF5E4CA3',
         )
 
         return Quota(limit=ports_limit, in_use=ports_usage)
@@ -306,15 +339,20 @@ class CrczpAwsClient(CrczpCloudClientBase):
         networks = self._get_network_quota()
         ports = self._get_ports_quota()
         quota_set = QuotaSet(
-            vcpu=vcpus, port=ports, network=networks, subnet=not_defined, ram=not_defined, instances=not_defined
+            vcpu=vcpus,
+            port=ports,
+            network=networks,
+            subnet=not_defined,
+            ram=not_defined,
+            instances=not_defined,
         )
         return quota_set
 
-    def get_project_name(self):
+    def get_project_name(self) -> str:
         """
         Get project name. In AWS environment, the project refers to the AWS account.
         """
-        return "AWS"
+        return 'AWS'
 
     def get_hardware_usage(self, topology_instance: TopologyInstance) -> HardwareUsage:
         """
@@ -328,39 +366,41 @@ class CrczpAwsClient(CrczpCloudClientBase):
 
         for node in topology_instance.get_nodes():
             flavor = flavors[node.flavor]
-            used_vcpu += flavor["vcpu"]
-            used_ram += flavor["ram"]
+            used_vcpu += flavor['vcpu']
+            used_ram += flavor['ram']
             used_instances += 1
 
-        networks = [network for network in topology_instance.get_networks()]
+        networks = list(topology_instance.get_networks())
         used_network = len(networks)
         used_subnet = len(networks)
-        used_port = len([link for link in topology_instance.get_links()])
+        used_port = len(list(topology_instance.get_links()))
 
-        return HardwareUsage(used_vcpu, used_ram, used_instances, used_network, used_subnet, used_port)
+        return HardwareUsage(
+            used_vcpu, used_ram, used_instances, used_network, used_subnet, used_port
+        )
 
-    def get_flavors_dict(self) -> dict:
+    def get_flavors_dict(self) -> dict[str, Any]:
         """
-        Gets flavors defined in OpenStack project with their vcpu and ram usage as dictionary
-        Boto3 does not support 'no-paggination' parameter yet.
-        Hence, to get all flavors, we need paginator (iterator over pages).
+        Gets instance types available in the AWS account with their vcpu and ram usage
+        as a dictionary. Boto3 does not support 'no-pagination' parameter yet.
+        Hence, to get all instance types, we need paginator (iterator over pages).
         """
-        flavors_pages = self.ec2_client.get_paginator("describe_instance_types").paginate(
+        flavors_pages = self.ec2_client.get_paginator('describe_instance_types').paginate(
             InstanceTypes=[],
             Filters=[
                 {
-                    "Name": "instance-type",
-                    "Values": ["t*"],
+                    'Name': 'instance-type',
+                    'Values': ['t*'],
                 }
             ],
         )
         return {
-            flavor["InstanceType"]: {
-                "vcpu": flavor["VCpuInfo"]["DefaultCores"],
-                "ram": int(flavor["MemoryInfo"]["SizeInMiB"]) / 1024,
+            flavor['InstanceType']: {
+                'vcpu': flavor['VCpuInfo']['DefaultCores'],
+                'ram': int(flavor['MemoryInfo']['SizeInMiB']) / 1024,
             }
             for flavor_list in flavors_pages
-            for flavor in flavor_list["InstanceTypes"]
+            for flavor in flavor_list['InstanceTypes']
         }
 
     def get_project_limits(self) -> Limits:
@@ -371,27 +411,34 @@ class CrczpAwsClient(CrczpCloudClientBase):
         can be build.
         :return: Limits object
         """
-        vcpu_limit = self._get_service_quota(service_code="ec2", quota_code="L-1216C47A")
+        vcpu_limit = self._get_service_quota(service_code='ec2', quota_code='L-1216C47A')
         ports_limit = self._get_service_quota(
-            service_code="vpc",
-            quota_code="L-DF5E4CA3",
+            service_code='vpc',
+            quota_code='L-DF5E4CA3',
         )
         vpcs_limit = self._get_service_quota(
-            service_code="vpc",
-            quota_code="L-F678F1CE",
+            service_code='vpc',
+            quota_code='L-F678F1CE',
         )
 
-        return Limits(vcpu=vcpu_limit, ram=999999.0, instances=999999, network=vpcs_limit, subnet=999999, port=ports_limit)
+        return Limits(
+            vcpu=vcpu_limit,
+            ram=999999.0,
+            instances=999999,
+            network=vpcs_limit,
+            subnet=999999,
+            port=ports_limit,
+        )
 
-    def get_node_details(self, terraform_attrs: dict) -> NodeDetails:
+    def get_node_details(self, terraform_attrs: dict[str, Any]) -> NodeDetails:
         """
         Get node details from Terraform attributes.
 
         :param terraform_attrs: Terraform node attributes
         :return: NodeDetails instance
         """
-        image = terraform_attrs["ami"]
-        status = terraform_attrs["instance_state"]
-        flavor = terraform_attrs["instance_type"]
+        image = terraform_attrs['ami']
+        status = terraform_attrs['instance_state']
+        flavor = terraform_attrs['instance_type']
 
         return NodeDetails(image, status, flavor)
