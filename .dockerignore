@@ -1,0 +1,27 @@
+# The sandbox-service image builds from the repository root (the whole uv
+# workspace is needed to resolve libs/* as path dependencies), so the build
+# context is this directory. Keep it lean.
+
+.git/
+.github/
+
+# Virtual environments — .venv is hundreds of MB and must never enter the context
+.venv/
+**/.venv/
+
+# Tool caches
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/.tox/
+
+# Build artifacts
+**/dist/
+**/build/
+**/*.egg-info/
+
+# Docs and local notes not needed at build time
+libs/openstack-lib/docs/
+sandbox-service/docs/
