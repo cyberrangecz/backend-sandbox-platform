@@ -1,0 +1,9 @@
+.idea
+__pycache__
+main.py
+*.log
+crczp_openstack_lib.egg-info
+.tox
+
+build
+dist

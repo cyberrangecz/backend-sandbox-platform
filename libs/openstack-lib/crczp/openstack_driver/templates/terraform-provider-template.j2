@@ -1,0 +1,16 @@
+{%- set tf_provider = "openstack" -%}
+{%- set tf_provider_source = "terraform-provider-openstack/openstack" -%}
+
+terraform {
+    required_providers {
+        {{ tf_provider }} = {
+            source = "{{ tf_provider_source }}"
+        }
+    }
+}
+
+provider {{ tf_provider }} {
+  auth_url                              = "{{ auth_url }}"
+  application_credential_id             = "{{ app_cred_id }}"
+  application_credential_secret         = "{{ app_cred_secret }}"
+}
