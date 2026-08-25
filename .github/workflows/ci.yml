@@ -1,0 +1,274 @@
+# Single workflow for the whole workspace: quality for every package, plus the
+# sandbox-service release path (image, OpenAPI docs, tag). Kept in one file so
+# the release jobs can gate on the quality jobs via `needs:`.
+#
+# The six libraries are no longer published to PyPI, so there is no package
+# build/publish job for them and only sandbox-service is tag-controlled.
+
+name: CI
+
+on:
+  push:
+    branches-ignore:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      confirm_action:
+        description: "Type 'yes' if you want to create a new tag"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  # Each package runs when it changes, when anything it depends on changes, or
+  # when a workspace-wide file changes. Filters list transitive dependencies
+  # explicitly so a change low in the graph still exercises its consumers.
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      topology-definition: ${{ steps.filter.outputs.topology-definition }}
+      python-commons: ${{ steps.filter.outputs.python-commons }}
+      openstack-lib: ${{ steps.filter.outputs.openstack-lib }}
+      aws-lib: ${{ steps.filter.outputs.aws-lib }}
+      terraform-client: ${{ steps.filter.outputs.terraform-client }}
+      automated-problem-generation-lib: ${{ steps.filter.outputs.automated-problem-generation-lib }}
+      sandbox-service: ${{ steps.filter.outputs.sandbox-service }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            workspace: &workspace
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.pre-commit-config.yaml'
+              - '.github/workflows/**'
+            topology-definition:
+              - *workspace
+              - 'libs/topology-definition/**'
+            python-commons:
+              - *workspace
+              - 'libs/topology-definition/**'
+              - 'libs/python-commons/**'
+            openstack-lib:
+              - *workspace
+              - 'libs/topology-definition/**'
+              - 'libs/python-commons/**'
+              - 'libs/openstack-lib/**'
+            aws-lib:
+              - *workspace
+              - 'libs/topology-definition/**'
+              - 'libs/python-commons/**'
+              - 'libs/aws-lib/**'
+            terraform-client:
+              - *workspace
+              - 'libs/topology-definition/**'
+              - 'libs/python-commons/**'
+              - 'libs/openstack-lib/**'
+              - 'libs/aws-lib/**'
+              - 'libs/terraform-client/**'
+            automated-problem-generation-lib:
+              - *workspace
+              - 'libs/automated-problem-generation-lib/**'
+            sandbox-service:
+              - *workspace
+              - 'libs/**'
+              - 'sandbox-service/**'
+
+  # Runs once for the whole workspace; see .pre-commit-config.yaml for why this
+  # is not part of the per-package matrix.
+  pre-commit:
+    name: pre-commit (workspace)
+    runs-on: ubuntu-24.04
+    env:
+      FORCE_COLOR: "1"
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.11.24"
+
+      - name: Install pre-commit
+        run: uv tool install pre-commit
+
+      - name: Run pre-commit
+        run: pre-commit run --all-files --show-diff-on-failure
+
+  topology-definition:
+    needs: changes
+    if: needs.changes.outputs.topology-definition == 'true'
+    uses: ./.github/workflows/_reusable-python-package.yml
+    with:
+      package: topology-definition
+      working-directory: libs/topology-definition
+      mypy-command: "uv tool run --with types-PyYAML mypy@1.19.1 --ignore-missing-imports crczp tests"
+
+  python-commons:
+    needs: changes
+    if: needs.changes.outputs.python-commons == 'true'
+    uses: ./.github/workflows/_reusable-python-package.yml
+    with:
+      package: python-commons
+      working-directory: libs/python-commons
+      mypy-command: "uv tool run --with types-PyYAML mypy@1.19.1 --ignore-missing-imports crczp tests"
+
+  openstack-lib:
+    needs: changes
+    if: needs.changes.outputs.openstack-lib == 'true'
+    uses: ./.github/workflows/_reusable-python-package.yml
+    with:
+      package: openstack-lib
+      working-directory: libs/openstack-lib
+      mypy-command: "uv tool run --with types-PyYAML mypy@1.19.1 --ignore-missing-imports crczp tests"
+
+  aws-lib:
+    needs: changes
+    if: needs.changes.outputs.aws-lib == 'true'
+    uses: ./.github/workflows/_reusable-python-package.yml
+    with:
+      package: aws-lib
+      working-directory: libs/aws-lib
+      mypy-command: "uv tool run --with types-PyYAML mypy@1.19.1 --ignore-missing-imports crczp tests"
+
+  terraform-client:
+    needs: changes
+    if: needs.changes.outputs.terraform-client == 'true'
+    uses: ./.github/workflows/_reusable-python-package.yml
+    with:
+      package: terraform-client
+      working-directory: libs/terraform-client
+      mypy-command: "uv tool run --with types-PyYAML mypy@1.19.1 --ignore-missing-imports crczp tests"
+
+  automated-problem-generation-lib:
+    needs: changes
+    if: needs.changes.outputs.automated-problem-generation-lib == 'true'
+    uses: ./.github/workflows/_reusable-python-package.yml
+    with:
+      package: automated-problem-generation-lib
+      working-directory: libs/automated-problem-generation-lib
+      mypy-command: "uv tool run --with types-PyYAML mypy@1.19.1 --ignore-missing-imports generator tests"
+
+  sandbox-service:
+    needs: changes
+    if: needs.changes.outputs.sandbox-service == 'true'
+    uses: ./.github/workflows/_reusable-python-package.yml
+    with:
+      package: sandbox-service
+      working-directory: sandbox-service
+      mypy-command: "uv run mypy crczp/"
+
+  # ---------------------------------------------------------------------------
+  # sandbox-service release path
+  # ---------------------------------------------------------------------------
+
+  get_current_version:
+    uses: cyberrangecz/actions-templates/.github/workflows/get_version.yml@master
+    with:
+      file_path: "sandbox-service/pyproject.toml"
+
+  build:
+    if: needs.changes.outputs.sandbox-service == 'true' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    needs: [changes, get_current_version, sandbox-service, pre-commit]
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.get_current_version.outputs.version }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build context is the repository root so the uv workspace can resolve
+      # libs/* as path dependencies; see sandbox-service/Dockerfile.
+      - name: Build and push Docker image
+        env:
+          TAG: ${{ github.ref == 'refs/heads/master' && format('{0}', env.VERSION ) || format('{0}-dev', env.VERSION) }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./sandbox-service/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}/sandbox-service:${{ env.TAG }}
+
+  generate_docs:
+    permissions:
+      contents: read
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    needs: build
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.11.24"
+
+      - name: Generate and Push Swagger Docs
+        working-directory: sandbox-service
+        run: |
+          cp config.yml-template ./config.yml
+          mkdir -p output
+          uv run python manage.py spectacular --file output/crczp-sandbox-service-swagger-open-api.yaml
+
+      - name: Upload Docs files as artifact
+        id: deployment
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: sandbox-service/output
+
+  upload_docs:
+    needs: generate_docs
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # Controls if version consistent with semver and higher than last git tag.
+  control_tag:
+    if: github.event.pull_request.base.ref == 'master' || github.ref == 'refs/heads/master'
+    needs: get_current_version
+    uses: cyberrangecz/actions-templates/.github/workflows/tag_control_template.yml@master
+    with:
+      VERSION: ${{ needs.get_current_version.outputs.version }}
+
+  # Push tag only from manual workflow_dispatch with confirmed tag creation
+  push_tag:
+    if: github.ref == 'refs/heads/master' && github.event.inputs.confirm_action == 'yes'
+    needs: [get_current_version, control_tag, build]
+    permissions:
+      contents: write
+    uses: cyberrangecz/actions-templates/.github/workflows/tag_push_template.yml@master
+    with:
+      VERSION: ${{ needs.get_current_version.outputs.version }}

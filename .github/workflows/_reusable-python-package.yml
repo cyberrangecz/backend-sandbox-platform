@@ -1,0 +1,94 @@
+# Runs one workspace package's own tox quality envs.
+#
+# `pre-commit` is deliberately NOT in this matrix: pre-commit runs from the
+# repository root and would lint the whole monorepo once per package. It runs
+# once, workspace-wide, from the root .pre-commit-config.yaml in ci.yml.
+
+name: Python package checks
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        description: "Display name of the package"
+        required: true
+        type: string
+      working-directory:
+        description: "Path to the package, relative to the repository root"
+        required: true
+        type: string
+      mypy-command:
+        description: >-
+          Command to type-check this package, run from working-directory.
+          Libraries use an isolated mypy (matching the mirrors-mypy hook they
+          used before the merge); sandbox-service uses the workspace
+          environment, because the django-stubs plugin loads Django settings
+          and needs the full dependency set importable.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    env:
+      LC_ALL: C.UTF-8
+      LANG: C.UTF-8
+      TERM: xterm-256color
+      FORCE_COLOR: "1"
+
+    strategy:
+      fail-fast: false
+      matrix:
+        env:
+          - pylint
+          - bandit
+          - audit
+          - pytest
+
+    name: ${{ inputs.package }} (${{ matrix.env }})
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          # Install a specific version of uv.
+          version: "0.11.24"
+
+      - name: Install tox
+        run: |
+          uv tool install tox --with tox-uv
+
+      # tox builds the package in an isolated env; uv honours the workspace
+      # sources, so sibling crczp-* dependencies resolve from libs/ rather
+      # than from PyPI.
+      - name: Run tox (${{ matrix.env }})
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          tox -q -e ${{ matrix.env }}
+
+  # Separate from the tox matrix: mypy must run with the package directory as
+  # the working directory so it picks up that package's own [tool.mypy] config
+  # and resolves the crczp namespace correctly. See .pre-commit-config.yaml.
+  mypy:
+    runs-on: ubuntu-24.04
+    name: ${{ inputs.package }} (mypy)
+    env:
+      FORCE_COLOR: "1"
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.11.24"
+
+      - name: Run mypy
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.mypy-command }}
