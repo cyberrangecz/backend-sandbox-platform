@@ -7,14 +7,14 @@ license = "MIT"
 requires-python = ">=3.12"
 authors = [{ name = "cybersecurityhub.cz" }]
 dependencies = [
-    "crczp-terraform-client ~=1.0.4",
-    "crczp-python-commons ~=2.0.1",
-    "crczp-openstack-lib ~=1.0.6",
-    "crczp-aws-lib ~=1.0.4",
-    "crczp-topology-definition ~=2.1.0",
+    "crczp-terraform-client",
+    "crczp-python-commons",
+    "crczp-openstack-lib",
+    "crczp-aws-lib",
+    "crczp-topology-definition",
     "drf-oidc-auth ~=3.0.0",
     "pyjwkest ~=1.4.4",
-    "crczp-automated-problem-generation-lib ~=1.0.3",
+    "crczp-automated-problem-generation-lib",
     # https://github.com/snguyenthanh/better_profanity/issues/19
     "better-profanity ==0.6.1",
     "django ~=5.0",
@@ -53,7 +53,7 @@ dependencies = [
 ]
 
 [project.urls]
-GitHub = "https://github.com/cyberrangecz/backend-sandbox-service"
+GitHub = "https://github.com/cyberrangecz/backend-sandbox-platform"
 
 [tool.uv.sources]
 crczp-terraform-client = { workspace = true }

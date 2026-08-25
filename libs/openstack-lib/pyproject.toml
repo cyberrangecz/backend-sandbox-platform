@@ -8,7 +8,7 @@ requires-python = ">=3.9"
 authors = [{ name = "cybersecurityhub.cz" }]
 dependencies = [
     "PyYAML>=6.0.2",
-    "crczp-python-commons>=1.0.1,<3.0",
+    "crczp-python-commons",
     "jinja2>=3.1.3",
     "keystoneauth1>=5.11.0",
     "netaddr>=1.3.0",
@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.urls]
-GitHub = "https://github.com/cyberrangecz/backend-openstack-lib"
+GitHub = "https://github.com/cyberrangecz/backend-sandbox-platform"
 
 [tool.uv.sources]
 crczp-python-commons = { workspace = true }

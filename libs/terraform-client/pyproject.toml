@@ -7,14 +7,14 @@ license = "MIT"
 requires-python = ">=3.9"
 authors = [{ name = "cybersecurityhub.cz" }]
 dependencies = [
-    "crczp-python-commons>=1.0.1,<3.0",
-    "crczp-openstack-lib~=1.0.0",
-    "crczp-aws-lib~=1.0.1",
+    "crczp-python-commons",
+    "crczp-openstack-lib",
+    "crczp-aws-lib",
     "Jinja2>=3.1.6"
 ]
 
 [project.urls]
-GitHub = "https://github.com/cyberrangecz/backend-terraform-client"
+GitHub = "https://github.com/cyberrangecz/backend-sandbox-platform"
 
 [tool.uv.sources]
 crczp-python-commons = { workspace = true }
