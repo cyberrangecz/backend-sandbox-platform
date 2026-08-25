@@ -7,9 +7,11 @@ should interact with this repository.
 
 For a high-level description, usage examples, and API overview, see the main project documentation:
 
-[README.md](https://github.com/cyberrangecz/backend-python-commons/blob/master/README.md)
+[README.md](README.md)
 
-**Repository:** `backend-python-commons`
+**Repository:** `backend-sandbox-platform`
+
+**Package:** `libs/python-commons`
 
 A Python library for common classes of Python-base crczp projects with a strong focus on code quality,
 security, and test coverage.

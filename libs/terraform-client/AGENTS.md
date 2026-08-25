@@ -7,9 +7,11 @@ should interact with this repository.
 
 For a high-level description, usage examples, and API overview, see the main project documentation:
 
-[README.md](https://github.com/cyberrangecz/backend-terraform-client/blob/master/README.md)
+[README.md](README.md)
 
-**Repository:** `backend-terraform-client`
+**Repository:** `backend-sandbox-platform`
+
+**Package:** `libs/terraform-client`
 
 This repository hosts the Terraform client library implemented for CyberRangeCZ Platform.
 

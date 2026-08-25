@@ -7,9 +7,11 @@ should interact with this repository.
 
 For a high-level description, usage examples, and API overview, see the main project documentation:
 
-[README.md](https://github.com/cyberrangecz/backend-aws-lib/blob/master/README.md)
+[README.md](README.md)
 
-**Repository:** `backend-aws-lib`
+**Repository:** `backend-sandbox-platform`
+
+**Package:** `libs/aws-lib`
 
 This repository hosts the AWS driver library implemented for CyberRangeCZ Platform.
 

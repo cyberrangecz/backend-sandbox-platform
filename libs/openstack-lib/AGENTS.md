@@ -7,9 +7,11 @@ should interact with this repository.
 
 For a high-level description, usage examples, and API overview, see the main project documentation:
 
-[README.md](https://github.com/cyberrangecz/backend-openstack-lib/blob/master/README.md)
+[README.md](README.md)
 
-**Repository:** `backend-openstack-lib`
+**Repository:** `backend-sandbox-platform`
+
+**Package:** `libs/openstack-lib`
 
 This repository hosts Openstack cloud libraries that are implemented for CyberRangeCZ Platform.
 

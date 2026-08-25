@@ -7,9 +7,11 @@ should interact with this repository.
 
 For a high-level description, usage examples, and API overview, see the main project documentation:
 
-[README.md](https://github.com/cyberrangecz/backend-topology-definition/blob/master/README.md)
+[README.md](README.md)
 
-**Repository:** `backend-topology-definition`
+**Repository:** `backend-sandbox-platform`
+
+**Package:** `libs/topology-definition`
 
 A Python library for backend topology definition with a strong focus on code quality,
 security, and test coverage.
