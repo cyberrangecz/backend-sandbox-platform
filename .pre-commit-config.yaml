@@ -28,17 +28,11 @@ repos:
     hooks:
       - id: uv-lock
 
-  # NOTE: mypy is deliberately NOT here. Unlike ruff, mypy has no hierarchical
-  # per-file config discovery: run from the repository root it would read the
-  # root pyproject.toml and silently drop every package's own [tool.mypy]
-  # settings (strict, explicit_package_bases, the django-stubs plugin, the
-  # per-module overrides), which in turn breaks module resolution for the PEP
-  # 420 crczp namespace ("Source file found twice under different module
-  # names"). It also cannot see the packages' own `tests` modules without them
-  # colliding by name.
-  #
-  # mypy therefore runs per package, from inside each package directory, as its
-  # own job in .github/workflows/_reusable-python-package.yml.
+  # NOTE: type checking is not run here. mypy has no hierarchical per-file
+  # config discovery, so from the repository root it would read the root
+  # pyproject.toml and drop every package's own [tool.mypy] settings. The
+  # per-package config is left in place, unused, so it can be re-enabled
+  # (or replaced by ty) without reconstructing it.
 
   - repo: local
     hooks:

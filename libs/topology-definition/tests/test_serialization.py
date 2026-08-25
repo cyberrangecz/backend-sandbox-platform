@@ -210,7 +210,7 @@ monitoring_targets:
 
         with pytest.raises(YamlizingError):
             output_stream = io.StringIO()
-            YAML(typ='full').dump(server_base_box_dict, output_stream)
+            YAML(typ='safe').dump(server_base_box_dict, output_stream)
             BaseBox.load(output_stream.getvalue())
 
     def test_multi_user_base_box(self, topology_definition_dict: dict[str, Any]) -> None:
@@ -223,7 +223,7 @@ monitoring_targets:
 
         with pytest.raises(YamlizingError):
             output_stream = io.StringIO()
-            YAML(typ='full').dump(server_base_box_dict, output_stream)
+            YAML(typ='safe').dump(server_base_box_dict, output_stream)
             BaseBox.load(output_stream.getvalue())
 
     def test_deprecated_base_box_attributes(self, topology_definition_dict: dict[str, Any]) -> None:
@@ -232,7 +232,7 @@ monitoring_targets:
         """
         server_router_base_box_dict = topology_definition_dict['routers'][0]['base_box']
         output_stream = io.StringIO()
-        YAML(typ='full').dump(server_router_base_box_dict, output_stream)
+        YAML(typ='safe').dump(server_router_base_box_dict, output_stream)
         server_router_base_box = BaseBox.load(output_stream.getvalue())
 
         assert not hasattr(server_router_base_box, 'man_user')

@@ -878,7 +878,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "crczp-sandbox-service"
-version = "2.4.2"
+version = "3.0.0"
 source = { editable = "sandbox-service" }
 dependencies = [
     { name = "better-profanity" },
