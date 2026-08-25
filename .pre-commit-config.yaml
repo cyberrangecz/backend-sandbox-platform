@@ -1,0 +1,53 @@
+# Workspace-wide pre-commit configuration.
+#
+# pre-commit always changes to the repository root and passes it every tracked
+# file, regardless of the directory it is invoked from. Per-package configs
+# therefore cannot scope themselves in a monorepo, so hooks are path-scoped
+# here instead. The per-package .pre-commit-config.yaml files are kept for
+# single-package local use, but this is the config CI runs.
+
+repos:
+  # Ruff resolves each package's own [tool.ruff] from the nearest pyproject.toml,
+  # so one pass still applies the correct per-package settings.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.11
+    hooks:
+      - id: ruff-check
+        name: ruff-lint
+        args:
+          - --output-format=github
+
+      - id: ruff-format
+        name: ruff-format
+        args:
+          - --check
+
+  # One uv.lock at the root covers every workspace member.
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.11.24
+    hooks:
+      - id: uv-lock
+
+  # NOTE: mypy is deliberately NOT here. Unlike ruff, mypy has no hierarchical
+  # per-file config discovery: run from the repository root it would read the
+  # root pyproject.toml and silently drop every package's own [tool.mypy]
+  # settings (strict, explicit_package_bases, the django-stubs plugin, the
+  # per-module overrides), which in turn breaks module resolution for the PEP
+  # 420 crczp namespace ("Source file found twice under different module
+  # names"). It also cannot see the packages' own `tests` modules without them
+  # colliding by name.
+  #
+  # mypy therefore runs per package, from inside each package directory, as its
+  # own job in .github/workflows/_reusable-python-package.yml.
+
+  - repo: local
+    hooks:
+      # Only sandbox-service is versioned and tagged in this repository; the six
+      # libraries are no longer published, so they are not tag-controlled.
+      # Exits successfully when no tags exist yet.
+      - id: check-version-bump
+        name: check sandbox-service version bump
+        language: system
+        entry: 'bash -c ''current=$(git show :sandbox-service/pyproject.toml 2>/dev/null | grep -m1 "^version" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+"); latest_tag=$(git tag --sort=-version:refname | grep -E "^v?[0-9]+\.[0-9]+\.[0-9]+$" | head -1 | sed "s/^v//"); [ -z "$latest_tag" ] && exit 0; [ -z "$current" ] && { echo "Could not read version from sandbox-service/pyproject.toml" >&2; exit 1; }; [ "$current" = "$latest_tag" ] && { echo "sandbox-service version not bumped (still $current, latest tag $latest_tag)" >&2; exit 1; }; echo "sandbox-service version OK $latest_tag -> $current"'''
+        pass_filenames: false
+        always_run: true
