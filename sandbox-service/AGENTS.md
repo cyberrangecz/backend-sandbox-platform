@@ -7,9 +7,11 @@ should interact with this repository.
 
 For a high-level description, usage examples, and API overview, see the main project documentation:
 
-[README.md](https://github.com/cyberrangecz/backend-sandbox-service/blob/master/README.md)
+[README.md](README.md)
 
-**Repository:** `backend-sandbox-service`
+**Repository:** `backend-sandbox-platform`
+
+**Package:** `sandbox-service`
 
 This repository hosts a Django REST Framework service that simplifies manipulation of the
 OpenStack cloud platform for the CyberRangeCZ Platform. It manages sandbox definitions,

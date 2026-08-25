@@ -7,9 +7,11 @@ should interact with this repository.
 
 For a high-level description, usage examples, and API overview, see the main project documentation:
 
-[README.md](https://github.com/cyberrangecz/backend-automated-problem-generation-lib/blob/master/README.md)
+[README.md](README.md)
 
-**Repository:** `backend-automated-problem-generation-lib`
+**Repository:** `backend-sandbox-platform`
+
+**Package:** `libs/automated-problem-generation-lib`
 
 A Python library for automated problem generation with a strong focus on code quality,
 security, and test coverage.

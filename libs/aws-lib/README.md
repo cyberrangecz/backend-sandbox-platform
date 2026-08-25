@@ -1,5 +1,11 @@
 # cyberrangecz-aws-lib
 
+> **Note:** Development of this library has moved to the
+> [backend-sandbox-platform](https://github.com/cyberrangecz/backend-sandbox-platform)
+> monorepo, where it is maintained alongside `sandbox-service` as a `uv`
+> workspace member. It is no longer released to PyPI; the versions already
+> published there are frozen.
+
 Python library that serves as AWS driver for the sandbox-service (the Django microservice).
 It is meant to be an installable component, not stand-alone library.
 

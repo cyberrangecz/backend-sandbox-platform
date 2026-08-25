@@ -1,4 +1,4 @@
-# backend-sandbox-platfrom
+# backend-sandbox-platform
 
 Monorepo for the CyberRangeCZ sandbox-service application and its library dependencies, managed as a single `uv` workspace. Each package keeps its own version, tests, and tooling config — see its own README for details.
 

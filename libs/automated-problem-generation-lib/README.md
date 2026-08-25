@@ -1,5 +1,11 @@
 # Welcome to the generator library's documentation!
 
+> **Note:** Development of this library has moved to the
+> [backend-sandbox-platform](https://github.com/cyberrangecz/backend-sandbox-platform)
+> monorepo, where it is maintained alongside `sandbox-service` as a `uv`
+> workspace member. It is no longer released to PyPI; the versions already
+> published there are frozen.
+
 ---
 
 A generator library is a Python package that generates random data within set restrictions for you. A generator library is a Python package that generates random data within set restrictions for you. When you need to generate random individual values into a game for various players, this library is for you.

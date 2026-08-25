@@ -204,7 +204,7 @@ SPECTACULAR_SETTINGS = {
     'TITLE': 'CyberRangeCZ Platform OpenStack REST API documentation',
     'VERSION': VERSION,
     'CONTACT': {
-        'url': 'https://github.com/cyberrangecz/backend-sandbox-service',
+        'url': 'https://github.com/cyberrangecz/backend-sandbox-platform',
     },
     'LICENSE': {
         'name': 'MIT',
