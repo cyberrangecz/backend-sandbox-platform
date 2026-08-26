@@ -4,7 +4,9 @@
 # be inside the build context.
 
 FROM python:3.12-slim AS builder
-WORKDIR /workspace
+# Must match the app stage's WORKDIR: console-script shebangs in .venv/bin are
+# absolute, so the venv is only valid at the path it was created at.
+WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -23,7 +25,7 @@ COPY sandbox-service sandbox-service
 # --package          only sandbox-service and its dependencies, not every member
 # --no-editable      bake real copies of the crczp-* libs into site-packages, so
 #                    the venv stays valid once copied to /app in the next stage
-#                    (editable installs would point back at /workspace paths)
+#                    (editable installs would point back at build-time paths)
 # --no-install-project  sandbox-service's own code is shipped as source below
 RUN uv sync --frozen --package crczp-sandbox-service --no-editable --no-install-project
 
@@ -58,7 +60,7 @@ COPY sandbox-service/bin bin
 COPY sandbox-service/crczp crczp
 COPY sandbox-service/config.yml-template ./config.yml
 COPY sandbox-service/manage.py ./
-COPY --from=builder /workspace/.venv ./.venv
+COPY --from=builder /app/.venv ./.venv
 
 # static files must be served from proxy server, expose them via volume bind
 RUN python manage.py collectstatic --no-input -v 2
