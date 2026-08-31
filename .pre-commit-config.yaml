@@ -2,9 +2,9 @@
 #
 # pre-commit always changes to the repository root and passes it every tracked
 # file, regardless of the directory it is invoked from. Per-package configs
-# therefore cannot scope themselves in a monorepo, so hooks are path-scoped
-# here instead. The per-package .pre-commit-config.yaml files are kept for
-# single-package local use, but this is the config CI runs.
+# therefore cannot scope themselves in a monorepo — each would have linted the
+# whole workspace with its own settings — so this is the only pre-commit config
+# in the repository, and hooks are path-scoped here where they need to be.
 
 repos:
   # Ruff resolves each package's own [tool.ruff] from the nearest pyproject.toml,
