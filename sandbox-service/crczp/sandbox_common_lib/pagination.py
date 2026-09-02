@@ -73,7 +73,14 @@ class PageNumberWithPageSizePagination(PageNumberPagination):
                 ),
                 reverse=order_param == 'desc',
             )
-        return super().paginate_queryset(queryset, request, view)
+        # The base implementation only needs a sized sequence (it hands the value to
+        # django.core.paginator.Paginator), which is why this override also accepts the
+        # sorted list; only the stubs narrow the parameter to QuerySet.
+        return super().paginate_queryset(
+            queryset,  # ty: ignore[invalid-argument-type]
+            request,
+            view,
+        )
 
     def _ensure_comparable(self, value: Any, sort_by: str) -> Any:
         """

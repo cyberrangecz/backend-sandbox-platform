@@ -80,7 +80,9 @@ def create_self_signed_certificate(private_key_pem: str) -> str:
         .CertificateBuilder()
         .subject_name(subject)
         .issuer_name(issuer)
-        .public_key(key.public_key())  # type: ignore[arg-type]
+        # load_pem_private_key returns the full private-key union (incl. key-exchange-only
+        # types); the only caller passes an RSA key from generate_ssh_keypair.
+        .public_key(key.public_key())  # ty: ignore[invalid-argument-type]
         .serial_number(x509.random_serial_number())
         .not_valid_before(datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=48))
         .not_valid_after(datetime.datetime(9999, 12, 31, tzinfo=datetime.UTC))
@@ -99,7 +101,7 @@ def create_self_signed_certificate(private_key_pem: str) -> str:
             ]),
             critical=False,
         )
-        .sign(key, hashes.SHA256(), backend=default_backend())  # type: ignore[arg-type]
+        .sign(key, hashes.SHA256(), backend=default_backend())  # ty: ignore[invalid-argument-type]
     )
 
     return cert.public_bytes(encoding=serialization.Encoding.PEM).decode()

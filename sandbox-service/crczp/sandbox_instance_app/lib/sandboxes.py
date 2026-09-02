@@ -85,7 +85,7 @@ def get_sandbox(sb_pk: int | str, include_unfinished: bool = False) -> Sandbox:
 
 def get_topology_definition_and_containers(
     sandbox: Sandbox,
-) -> tuple[TopologyDefinition, DockerContainers]:
+) -> tuple[TopologyDefinition, DockerContainers | None]:
     """Create topology definition for given sandbox."""
     pool = sandbox.allocation_unit.pool
     definition = pool.definition
@@ -182,7 +182,9 @@ def get_topology_instance(sandbox: Sandbox) -> TopologyInstance:
         ),
         SANDBOX_CACHE_TIMEOUT,
     )
-    return ti
+    # cache.get_or_set is typed as Optional because `default` may itself be None; here the
+    # default is a callable that always returns a TopologyInstance.
+    return ti  # ty: ignore[invalid-return-type]
 
 
 def get_topology_host(sandbox: Sandbox, host_name: str) -> Host | Router:

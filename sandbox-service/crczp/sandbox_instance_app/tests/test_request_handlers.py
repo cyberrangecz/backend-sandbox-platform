@@ -29,7 +29,7 @@ pytestmark = [pytest.mark.django_db]
 
 def _make_picklable_mock() -> 'PicklableMock':
     """Module-level factory used by PicklableMock.__reduce__ for deserialization."""
-    return PicklableMock()  # type: ignore[no-untyped-call]
+    return PicklableMock()
 
 
 class PicklableMock(MagicMock):
@@ -137,7 +137,9 @@ class TestAllocationRequestHandlerUnit:
         fake_partial = mocker.patch('crczp.sandbox_instance_app.lib.request_handlers.partial')
         fake_partial.return_value = 'fake_partial'
 
-        self.handler._enqueue_stages(sandbox, 'stage_handlers')  # type: ignore[arg-type]
+        # The sentinel string stands in for the stage-handler list: the test asserts only
+        # that _enqueue_stages forwards it verbatim to functools.partial.
+        self.handler._enqueue_stages(sandbox, 'stage_handlers')  # ty: ignore[invalid-argument-type]
         fake_partial.assert_called_once_with(
             self.handler._enqueue_allocation_request,
             sandbox,
@@ -494,6 +496,9 @@ class TestAllocationRequestHandler:
             allocation_request.useransibleallocationstage.rq_job.job_id
         )
 
+        assert job_stack is not None
+        assert job_networking is not None
+        assert job_user is not None
         assert job_stack.is_finished
         assert job_networking.is_finished
         assert job_user.is_finished
@@ -643,6 +648,9 @@ class TestCleanupRequestHandler:
         job_networking = handler.queue_ansible.fetch_job(job_networking_id)
         job_stack = handler.queue_stack.fetch_job(job_stack_id)
 
+        assert job_user is not None
+        assert job_networking is not None
+        assert job_stack is not None
         assert job_user.is_finished
         assert job_networking.is_finished
         assert job_stack.is_finished

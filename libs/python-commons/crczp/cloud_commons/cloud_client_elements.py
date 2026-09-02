@@ -168,14 +168,18 @@ class QuotaSet:
 class HardwareUsage:
     """
     Used to wrap HeatStacks hardware usage.
+
+    All fields are float: an absolute usage is whole, but __truediv__ turns the same
+    object into a fraction of the project Limits (see the DecimalField-based API
+    serializers), so none of the fields is guaranteed to be an integer.
     """
 
-    vcpu: int
+    vcpu: float
     ram: float
-    instances: int
-    network: int
-    subnet: int
-    port: int
+    instances: float
+    network: float
+    subnet: float
+    port: float
 
     def __mul__(self, other: int) -> 'HardwareUsage':
         if not isinstance(other, int):

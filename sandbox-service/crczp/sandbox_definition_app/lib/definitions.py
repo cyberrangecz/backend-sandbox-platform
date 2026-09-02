@@ -144,7 +144,7 @@ def get_definition(
     return top_def
 
 
-def get_containers(url: str, rev: str, config: CrczpConfiguration) -> DockerContainers:
+def get_containers(url: str, rev: str, config: CrczpConfiguration) -> DockerContainers | None:
     """Get containers.yml file content as DockerContainers if the file exists, None otherwise.
 
     :param url: URL of sandbox definition Git repository

@@ -8,7 +8,8 @@ This is a `uv` workspace containing `sandbox-service` and its 6 library dependen
 * Internal dependencies between packages resolve locally via `[tool.uv.sources] ... = { workspace = true }` in each consumer's `pyproject.toml` — editing a library is immediately visible to `sandbox-service`, no version bump or publish step needed.
 * Each package keeps its own independent `version` in its own `pyproject.toml`. There is no unified monorepo version.
 * Run `uv sync` from the repo root, not from inside a package.
-* Task orchestration is still per-package `tox` (`pre-commit`, `pylint`, `bandit`, `audit`, `pytest`) — run it from within the package directory, e.g. `cd sandbox-service && tox`.
+* Task orchestration is still per-package `tox` (`pylint`, `bandit`, `audit`, `pytest`) — run it from within the package directory, e.g. `cd sandbox-service && tox`.
+* Linting and type checking are workspace-level, not per-package: `pre-commit run --all-files` from the repo root runs `ruff` and `ty`. `ty` reads one config from the invocation directory rather than the nearest `pyproject.toml` per file, so its settings live in the root `pyproject.toml` under `[tool.ty]` — do not add per-package `[tool.ty]` sections.
 * `master` is the protected, stable branch across the whole repo. All changes go through feature branches.
 
 Agents must not introduce a per-package `.venv` or bypass the workspace-level `uv.lock`.

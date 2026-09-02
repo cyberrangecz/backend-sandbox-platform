@@ -6,6 +6,7 @@ import novaclient.v2.keypairs
 
 from crczp.cloud_commons import (
     CrczpCloudClientBase,
+    CrczpException,
     HardwareUsage,
     Image,
     Limits,
@@ -18,7 +19,7 @@ from crczp.openstack_driver import open_stack_proxy, utils
 from crczp.openstack_driver.decorators import check_authentication
 
 
-class CrczpOpenStackClient(CrczpCloudClientBase):  # type: ignore[misc]
+class CrczpOpenStackClient(CrczpCloudClientBase):
     """
     client used as interface providing functions of this library
 
@@ -48,6 +49,21 @@ class CrczpOpenStackClient(CrczpCloudClientBase):  # type: ignore[misc]
             application_credential_secret,
             trc,
         )
+
+    def _get_project_id(self) -> str:
+        """
+        Get the ID of the OpenStack project the session is scoped to.
+
+        :return: The ID of the OpenStack project
+        :raise CrczpException: The session is not scoped to a project
+        """
+        project_id = self.session.get_project_id()
+        if project_id is None:
+            raise CrczpException(
+                'Unable to determine the OpenStack project ID. '
+                'Either you are not authenticated or your configuration is wrong.'
+            )
+        return project_id
 
     @staticmethod
     def get_private_ip(instance_attrs: dict[str, Any]) -> str:
@@ -207,7 +223,7 @@ class CrczpOpenStackClient(CrczpCloudClientBase):  # type: ignore[misc]
 
         :return QuotaSet object
         """
-        return self.open_stack_proxy.get_quota_set(self.session.get_project_id())
+        return self.open_stack_proxy.get_quota_set(self._get_project_id())
 
     @check_authentication
     def get_project_name(self) -> str:
@@ -215,8 +231,16 @@ class CrczpOpenStackClient(CrczpCloudClientBase):  # type: ignore[misc]
         Get project name from application credentials.
 
         :return The name of the OpenStack project
+        :raise CrczpException: The session carries no usable authentication reference
         """
-        return str(self.session.auth.get_auth_ref(self.session).project_name)
+        auth = self.session.auth
+        auth_ref = auth.get_auth_ref(self.session) if auth is not None else None
+        if auth_ref is None:
+            raise CrczpException(
+                'Unable to determine the OpenStack project name. '
+                'Either you are not authenticated or your configuration is wrong.'
+            )
+        return str(auth_ref.project_name)
 
     @check_authentication
     def get_hardware_usage(self, topology_instance: TopologyInstance) -> HardwareUsage:
@@ -229,7 +253,7 @@ class CrczpOpenStackClient(CrczpCloudClientBase):  # type: ignore[misc]
         return self.open_stack_proxy.get_hardware_usage(topology_instance)
 
     @check_authentication
-    def get_flavors_dict(self) -> dict[str, dict[str, float]]:
+    def get_flavors_dict(self) -> dict[str, open_stack_proxy.FlavorUsage]:
         """
         Gets flavors defined in OpenStack project with their vcpu and ram usage as dictionary
 
@@ -244,4 +268,4 @@ class CrczpOpenStackClient(CrczpCloudClientBase):  # type: ignore[misc]
 
         :return Limits of project
         """
-        return self.open_stack_proxy.get_project_limits(self.session.get_project_id())
+        return self.open_stack_proxy.get_project_limits(self._get_project_id())

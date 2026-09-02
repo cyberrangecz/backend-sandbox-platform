@@ -43,7 +43,7 @@ REDIS_DB = 0
 REDIS_TIMEOUT = 86400 * 30
 
 
-class ProxyJump(Object):  # type: ignore[misc]
+class ProxyJump(Object):
     """SSH ProxyJump configuration for connecting to managed nodes."""
 
     # pylint: disable=invalid-name
@@ -59,13 +59,13 @@ class ProxyJump(Object):  # type: ignore[misc]
         self.IdentityFile = identity_file
 
 
-class TerraformConfiguration(Object):  # type: ignore[misc]
+class TerraformConfiguration(Object):
     """Terraform backend configuration settings."""
 
     backend_type = Attribute(type=str)
 
 
-class AnsibleRunnerSettings(Object):  # type: ignore[misc]
+class AnsibleRunnerSettings(Object):
     """Settings for the Ansible runner backend (Docker or Kubernetes)."""
 
     backend = Attribute(type=str, default='docker')
@@ -74,7 +74,7 @@ class AnsibleRunnerSettings(Object):  # type: ignore[misc]
     persistent_volume_claim_name = Attribute(type=str, default=PERSISTENT_VOLUME_CLAIM_NAME)
 
 
-class Database(Object):  # type: ignore[misc]
+class Database(Object):
     """Database connection configuration."""
 
     engine = Attribute(type=str, default=DATABASE_ENGINE)
@@ -89,7 +89,7 @@ class Database(Object):  # type: ignore[misc]
             setattr(self, key, val)
 
 
-class Redis(Object):  # type: ignore[misc]
+class Redis(Object):
     """Redis connection and cache timeout configuration."""
 
     host = Attribute(type=str, default=REDIS_HOST)
@@ -127,7 +127,7 @@ class OpenStackConsoleType(Enum):
             raise ValueError(f'Invalid value for OpenStackConsoleType: {value}') from None
 
 
-class AwsConfiguration(Object):  # type: ignore[misc]
+class AwsConfiguration(Object):
     """AWS cloud provider configuration."""
 
     access_key_id = Attribute(type=str, default='')
@@ -138,21 +138,21 @@ class AwsConfiguration(Object):  # type: ignore[misc]
     base_subnet = Attribute(type=str, default='Base Subnet')
 
 
-class NamingStrategy(Object):  # type: ignore[misc]
+class NamingStrategy(Object):
     """Naming strategy for OpenStack resource names."""
 
     pattern = Attribute(type=str)
     replace = Attribute(type=str, default='')
 
 
-class FlavorMapping(Map):  # type: ignore[misc]
+class FlavorMapping(Map):
     """Mapping from sandbox flavor keys to OpenStack flavor names."""
 
     key_type = Typed(str)
     value_type = Typed(str)
 
 
-class GitProviders(Map):  # type: ignore[misc]
+class GitProviders(Map):
     """Mapping from Git server base URLs to access tokens."""
 
     key_type = Typed(str)
@@ -167,7 +167,7 @@ class SMTPEncryption(Enum):
     INSECURE = 3
 
 
-class NetbirdConfiguration(Object):  # type: ignore[misc]
+class NetbirdConfiguration(Object):
     """NetBird VPN management configuration."""
 
     management_url = Attribute(type=str)
@@ -206,7 +206,7 @@ class TopologyCacheMode(Enum):
             ) from None
 
 
-class CrczpConfiguration(Object):  # type: ignore[misc]
+class CrczpConfiguration(Object):
     """Top-level CRCZP application configuration loaded from a YAML file."""
 
     head_host = Attribute(type=str, default=HEAD_IP)
@@ -215,8 +215,11 @@ class CrczpConfiguration(Object):  # type: ignore[misc]
     os_auth_url = Attribute(type=str, default=None)
     os_application_credential_id = Attribute(type=str, default=None)
     os_application_credential_secret = Attribute(type=str, default=None)
+    # yamlize's Typed is a metaclass whose __new__ builds and returns a separate class,
+    # so type.__init__ is never reached; ty still checks the call against its overloads.
+    # The same applies to every other Typed(...) call in this file.
     os_console_type = Attribute(
-        type=Typed(
+        type=Typed(  # ty: ignore[no-matching-overload]
             OpenStackConsoleType,
             from_yaml=(
                 lambda loader, node, _: OpenStackConsoleType.create(loader.construct_object(node))
@@ -246,7 +249,7 @@ class CrczpConfiguration(Object):  # type: ignore[misc]
     )
     git_private_key = Attribute(type=str, default=GIT_PRIVATE_KEY)
     git_type = Attribute(
-        type=Typed(
+        type=Typed(  # ty: ignore[no-matching-overload]
             GitType,
             from_yaml=(lambda loader, node, rtd: GitType[loader.construct_object(node)]),
             to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.name)),
@@ -257,7 +260,7 @@ class CrczpConfiguration(Object):  # type: ignore[misc]
     git_skip_ssl_verification = Attribute(type=bool, default=False)
 
     topology_cache_mode = Attribute(
-        type=Typed(
+        type=Typed(  # ty: ignore[no-matching-overload]
             TopologyCacheMode,
             from_yaml=(
                 lambda loader, node, rtd: TopologyCacheMode.create(loader.construct_object(node))
@@ -298,7 +301,7 @@ class CrczpConfiguration(Object):  # type: ignore[misc]
     # Port of the used encryption protocol, ex. ssl, tsl
     smtp_port = Attribute(type=int, default=25)
     smtp_encryption = Attribute(
-        type=Typed(
+        type=Typed(  # ty: ignore[no-matching-overload]
             SMTPEncryption,
             from_yaml=(lambda loader, node, rtd: SMTPEncryption[loader.construct_object(node)]),
             to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.name)),

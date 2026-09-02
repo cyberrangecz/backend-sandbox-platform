@@ -6,7 +6,7 @@ from wsgiref.util import FileWrapper
 
 import structlog
 from django.conf import settings
-from django.contrib.auth.models import AnonymousUser
+from django.contrib.auth.models import User
 from django.db.models import QuerySet
 from django.http import Http404, HttpResponse
 from drf_spectacular.utils import OpenApiParameter, OpenApiRequest, OpenApiResponse, extend_schema
@@ -84,7 +84,7 @@ class PoolListCreateView(generics.ListCreateAPIView[Any]):
         The key is then used as management key for this pool, which means that the management
          key-pair is the same for each sandbox in the pool.
         """
-        created_by = None if isinstance(request.user, AnonymousUser) else request.user
+        created_by = request.user if isinstance(request.user, User) else None
         pool = pools.create_pool(request.data, created_by)
         serializer = self.serializer_class(pool)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -419,10 +419,12 @@ class SandboxAllocationUnitListCreateView(generics.ListCreateAPIView[Any]):
                     f'Invalid parameter count: {count_param}'
                 ) from None
 
-        created_by = None if isinstance(request.user, AnonymousUser) else request.user
+        created_by = request.user if isinstance(request.user, User) else None
         units = pools.create_sandboxes_in_pool(pool, created_by, count=count)
         serializer = self.serializer_class(units, many=True)
-        page = self.paginate_queryset(serializer.data)  # type: ignore[arg-type]
+        # DRF's paginate_queryset works on any sized sequence (already-serialized data
+        # included); only the stubs narrow the parameter to QuerySet.
+        page = self.paginate_queryset(serializer.data)  # ty: ignore[invalid-argument-type]
         if page is not None:
             return self.get_paginated_response(page)
 
@@ -797,7 +799,7 @@ class SandboxGetAndLockView(generics.RetrieveAPIView[Any]):
                 {'detail': 'The pool is not locked.'}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        created_by = None if isinstance(request.user, AnonymousUser) else request.user
+        created_by = request.user if isinstance(request.user, User) else None
         sandbox = pools.get_unlocked_sandbox(pool, created_by)
         if not sandbox:
             return Response(
@@ -874,7 +876,7 @@ class SandboxAllocationUnitLockRetrieveCreateDestroyView(
         if not hasattr(allocation_unit, 'sandbox'):
             raise Http404(f'Sandbox allocation unit {allocation_unit.id} has no sandbox.')
         sandbox = allocation_unit.sandbox
-        created_by = None if isinstance(request.user, AnonymousUser) else request.user
+        created_by = request.user if isinstance(request.user, User) else None
         lock = sandboxes.lock_sandbox(sandbox=sandbox, created_by=created_by)
         return Response(self.get_serializer(lock).data, status=status.HTTP_201_CREATED)
 

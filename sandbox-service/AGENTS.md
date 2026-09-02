@@ -19,7 +19,7 @@ pools of sandboxes, sandbox instances, and Ansible playbook execution on sandbox
 The REST API is documented via OpenAPI (drf-spectacular).
 
   Core tooling: `uv` (packages), `pyproject.toml` (config), `tox` (task orchestration),
-  `pre-commit` / `ruff` / `mypy` / `pylint` (quality), `bandit` + dependency audit (security),
+  `pre-commit` / `ruff` / `ty` / `pylint` (quality), `bandit` + dependency audit (security),
   `pytest` with Django test settings (testing).
 
 ---
@@ -59,7 +59,7 @@ Agents must use **`uv`** for dependency management.
 uv sync
 ```
 
-Development dependencies are defined in the `dev` dependency group (type stubs for mypy).
+Development dependencies are defined in the `dev` dependency group (type stubs for `ty`).
 Install them with:
 
 ```bash
@@ -90,24 +90,28 @@ invoke tools using globally installed Python packages.
 Two different bars apply, and agents should not conflate them:
 
 * **While iterating on a change:** run the specific checks relevant to what you touched —
-  e.g. `ruff check`, `ruff format`, `mypy`, and the specific test file(s) for the code you
+  e.g. `ruff check`, `ruff format`, `ty check`, and the specific test file(s) for the code you
   changed (`tox -e pytest -- path/to/test_file.py` or `pytest` directly inside `uv run`).
-* **Before considering a change complete / ready to merge:** run the full suite via `tox`,
-  which runs `pre-commit` (ruff lint, ruff format, mypy), `pylint`, `bandit`, dependency
-  audit, `pytest`, and `python manage.py check`.
+* **Before considering a change complete / ready to merge:** run both halves of the suite —
+  `tox` for `pylint`, `bandit`, dependency audit, `pytest` and `python manage.py check`, and
+  `pre-commit` for ruff lint, ruff format and `ty`. Linting and type checking are
+  workspace-level and run from the repository root, not from this package.
 
 ```bash
-tox
+tox                                    # from sandbox-service/
+pre-commit run --all-files             # from the repository root
 ```
 
-This is the single authoritative, CI-equivalent way to validate a change before merge.
-All tox environments must pass.
+Together these are the authoritative, CI-equivalent way to validate a change before merge.
+All tox environments and all pre-commit hooks must pass.
 
 Notes:
 
 * Ruff is the authoritative linter/formatter — rules are in `pyproject.toml`; no manual
   formatting outside Ruff.
-* New/modified code must be type-annotated (`mypy`); avoid `Any` unless necessary.
+* New/modified code must be type-annotated (`ty`); avoid `Any` unless necessary.
+  `ty` has no plugin system, so the Django ORM's dynamic attributes (reverse relations,
+  multi-table-inheritance accessors) are not inferred — declare them on the model.
 * Minimum Pylint score: `9.5`, run against both `crczp` and `tests`. Don't disable
   warnings without justification.
 * Bandit: no `eval`/`exec` on untrusted input, no hard-coded secrets, no insecure crypto

@@ -5,7 +5,7 @@ from django.contrib import admin
 from crczp.sandbox_instance_app import models
 
 
-class ShowIdAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
+class ShowIdAdmin(admin.ModelAdmin):
     """Admin view that exposes the model id as a read-only field."""
 
     # show id in the web admin

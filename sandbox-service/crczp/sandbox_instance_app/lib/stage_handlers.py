@@ -95,13 +95,9 @@ class StageHandler(abc.ABC):
         :param job_id: The ID of enqueues Job that will execute this stage.
         """
         if hasattr(self._job_class, 'allocation_stage'):
-            self._job_class.objects.create(  # type: ignore[attr-defined]
-                allocation_stage=self.stage, job_id=job_id
-            )
+            self._job_class.objects.create(allocation_stage=self.stage, job_id=job_id)
         elif hasattr(self._job_class, 'cleanup_stage'):
-            self._job_class.objects.create(  # type: ignore[attr-defined]
-                cleanup_stage=self.stage, job_id=job_id
-            )
+            self._job_class.objects.create(cleanup_stage=self.stage, job_id=job_id)
         else:
             LOG.warning(f"Unknown Job class '{self._job_class}'. Job ID '{job_id}' was not set")
 
@@ -173,7 +169,7 @@ class StackStageHandler(StageHandler):
         """Cancel the stack stage."""
 
     def _log_process_output(
-        self, process: Popen[bytes], terraform_output: Any, **kwargs: Any
+        self, process: Popen[str], terraform_output: Any, **kwargs: Any
     ) -> None:
         output = self._client.get_process_output(process)
         for line in output:
@@ -183,7 +179,7 @@ class StackStageHandler(StageHandler):
 
     def _wait_for_process(
         self,
-        process: Popen[bytes],
+        process: Popen[str],
         terraform_output: Any,
         timeout: int = settings.CRCZP_CONFIG.sandbox_build_timeout,
         **kwargs: Any,

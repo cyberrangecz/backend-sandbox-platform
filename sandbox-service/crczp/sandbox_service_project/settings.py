@@ -66,7 +66,7 @@ else:
         microservice_name = 'sandbox-service'
         authentication = _AuthConfig()
 
-    CRCZP_SERVICE_CONFIG = _ServiceConfig()  # type: ignore[assignment]
+    CRCZP_SERVICE_CONFIG = _ServiceConfig()
     CRCZP_CONFIG = _CrczpConfig()
     AWS_PROVIDER_CONFIGURED = False
     TERRAFORM_CLIENT = None

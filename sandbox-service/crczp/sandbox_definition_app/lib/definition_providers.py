@@ -105,10 +105,10 @@ class GitlabProvider(DefinitionProvider):
         try:
             for ref in self.get_refs():
                 if ref.name == rev:
-                    return ref.commit['id']  # type: ignore[no-any-return]
+                    return ref.commit['id']
             project = self.gl.projects.get(self.project_path)
             commit = project.commits.get(rev)
-            return commit.id  # type: ignore[no-any-return]
+            return commit.id
         except (requests.exceptions.RequestException, gitlab.exceptions.GitlabError) as ex:
             raise exceptions.GitError('Failed to get sha of the GIT rev.', ex) from ex
 

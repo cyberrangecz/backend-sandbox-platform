@@ -28,11 +28,13 @@ repos:
     hooks:
       - id: uv-lock
 
-  # NOTE: type checking is not run here. mypy has no hierarchical per-file
-  # config discovery, so from the repository root it would read the root
-  # pyproject.toml and drop every package's own [tool.mypy] settings. The
-  # per-package config is left in place, unused, so it can be re-enabled
-  # (or replaced by ty) without reconstructing it.
+  # ty reads the single workspace-root [tool.ty]; see the note there on why the
+  # type-checker config is not per-package. The hook wraps `uv check`, which takes
+  # no ty flags, so the output format is set by TY_OUTPUT_FORMAT (github in CI).
+  - repo: https://github.com/astral-sh/ty-pre-commit
+    rev: v0.0.75
+    hooks:
+      - id: ty
 
   - repo: local
     hooks:

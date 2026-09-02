@@ -29,13 +29,13 @@ def stack_name_prefix_validator(_: object, value: str) -> None:
         raise ValueError('Value stack_name_prefix can have only 1 to 8 characters')
 
 
-class AllowedOidcProviders(Sequence):  # type: ignore[misc]
+class AllowedOidcProviders(Sequence):
     """Sequence type for allowed OIDC provider configurations."""
 
     item_type = Typed(dict)
 
 
-class Authentication(Object):  # type: ignore[misc]
+class Authentication(Object):
     """Authentication configuration for the sandbox service."""
 
     authenticated_rest_api = Attribute(type=bool, default=AUTHENTICATED_REST_API)
@@ -58,7 +58,7 @@ class Authentication(Object):  # type: ignore[misc]
         self.roles_acquisition_url = roles_acquisition_url
 
 
-class CrczpServiceConfig(Object):  # type: ignore[misc]
+class CrczpServiceConfig(Object):
     """Top-level service configuration combining Django and app settings."""
 
     stack_name_prefix = Attribute(
