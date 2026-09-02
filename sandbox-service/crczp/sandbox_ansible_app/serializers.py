@@ -18,9 +18,7 @@ class NetworkingAnsibleAllocationStageSerializer(
 ):
     """Serializer for NetworkingAnsibleAllocationStage."""
 
-    request_id: serializers.PrimaryKeyRelatedField[models.NetworkingAnsibleAllocationStage] = (
-        serializers.PrimaryKeyRelatedField(source='allocation_request', read_only=True)
-    )
+    request_id = serializers.PrimaryKeyRelatedField(source='allocation_request', read_only=True)
 
     class Meta:  # pylint: disable=too-few-public-methods
         """Meta options for NetworkingAnsibleAllocationStageSerializer."""
@@ -35,9 +33,7 @@ class UserAnsibleAllocationStageSerializer(
 ):
     """Serializer for UserAnsibleAllocationStage."""
 
-    request_id: serializers.PrimaryKeyRelatedField[models.UserAnsibleAllocationStage] = (
-        serializers.PrimaryKeyRelatedField(source='allocation_request', read_only=True)
-    )
+    request_id = serializers.PrimaryKeyRelatedField(source='allocation_request', read_only=True)
 
     class Meta:  # pylint: disable=too-few-public-methods
         """Meta options for UserAnsibleAllocationStageSerializer."""
@@ -52,9 +48,7 @@ class NetworkingAnsibleCleanupStageSerializer(
 ):
     """Serializer for NetworkingAnsibleCleanupStage."""
 
-    request_id: serializers.PrimaryKeyRelatedField[models.NetworkingAnsibleCleanupStage] = (
-        serializers.PrimaryKeyRelatedField(source='cleanup_request', read_only=True)
-    )
+    request_id = serializers.PrimaryKeyRelatedField(source='cleanup_request', read_only=True)
 
     class Meta:  # pylint: disable=too-few-public-methods
         """Meta options for NetworkingAnsibleCleanupStageSerializer."""
@@ -76,9 +70,7 @@ class UserAnsibleCleanupStageSerializer(
 ):
     """Serializer for UserAnsibleCleanupStage."""
 
-    request_id: serializers.PrimaryKeyRelatedField[models.UserAnsibleCleanupStage] = (
-        serializers.PrimaryKeyRelatedField(source='cleanup_request', read_only=True)
-    )
+    request_id = serializers.PrimaryKeyRelatedField(source='cleanup_request', read_only=True)
 
     class Meta:  # pylint: disable=too-few-public-methods
         """Meta options for UserAnsibleCleanupStageSerializer."""

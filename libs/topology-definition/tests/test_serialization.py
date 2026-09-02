@@ -28,7 +28,7 @@ SANDBOX_DEFINITION_VPN_PATH = os.path.join(
 )
 
 
-@pytest.fixture  # type: ignore[untyped-decorator]
+@pytest.fixture
 def topology_definition_string() -> str:
     """
     Fixture for topology definition string.
@@ -37,7 +37,7 @@ def topology_definition_string() -> str:
         return f.read()
 
 
-@pytest.fixture  # type: ignore[untyped-decorator]
+@pytest.fixture
 def topology_definition_dict() -> dict[str, Any]:
     """
     Fixture for topology definition dict.
@@ -46,7 +46,7 @@ def topology_definition_dict() -> dict[str, Any]:
         return dict(YAML(typ='safe', pure=True).load(f))
 
 
-@pytest.fixture  # type: ignore[untyped-decorator]
+@pytest.fixture
 def topology_definition() -> TopologyDefinition:
     """
     Fixture for topology definition.
@@ -54,7 +54,7 @@ def topology_definition() -> TopologyDefinition:
     return TopologyDefinition.from_file(SANDBOX_DEFINITION_PATH)
 
 
-@pytest.fixture  # type: ignore[untyped-decorator]
+@pytest.fixture
 def topology_definition_monitoring() -> TopologyDefinition:
     """
     Fixture for topology definition with monitoring.

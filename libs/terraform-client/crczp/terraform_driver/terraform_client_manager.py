@@ -316,9 +316,7 @@ class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
         :return: Rendered Terraform template
         :raise CrczpException: Invalid template of attributes.
         """
-        return self.cloud_client.create_terraform_template(  # type: ignore[no-any-return]
-            topology_instance, *args, **kwargs
-        )
+        return self.cloud_client.create_terraform_template(topology_instance, *args, **kwargs)
 
     def create_stack(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
@@ -470,7 +468,7 @@ class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
         """
         resource_dict = self.get_resource_dict(stack_name)
         resource_id = resource_dict[f'{stack_name}-{node_name}'][0]['attributes']['id']
-        return resource_id  # type: ignore[no-any-return]
+        return resource_id
 
     def get_node(self, stack_name: str, node_name: str) -> TerraformInstance:
         """
@@ -526,9 +524,7 @@ class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
             raise CrczpException(f'Cannot get {console_type} console from inactive machine')
 
         resource_id = self.get_resource_id(stack_name, node_name)
-        return self.cloud_client.get_console_url(  # type: ignore[no-any-return]
-            resource_id, console_type
-        )
+        return self.cloud_client.get_console_url(resource_id, console_type)
 
     def get_enriched_topology_instance(
         self, stack_name: str, topology_instance: TopologyInstance

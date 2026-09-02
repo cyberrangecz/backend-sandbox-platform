@@ -4,7 +4,7 @@ from typing import Any, override
 
 import structlog
 from django.conf import settings
-from django.contrib.auth.models import AnonymousUser
+from django.contrib.auth.models import User
 from drf_spectacular.utils import OpenApiRequest, OpenApiResponse, extend_schema
 from generator.var_generator import generate
 from rest_framework import generics, status
@@ -66,7 +66,7 @@ class DefinitionListCreateView(generics.ListCreateAPIView[Definition]):
         """
         url: str = request.data.get('url') or ''
         rev = request.data.get('rev', 'master')
-        created_by = None if isinstance(request.user, AnonymousUser) else request.user
+        created_by = request.user if isinstance(request.user, User) else None
         definition = definitions.create_definition(url, created_by, rev)
         serializer = self.serializer_class(definition)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -160,8 +160,19 @@ class LocalSandboxVariablesView(generics.CreateAPIView[Any]):
 
         definition = self.get_object()
         variables = definitions.get_variables(definition.url, definition.rev, settings.CRCZP_CONFIG)
-        generate(variables, user_id)
-        sandboxes.post_answers(user_id, access_token, variables)  # type: ignore[arg-type]
+        # FIXME: user_id/access_token are read straight off request.data and are therefore
+        # Optional, while generate() expects an int seed and post_answers() an int/str pair.
+        # This view declares LocalSandboxVariablesSerializer (user_id=IntegerField,
+        # access_token=CharField) as its serializer_class but never validates with it, so a
+        # request missing user_id currently seeds the generator with None (non-deterministic
+        # output) instead of being rejected with 400. Fixing that changes the response for
+        # malformed requests, so it is left to a deliberate API change.
+        generate(variables, user_id)  # ty: ignore[invalid-argument-type]
+        sandboxes.post_answers(
+            user_id,  # ty: ignore[invalid-argument-type]
+            access_token,  # ty: ignore[invalid-argument-type]
+            variables,
+        )
 
         serialized_variables = serializers.LocalVariableSerializer(variables, many=True)
         return Response(serialized_variables.data)

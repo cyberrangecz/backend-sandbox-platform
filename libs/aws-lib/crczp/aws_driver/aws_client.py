@@ -12,6 +12,7 @@ from crczp.cloud_commons import (
     HardwareUsage,
     Image,
     Limits,
+    Link,
     NodeDetails,
     Quota,
     QuotaSet,
@@ -51,10 +52,13 @@ def get_default_route_ip(topology_instance: TopologyInstance, node: Host) -> str
     """
     host_networks = topology_instance.get_hosts_networks()
     host_link = topology_instance.get_node_links(node, host_networks)[0]
-    return str(topology_instance.get_network_default_gateway_link(host_link.network).ip)
+    # The link was filtered by `host_networks`, so its network is a user-defined host network
+    # and `get_network_default_gateway_link` therefore never returns None here.
+    gateway_link = cast(Link, topology_instance.get_network_default_gateway_link(host_link.network))
+    return str(gateway_link.ip)
 
 
-class CrczpAwsClient(CrczpCloudClientBase):  # type: ignore[misc]
+class CrczpAwsClient(CrczpCloudClientBase):
     """
     AWS client for Cyberrangecz platform.
     """
@@ -116,11 +120,14 @@ class CrczpAwsClient(CrczpCloudClientBase):  # type: ignore[misc]
         self.trc = trc
 
     @staticmethod
-    def get_private_ip(link_tf_resource: dict[str, Any]) -> str:  # pylint: disable=arguments-renamed
+    def get_private_ip(instance_attrs: dict[str, Any]) -> str:
         """
         Counter incompatibility of AWS and OpenStack terraform resources
+
+        :param instance_attrs: Terraform instance attributes
+        :return: IP address
         """
-        return str(link_tf_resource['private_ip_list'][0])
+        return str(instance_attrs['private_ip_list'][0])
 
     def get_terraform_provider(self) -> str:
         """
@@ -241,18 +248,21 @@ class CrczpAwsClient(CrczpCloudClientBase):  # type: ignore[misc]
         """
         return ''
 
-    def create_keypair(  # pylint: disable=signature-differs
-        self, name: str, public_key: str, key_type: str = 'ssh'
+    def create_keypair(
+        self, name: str, public_key: str | None = None, key_type: str = 'ssh'
     ) -> None:
         """
         Create key pair in cloud.
 
         :param name: Name of the key pair
-        :param public_key: SSH public key or certificate, it None new is created
+        :param public_key: SSH public key or certificate. Unlike the base contract, AWS cannot
+                           generate a new key pair, so a key must always be supplied.
         :param key_type: IGNORED -- AWS will detect correct format
         :return: None
         """
-        public_base64 = public_key.encode()
+        # `public_key` is Optional only to satisfy the base class contract; this driver
+        # imports an existing key and has never supported generating one.
+        public_base64 = cast(str, public_key).encode()
         self.ec2_client.import_key_pair(KeyName=name, PublicKeyMaterial=public_base64)
 
     def get_keypair(self, name: str) -> dict[str, Any]:
@@ -421,13 +431,16 @@ class CrczpAwsClient(CrczpCloudClientBase):  # type: ignore[misc]
             quota_code='L-F678F1CE',
         )
 
+        # Limits.vcpu/network/port are ints; the Service Quotas API types every quota
+        # Value as a float because the field is generic, but vCPU, VPC and port counts
+        # are always whole numbers.
         return Limits(
-            vcpu=vcpu_limit,
+            vcpu=int(vcpu_limit),
             ram=999999.0,
             instances=999999,
-            network=vpcs_limit,
+            network=int(vpcs_limit),
             subnet=999999,
-            port=ports_limit,
+            port=int(ports_limit),
         )
 
     def get_node_details(self, terraform_attrs: dict[str, Any]) -> NodeDetails:

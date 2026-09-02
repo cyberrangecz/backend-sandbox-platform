@@ -21,7 +21,9 @@ if TYPE_CHECKING:
         MonitoringTargetTCPList,
         Network,
         NetworkList,
+        NetworkMapping,
         NetworkMappingList,
+        RouterMapping,
         RouterMappingList,
         TargetHTTPList,
         TargetICMPList,
@@ -139,7 +141,7 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
 
     @staticmethod
     def raise_if_ip_not_unique(
-        mappings: list[NetworkMappingList | RouterMappingList],
+        mappings: list[NetworkMapping | RouterMapping],
     ) -> None:
         """
         Raise error if IP is not unique.

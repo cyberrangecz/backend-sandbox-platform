@@ -9,8 +9,7 @@ import structlog
 import yaml
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.contrib.auth.base_user import AbstractBaseUser
-from django.contrib.auth.models import Group, Permission
+from django.contrib.auth.models import Group, Permission, User
 from django.core.cache import caches
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
@@ -27,7 +26,7 @@ CACHE = caches['uag_auth_groups_cache']
 UAG_SETTINGS = settings.SANDBOX_UAG
 
 
-def get_or_create_user(request: Request, user_info: dict[str, Any]) -> AbstractBaseUser:  # pylint: disable=too-many-locals
+def get_or_create_user(request: Request, user_info: dict[str, Any]) -> User:  # pylint: disable=too-many-locals
     """
     Retrieve (or create if non-existent) user from database.
     Set corresponding roles (Django groups).
@@ -45,7 +44,9 @@ def get_or_create_user(request: Request, user_info: dict[str, Any]) -> AbstractB
     # the limit for username is 140 characters so this may be a problem for long sub+iss
     username = get_unique_username(sub, iss)
 
-    user_cls = get_user_model()  # this is suggested way of getting User model
+    # this is suggested way of getting User model; the project does not swap
+    # AUTH_USER_MODEL, so it is always django.contrib.auth.models.User
+    user_cls = cast(type[User], get_user_model())
     (user, _) = user_cls.objects.update_or_create(
         username=username,
         defaults=cast(

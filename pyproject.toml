@@ -3,3 +3,19 @@ members = [
     "libs/*",
     "sandbox-service",
 ]
+
+# ty reads one config from the invocation directory, not the nearest pyproject.toml
+# per file, so type-checker config is workspace-level rather than per package.
+[tool.ty.environment]
+python = ".venv"
+python-version = "3.12"  # what the image ships; ty would infer 3.13 from .venv
+
+[tool.ty.analysis]
+# Test tooling lives in each package's tox.ini, not the workspace environment.
+allowed-unresolved-imports = [
+    "pytest",
+    "pytest_mock",
+    "pytest_structlog",
+    "fakeredis",
+    "Crypto.*",
+]

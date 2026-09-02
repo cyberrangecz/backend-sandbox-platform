@@ -12,7 +12,7 @@ SANDBOX_MAN_CIDR = '192.168.128.0/17'  # 32766 addresses
 DNS_NAME_SERVERS: tuple[str, ...] = ()
 
 
-class TransformationConfiguration(Object):  # type: ignore[misc]
+class TransformationConfiguration(Object):
     """Configuration for cloud transformation settings."""
 
     base_network = Attribute(type=str, default=BASE_NETWORK)
@@ -49,6 +49,4 @@ class TransformationConfiguration(Object):  # type: ignore[misc]
     @staticmethod
     def from_file(file: str) -> 'TransformationConfiguration':
         """Load transformation configuration from a YAML file."""
-        return TransformationConfiguration.load(  # type: ignore[no-any-return]
-            open(file, encoding='utf-8')
-        )
+        return TransformationConfiguration.load(open(file, encoding='utf-8'))

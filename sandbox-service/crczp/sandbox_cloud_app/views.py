@@ -15,6 +15,7 @@ from crczp.sandbox_cloud_app import serializers
 from crczp.sandbox_cloud_app.lib import projects
 from crczp.sandbox_common_lib import utils
 from crczp.sandbox_common_lib.common_cloud import list_images
+from crczp.sandbox_common_lib.pagination import PageNumberWithPageSizePagination
 from crczp.sandbox_instance_app.models import Pool
 
 LOG = structlog.get_logger()
@@ -58,12 +59,16 @@ class ProjectImagesView(generics.ListAPIView[Any]):
     @property
     def paginator(self) -> BasePagination | None:
         _paginator = super().paginator
-        _paginator.sort_by_default_param = 'name'  # type: ignore[union-attr]
-        _paginator.sorting_default_values = {  # type: ignore[union-attr]
-            # values replace None during sorting
-            'size': float('-inf'),
-            'updated_at': datetime.MINYEAR,
-        }
+        # Both attributes are defined by PageNumberWithPageSizePagination (the configured
+        # DEFAULT_PAGINATION_CLASS) and only read back by it, so setting them on any other
+        # paginator would have no effect anyway.
+        if isinstance(_paginator, PageNumberWithPageSizePagination):
+            _paginator.sort_by_default_param = 'name'
+            _paginator.sorting_default_values = {
+                # values replace None during sorting
+                'size': float('-inf'),
+                'updated_at': datetime.MINYEAR,
+            }
         return _paginator
 
     @extend_schema(
@@ -149,7 +154,11 @@ class ProjectImagesView(generics.ListAPIView[Any]):
                         and attribute_filter in getattr(image, attribute)
                     ]
         serialized_image_set = serializers.ImageSerializer(image_set, many=True)
-        page = self.paginate_queryset(serialized_image_set.data)  # type: ignore[arg-type]
+        # DRF's paginate_queryset works on any sized sequence (already-serialized data
+        # included); only the stubs narrow the parameter to QuerySet.
+        page = self.paginate_queryset(
+            serialized_image_set.data  # ty: ignore[invalid-argument-type]
+        )
         if page is not None:
             return self.get_paginated_response(page)
         return Response({'image_set': serialized_image_set.data})

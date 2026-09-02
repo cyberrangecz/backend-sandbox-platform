@@ -17,13 +17,13 @@ class Topology:  # pylint: disable=too-few-public-methods
         """Represents a host node in the topology."""
 
         def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-            self, name: str, os_type: str, gui_access: bool, is_accessible: Any, ip: Any
+            self, name: str, os_type: str | None, gui_access: bool, is_accessible: Any, ip: Any
         ) -> None:
             """
             Initialize a HostNode instance.
 
             :param str name: The name of the host
-            :param str os_type: The operating system type
+            :param os_type: The operating system type, None if the image does not report one
             :param bool gui_access: Whether GUI access is available
             :param str ip: The IP address of the host
             """
@@ -39,7 +39,7 @@ class Topology:  # pylint: disable=too-few-public-methods
         def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
             self,
             name: str,
-            os_type: str,
+            os_type: str | None,
             gui_access: bool,
             subnets: list['Topology.Subnet'],
             is_accessible: Any,
@@ -49,7 +49,7 @@ class Topology:  # pylint: disable=too-few-public-methods
             Initialize a RouterNode instance.
 
             :param str name: The name of the router
-            :param str os_type: The operating system type
+            :param os_type: The operating system type, None if the image does not report one
             :param bool gui_access: Whether GUI access is available
             :param subnets: List of subnets connected to this router
             :type subnets: List[Topology.Subnet]
@@ -157,7 +157,7 @@ class Topology:  # pylint: disable=too-few-public-methods
         :return: True if network is WAN, False otherwise
         :rtype: bool
         """
-        return network.name.lower() == 'wan'  # type: ignore[no-any-return]
+        return network.name.lower() == 'wan'
 
     def _get_hosts_for_network(
         self, network: Any, top_inst: Any, images: Any

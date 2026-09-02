@@ -31,14 +31,18 @@ class TestCreateDefinition:
         mocker.patch('crczp.terraform_driver.CrczpTerraformClient.validate_topology_definition')
 
     @pytest.fixture
-    def topology_definition(self, mocker):
-        """Return a mocked topology definition with a fixed name."""
+    def get_definition_mock(self, mocker):
+        """Patch definitions.get_definition and return the patch mock."""
         definition = mocker.Mock()
         definition.name = self.NAME
-        mocker.patch(
+        return mocker.patch(
             'crczp.sandbox_definition_app.lib.definitions.get_definition', return_value=definition
         )
-        return definition
+
+    @pytest.fixture
+    def topology_definition(self, get_definition_mock):
+        """Return the mocked topology definition with a fixed name."""
+        return get_definition_mock.return_value
 
     def test_create_definition(self, mocker, topology_definition, created_by):  # pylint: disable=unused-argument
         """Test that a definition is created and persisted with correct fields."""
@@ -66,41 +70,41 @@ class TestCreateDefinition:
             definitions.create_definition(url=self.URL, rev=self.REV, created_by=created_by)
 
     def test_create_definition_fresh_import_forces_refresh(
-        self, mocker, topology_definition, created_by
-    ):  # pylint: disable=unused-argument
+        self, mocker, get_definition_mock, created_by
+    ):
         """Test that FRESH_IMPORT mode imports a GitHub definition with force_refresh=True."""
         mocker.patch('crczp.sandbox_definition_app.lib.definitions.validate_topology_definition')
         mocker.patch.object(
             settings.CRCZP_CONFIG, 'topology_cache_mode', TopologyCacheMode.FRESH_IMPORT
         )
         definitions.create_definition(url=self.GITHUB_URL, rev=self.REV, created_by=created_by)
-        definitions.get_definition.assert_any_call(
+        get_definition_mock.assert_any_call(
             self.GITHUB_URL, self.REV, settings.CRCZP_CONFIG, force_refresh=True
         )
 
     def test_create_definition_fresh_import_gitlab_does_not_force_refresh(
-        self, mocker, topology_definition, created_by
-    ):  # pylint: disable=unused-argument
+        self, mocker, get_definition_mock, created_by
+    ):
         """Test that FRESH_IMPORT mode does not force refresh for GitLab (GitHub provider only)."""
         mocker.patch('crczp.sandbox_definition_app.lib.definitions.validate_topology_definition')
         mocker.patch.object(
             settings.CRCZP_CONFIG, 'topology_cache_mode', TopologyCacheMode.FRESH_IMPORT
         )
         definitions.create_definition(url=self.URL, rev=self.REV, created_by=created_by)
-        definitions.get_definition.assert_any_call(
+        get_definition_mock.assert_any_call(
             self.URL, self.REV, settings.CRCZP_CONFIG, force_refresh=False
         )
 
     def test_create_definition_aggressive_does_not_force_refresh(
-        self, mocker, topology_definition, created_by
-    ):  # pylint: disable=unused-argument
+        self, mocker, get_definition_mock, created_by
+    ):
         """Test that AGGRESSIVE mode imports with force_refresh=False."""
         mocker.patch('crczp.sandbox_definition_app.lib.definitions.validate_topology_definition')
         mocker.patch.object(
             settings.CRCZP_CONFIG, 'topology_cache_mode', TopologyCacheMode.AGGRESSIVE
         )
         definitions.create_definition(url=self.URL, rev=self.REV, created_by=created_by)
-        definitions.get_definition.assert_any_call(
+        get_definition_mock.assert_any_call(
             self.URL, self.REV, settings.CRCZP_CONFIG, force_refresh=False
         )
 

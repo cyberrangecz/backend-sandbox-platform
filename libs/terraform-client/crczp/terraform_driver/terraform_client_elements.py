@@ -37,7 +37,7 @@ class TerraformInstance:
         """Add a network link with its IP attributes to this instance."""
         self.links[network] = ip
 
-    def __repr__(self) -> str:  # type: ignore[explicit-override]
+    def __repr__(self) -> str:
         return (
             '<TerraformStackInstance\n'
             f'  name: {self.name},\n'

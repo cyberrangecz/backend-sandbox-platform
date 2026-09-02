@@ -102,7 +102,7 @@ def get_console_url(sandbox: Sandbox, node_name: str) -> str:
     job_cache_id_running = CACHE_CONSOLE_PREFIX + str(sandbox.id) + '-' + node_name + '-running'
     console_url = cache.get(console_cache_name, None)
     if console_url:
-        return console_url  # type: ignore[no-any-return]
+        return console_url
 
     job_running = cache.get(job_cache_id_running, False)
     if not job_running:
@@ -128,7 +128,9 @@ def get_node_access_data(topology_instance: TopologyInstance, node: Node) -> Nod
         )
 
     return NodeAccessData(
-        man_ip=topology_instance.ip,
+        # TopologyInstance.ip is Optional in crczp.cloud_commons only for the
+        # pre-enrichment state; callers always pass an enriched instance.
+        man_ip=topology_instance.ip,  # ty: ignore[invalid-argument-type]
         man_port=settings.CRCZP_CONFIG.man_port,
         host_ip=_get_node_ip(topology_instance, node),
         protocols=get_node_available_protocols(node),
@@ -167,9 +169,7 @@ def get_node_available_protocols(node: Node) -> list[Protocol]:
 
 def get_node_image_has_gui_access(image: Image) -> bool:
     """Return True if the image has GUI access enabled."""
-    return (  # type: ignore[no-any-return]
-        image.owner_specified.get('owner_specified.openstack.gui_access') == 'true'
-    )
+    return image.owner_specified.get('owner_specified.openstack.gui_access') == 'true'
 
 
 def _get_node_ip(topology_instance: TopologyInstance, node: Node) -> str:
@@ -186,6 +186,6 @@ def _get_node_ip(topology_instance: TopologyInstance, node: Node) -> str:
         ):
             raise exceptions.ValidationError(f'Node {node.name} is not user-accessible')
         if link.ip:
-            return link.ip  # type: ignore[no-any-return]
+            return link.ip
 
     raise exceptions.ValidationError(f'No accessible IP found for node {node.name}')

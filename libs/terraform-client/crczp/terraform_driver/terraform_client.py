@@ -179,7 +179,7 @@ class CrczpTerraformClient:  # pylint: disable=too-many-public-methods
 
         :return: List of Image objects.
         """
-        return self.cloud_client.list_images()  # type: ignore[no-any-return]
+        return self.cloud_client.list_images()
 
     def list_stacks(self) -> list[str]:
         """
@@ -190,7 +190,7 @@ class CrczpTerraformClient:  # pylint: disable=too-many-public-methods
         return self.client_manager.list_stacks()
 
     def get_topology_instance(
-        self, topology_definition: TopologyDefinition, containers: DockerContainers = None
+        self, topology_definition: TopologyDefinition, containers: DockerContainers | None = None
     ) -> TopologyInstance:
         """
         Get TopologyInstance from topology definition.
@@ -205,7 +205,7 @@ class CrczpTerraformClient:  # pylint: disable=too-many-public-methods
         self,
         stack_name: str,
         topology_definition: TopologyDefinition,
-        containers: DockerContainers = None,
+        containers: DockerContainers | None = None,
     ) -> TopologyInstance:
         """
         Get enriched TopologyInstance.
@@ -344,7 +344,7 @@ class CrczpTerraformClient:  # pylint: disable=too-many-public-methods
 
         :return: The name of the cloud project
         """
-        return self.cloud_client.get_project_name()  # type: ignore[no-any-return]
+        return self.cloud_client.get_project_name()
 
     def validate_hardware_usage_of_stacks(
         self, topology_instance: TopologyInstance, count: int
@@ -377,7 +377,7 @@ class CrczpTerraformClient:  # pylint: disable=too-many-public-methods
 
         :return: flavors dictionary
         """
-        return self.cloud_client.get_flavors_dict()  # type: ignore[no-any-return]
+        return self.cloud_client.get_flavors_dict()
 
     def get_project_limits(self) -> Limits:
         """

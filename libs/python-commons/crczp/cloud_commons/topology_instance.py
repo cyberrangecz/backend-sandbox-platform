@@ -21,7 +21,7 @@ from crczp.topology_definition.models import (
 from netaddr import IPNetwork, IPSet
 from typing_extensions import override
 
-from crczp.cloud_commons.exceptions import CrczpException
+from crczp.cloud_commons.exceptions import CrczpException, InvalidTopologyDefinition
 from crczp.cloud_commons.topology_elements import (
     MAN,
     Link,
@@ -45,7 +45,7 @@ class TopologyInstance:
         self,
         topology_definition: TopologyDefinition,
         trc: TransformationConfiguration,
-        containers: DockerContainers = None,
+        containers: Optional[DockerContainers] = None,
     ):
         self.topology_definition = topology_definition
         self.containers = containers
@@ -110,9 +110,9 @@ class TopologyInstance:
         """
         return cast(Iterable[Router], self.topology_definition.routers)
 
-    def get_node(self, name: str) -> Node:
+    def get_node(self, name: str) -> Optional[Node]:
         """
-        Return a TI virtual machine.
+        Return a TI virtual machine, or None if there is no machine of that name.
 
         :param name: The name of a TI virtual machine
         """
@@ -191,9 +191,9 @@ class TopologyInstance:
             if host_network.accessible_by_user
         ]
 
-    def get_network(self, name: str) -> Network:
+    def get_network(self, name: str) -> Optional[Network]:
         """
-        Return a TI virtual network.
+        Return a TI virtual network, or None if there is no network of that name.
 
         :param name: The name of a TI virtual network
         """
@@ -210,12 +210,18 @@ class TopologyInstance:
         Retrun a list of TI networks that are not hidden, and their router is not hidden.
         """
         visible_routers = self.get_visible_routers()
-        return [
-            self.get_network(mapping.network)
-            for mapping in self.topology_definition.router_mappings
-            if self.get_node(mapping.router) in visible_routers
-            and not self.get_network(mapping.network).hidden
-        ] + [self.wan]
+        networks: list[Network] = []
+        for mapping in self.topology_definition.router_mappings:
+            if self.get_node(mapping.router) not in visible_routers:
+                continue
+            network = self.get_network(mapping.network)
+            if network is None:
+                raise InvalidTopologyDefinition(
+                    f'router mapping refers to an unknown network: {mapping.network}'
+                )
+            if not network.hidden:
+                networks.append(network)
+        return networks + [self.wan]
 
     # get links
 
@@ -405,7 +411,15 @@ class TopologyInstance:
 
         for network_mapping in topology_definition_net_mappings:
             host = self.topology_definition.find_host_by_name(network_mapping.host)
+            if host is None:
+                raise InvalidTopologyDefinition(
+                    f'network mapping refers to an unknown host: {network_mapping.host}'
+                )
             host_network = self.topology_definition.find_network_by_name(network_mapping.network)
+            if host_network is None:
+                raise InvalidTopologyDefinition(
+                    f'network mapping refers to an unknown network: {network_mapping.network}'
+                )
             self._add_link(
                 host, host_network, SecurityGroups.SANDBOX_INTERNAL, ip=network_mapping.ip
             )
@@ -426,9 +440,19 @@ class TopologyInstance:
 
         for router_mapping in topology_definition_router_mappings:
             router = self.topology_definition.find_router_by_name(router_mapping.router)
+            if router is None:
+                raise InvalidTopologyDefinition(
+                    f'router mapping refers to an unknown router: {router_mapping.router}'
+                )
             host_network = self.topology_definition.find_network_by_name(router_mapping.network)
+            if host_network is None:
+                raise InvalidTopologyDefinition(
+                    f'router mapping refers to an unknown network: {router_mapping.network}'
+                )
             self._add_link(router, host_network, SecurityGroups.SANDBOX_INTERNAL, router_mapping.ip)
-            host_network.default_gateway = router.name
+            # dynamic attribute: Network declares no default_gateway, but yamlize Objects
+            # carry a __dict__, so the assignment is valid and callers may read it back.
+            host_network.default_gateway = router.name  # ty: ignore[unresolved-attribute]
 
     def _get_free_ip_address(self, network: Network) -> str:
         """

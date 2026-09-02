@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import novaclient.v2.keypairs
 import structlog
@@ -33,7 +33,10 @@ from crczp.topology_definition.models import Protocol
 if TYPE_CHECKING:
     from glanceclient.v2 import client as glance_client
     from neutronclient.v2_0 import client as neutron_client
-    from novaclient import client as nova_client
+
+    # `novaclient.client.Client` is a version-dispatching factory function, not a class;
+    # `utils.get_client('nova', ...)` builds a 2.x client, so annotate the concrete class.
+    from novaclient.v2 import client as nova_client
 
 LOG = structlog.get_logger()
 SEC_RULES_IP_PREFIX = '0.0.0.0/0'  # "147.251.0.0/16"
@@ -46,6 +49,13 @@ TERRAFORM_PROVIDER_TEMPLATE_FILE = 'terraform-provider-template.j2'
 def regex_replace(string: str, pattern: str = '', replace: str = '') -> str:
     """Apply a regex substitution on *string* (used as a Jinja2 filter)."""
     return re.sub(pattern, replace, string)
+
+
+class FlavorUsage(TypedDict):
+    """Hardware consumed by a single OpenStack flavor: whole vCPUs and RAM in GB."""
+
+    vcpu: int
+    ram: float
 
 
 class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
@@ -272,7 +282,7 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         return QuotaSet(vcpu, ram, instances, network, subnet, port)
 
     @staticmethod
-    def _get_flavors_dict(flavors: Any) -> dict[str, dict[str, float]]:
+    def _get_flavors_dict(flavors: Any) -> dict[str, FlavorUsage]:
         """
         Gets flavors with their vcpu and ram usage
 
@@ -280,11 +290,11 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         :return: flavors dictionary
         """
         return {
-            flavor.name: {'vcpu': flavor.vcpus, 'ram': round(flavor.ram / 1000.0, 1)}
+            flavor.name: FlavorUsage(vcpu=flavor.vcpus, ram=round(flavor.ram / 1000.0, 1))
             for flavor in flavors
         }
 
-    def get_flavors_dict(self) -> dict[str, dict[str, float]]:
+    def get_flavors_dict(self) -> dict[str, FlavorUsage]:
         """
         Gets flavors defined in OpenStack project with their vcpu and ram usage as dictionary
 
@@ -300,7 +310,7 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         :return: Hardware usage of Topology instance.
         """
         flavors = self.get_flavors_dict()
-        used_vcpu: float = 0
+        used_vcpu = 0
         used_ram: float = 0
         used_instances = 0
 
