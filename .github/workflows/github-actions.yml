@@ -152,9 +152,14 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           version: "0.11.24"
-      - run: uv tool install tox --with tox-uv
-      # tox builds the package in an isolated env; uv honours the workspace
-      # sources, so sibling crczp-* deps resolve from libs/ rather than PyPI.
+      # tox-uv-bare, not tox-uv: the meta package depends on `uv<1,>=0.9.27` and would
+      # install the newest match into the tool env, so a third uv version would read the
+      # lockfile. The bare plugin falls through to `which uv`, i.e. the pin above.
+      - run: uv tool install tox --with tox-uv-bare==1.36.0
+      # Each tox env is built by `uv sync --locked` (runner = uv-venv-lock-runner in every
+      # tox.ini), so sibling crczp-* packages install editable from libs/ and every
+      # third-party version is exactly what uv.lock pins - the set the image ships.
+      # Tooling comes from each package's [dependency-groups].
       - working-directory: ${{ matrix.package }}
         run: tox -q -e ${{ matrix.env }}
 
