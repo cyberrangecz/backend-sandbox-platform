@@ -27,7 +27,12 @@ COPY sandbox-service sandbox-service
 #                    the venv stays valid once copied to /app in the next stage
 #                    (editable installs would point back at build-time paths)
 # --no-install-project  sandbox-service's own code is shipped as source below
-RUN uv sync --frozen --package crczp-sandbox-service --no-editable --no-install-project
+# --no-default-groups   `dev` is uv's default group, so without this the image
+#                    ships the ty type stubs (django-stubs, types-*): 140 packages
+#                    instead of 134. Also what makes the tox audit env, which
+#                    exports with the same flag, cover exactly this set.
+RUN uv sync --frozen --package crczp-sandbox-service --no-editable --no-install-project \
+    --no-default-groups
 
 FROM python:3.12-slim AS app
 WORKDIR /app
