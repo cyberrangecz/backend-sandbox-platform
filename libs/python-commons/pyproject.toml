@@ -7,11 +7,37 @@ license = "MIT"
 requires-python = ">=3.9"
 authors = [{ name = "cybersecurityhub.cz" }]
 dependencies = [
-    "crczp-topology-definition"
+    "crczp-topology-definition",
+    # All four are imported directly by crczp/cloud_commons. netaddr and yamlize also
+    # arrive via topology-definition, but a direct import warrants a direct declaration;
+    # PyYAML and typing_extensions arrive from nowhere, so a standalone install used to
+    # fail on `import crczp.cloud_commons`.
+    "PyYAML>=6.0.2",
+    "netaddr>=0.7",
+    "typing_extensions>=4.0.0",
+    "yamlize>=0.6"
 ]
 [project.optional-dependencies]
 dev = [
     "types-PyYAML",
+]
+
+[dependency-groups]
+test = [
+    "pytest",
+    "pytest-mock",
+    "pytest-structlog",
+]
+
+lint = [
+    "pylint",
+    # pylint lints tests/ too, so it needs whatever the tests import.
+    { include-group = "test" },
+]
+
+security = [
+    "bandit",
+    "pip-audit",
 ]
 
 [tool.uv.sources]

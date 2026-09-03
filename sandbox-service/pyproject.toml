@@ -18,7 +18,7 @@ dependencies = [
     # https://github.com/snguyenthanh/better_profanity/issues/19
     "better-profanity ==0.6.1",
     "django ~=5.0",
-    "djangorestframework ==3.15.2",
+    "djangorestframework ==3.17.2",
     "coreapi ~=2.3.3",
     "structlog ~=26.1.0",
     "colorama ~=0.4.6",
@@ -70,13 +70,36 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
+# `dev` is uv's only default group: it is what a workspace-root `uv sync` installs, and so
+# what `ty` and pre-commit see. The tox groups below are deliberately NOT part of it -
+# tox-uv passes --no-default-groups, so they never mix.
 dev = [
     "django-stubs ~=6.1.0",
-    # 3.17.1 retyped Request.data as dict | list, which the views do not handle yet.
-    # Keep the stubs aligned with the pinned djangorestframework version.
+    # Held one patch behind djangorestframework on purpose: 3.17.1 retyped Request.data as
+    # dict | list, which the views do not handle yet. Bump only together with those views.
     "djangorestframework-stubs==3.17.0",
     "types-requests ~=2.33.0.20260712",
     "types-paramiko ~=5.0.0.20260724",
+]
+
+test = [
+    "pytest",
+    "pytest-django",
+    "pytest-mock",
+    "pytest-structlog",
+    "fakeredis[lua]",
+]
+
+lint = [
+    "pylint",
+    "pylint-django",
+    # `pylint crczp` lints crczp/*/tests too, so it needs whatever the tests import.
+    { include-group = "test" },
+]
+
+security = [
+    "bandit",
+    "pip-audit",
 ]
 
 [tool.hatch.build.targets.wheel]

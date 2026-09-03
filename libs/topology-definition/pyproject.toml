@@ -8,7 +8,11 @@ requires-python = ">=3.12"
 authors = [{ name = "cybersecurityhub.cz" }]
 dependencies = [
     "yamlize>=0.6",
-    "structlog>=19.2",
+    # Imported by crczp/topology_definition (models.py, utils.py) but never declared until
+    # now; it resolved only because sandbox-service happens to pin it. Upper bound is
+    # load-bearing: >=0.19.1 added a Composer.max_depth check that RoundTripLoader does not
+    # satisfy - see the patch at the top of models.py.
+    "ruamel.yaml>=0.17,<0.18",
     "netaddr>=0.7"
 ]
 
@@ -21,7 +25,8 @@ test = [
 
 lint = [
     "pylint",
-    "pytest",
+    # pylint lints tests/ too, so it needs whatever the tests import.
+    { include-group = "test" },
 ]
 
 security = [

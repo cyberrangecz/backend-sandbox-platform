@@ -13,6 +13,24 @@ dependencies = [
     "boto3>=1.38.40"
 ]
 
+[dependency-groups]
+test = [
+    "pytest",
+    "pytest-mock",
+    "pytest-structlog",
+]
+
+lint = [
+    "pylint",
+    # pylint lints tests/ too, so it needs whatever the tests import.
+    { include-group = "test" },
+]
+
+security = [
+    "bandit",
+    "pip-audit",
+]
+
 [project.urls]
 GitHub = "https://github.com/cyberrangecz/backend-sandbox-platform"
 

@@ -12,6 +12,24 @@ dependencies = [
     "typing_extensions>=4.0.0"
 ]
 
+[dependency-groups]
+test = [
+    "pytest",
+    "pytest-mock",
+    "pytest-structlog",
+]
+
+lint = [
+    "pylint",
+    # pylint lints tests/ too, so it needs whatever the tests import.
+    { include-group = "test" },
+]
+
+security = [
+    "bandit",
+    "pip-audit",
+]
+
 [build-system]
 # TODO: Replace this with uv_build when it is it released for GA.
 #   https://github.com/astral-sh/uv/issues/3957
