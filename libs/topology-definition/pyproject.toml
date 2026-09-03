@@ -79,3 +79,6 @@ skips = ["B101", "B311"]
 minversion = "6.0"
 addopts = "-ra -q"
 testpaths = ["tests"]
+markers = [
+    "integration: mark test as integration test requiring external services",
+]

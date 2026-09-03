@@ -154,6 +154,8 @@ disable = [
 skips = ["B101"]
 
 [tool.pytest.ini_options]
+# Declared here as well as in tox.ini's setenv so `uv run pytest` works without tox.
+DJANGO_SETTINGS_MODULE = "crczp.sandbox_service_project.tests.settings"
 minversion = "6.0"
 addopts = "-ra -q"
 markers = [
