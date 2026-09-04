@@ -1,6 +1,6 @@
 """Utility functions for OpenStack client and network validation."""
 
-from typing import Literal, Union, overload
+from typing import Literal, overload
 
 import keystoneauth1.identity
 import keystoneauth1.session
@@ -46,7 +46,7 @@ def get_session(
 
 # `novaclient.client.Client` is a version-dispatching factory *function*, not a class, so the
 # concrete class behind NOVA_CLIENT_VERSION ('2.x') has to be named explicitly in annotations.
-OpenStackClient = Union[neutron_client.Client, glance_client.Client, nova_v2_client.Client]
+OpenStackClient = neutron_client.Client | glance_client.Client | nova_v2_client.Client
 
 
 @overload

@@ -1,6 +1,6 @@
 """Module for parsing variable configuration files."""
 
-from typing import Any, Optional, TextIO
+from typing import Any, TextIO
 
 import yaml
 
@@ -35,7 +35,7 @@ def get_variables(variables_raw: dict[str, dict[str, Any]]) -> list[Variable]:
     return var_objects
 
 
-def parser_var_file(var_file: TextIO) -> Optional[list[Variable]]:
+def parser_var_file(var_file: TextIO) -> list[Variable] | None:
     """
     Main function to parsen source data stored in file.
 

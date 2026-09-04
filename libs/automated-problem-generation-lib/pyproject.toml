@@ -4,12 +4,30 @@ version = "1.0.3"
 description = "Random generator of selected variables"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 authors = [{ name = "Daniel Kosc", email = "485652@mail.muni.cz" }]
 dependencies = [
     "PyYAML>=6.0.2",
     "better-profanity==0.6.1",
     "typing_extensions>=4.0.0"
+]
+
+[dependency-groups]
+test = [
+    "pytest",
+    "pytest-mock",
+    "pytest-structlog",
+]
+
+lint = [
+    "pylint",
+    # pylint lints tests/ too, so it needs whatever the tests import.
+    { include-group = "test" },
+]
+
+security = [
+    "bandit",
+    "pip-audit",
 ]
 
 [build-system]
@@ -20,7 +38,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["generator"]
-exclude-packages = ["tests"]
 
 [tool.ruff]
 line-length = 127

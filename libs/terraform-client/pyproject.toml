@@ -4,13 +4,34 @@ version = "1.0.4"
 description = "Terraform Client"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 authors = [{ name = "cybersecurityhub.cz" }]
 dependencies = [
     "crczp-python-commons",
     "crczp-openstack-lib",
     "crczp-aws-lib",
-    "Jinja2>=3.1.6"
+    "Jinja2>=3.1.6",
+    # Imported by crczp/terraform_driver/terraform_exc_handlers.py; previously arrived only
+    # transitively through openstack-lib.
+    "structlog>=25.3.0"
+]
+
+[dependency-groups]
+test = [
+    "pytest",
+    "pytest-mock",
+    "pytest-structlog",
+]
+
+lint = [
+    "pylint",
+    # pylint lints tests/ too, so it needs whatever the tests import.
+    { include-group = "test" },
+]
+
+security = [
+    "bandit",
+    "pip-audit",
 ]
 
 [project.urls]
@@ -29,7 +50,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["crczp"]
-exclude-packages = ["tests"]
 
 [tool.ruff]
 line-length = 100

@@ -3,7 +3,6 @@ Module containing CyberRangeCZ Platform Terraform client data elements.
 """
 
 from enum import Enum
-from typing import Union
 
 from crczp.cloud_commons.cloud_client_elements import Image
 
@@ -31,9 +30,9 @@ class TerraformInstance:
             self.status = 'UNKNOWN'
         self.image = image
         self.flavor_name = flavor_name
-        self.links: dict[str, dict[str, Union[str, int]]] = {}
+        self.links: dict[str, dict[str, str | int]] = {}
 
-    def add_link(self, network: str, ip: dict[str, Union[str, int]]) -> None:
+    def add_link(self, network: str, ip: dict[str, str | int]) -> None:
         """Add a network link with its IP attributes to this instance."""
         self.links[network] = ip
 
