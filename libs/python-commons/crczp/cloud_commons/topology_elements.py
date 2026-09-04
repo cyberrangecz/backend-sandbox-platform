@@ -2,10 +2,9 @@
 # pylint: disable=wrong-import-order
 
 from enum import Enum
-from typing import Any, Optional, Union
+from typing import Any, Union, override
 
 from crczp.topology_definition.models import BaseBox, Host, Network, Router
-from typing_extensions import override
 
 Node = Union['MAN', Host, Router]
 
@@ -62,8 +61,8 @@ class Link:
         node: Node,
         network: Network,
         security_group: SecurityGroups,
-        ip: Optional[str] = None,
-        mac: Optional[str] = None,
+        ip: str | None = None,
+        mac: str | None = None,
     ):
         self.name = name
         self.node = node

@@ -158,6 +158,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           version: "0.11.24"
+          python-version: "3.12"
       # tox-uv-bare, not tox-uv: the meta package depends on `uv<1,>=0.9.27` and would
       # install the newest match into the tool env, so a third uv version would read the
       # lockfile. The bare plugin falls through to `which uv`, i.e. the pin above.
@@ -223,6 +224,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           version: "0.11.24"
+          python-version: "3.12"
 
       - name: Generate and Push Swagger Docs
         working-directory: sandbox-service

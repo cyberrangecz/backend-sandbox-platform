@@ -1,8 +1,6 @@
 """Module containing the Variable class for representing variables."""
 
-from typing import Any, Optional
-
-from typing_extensions import override
+from typing import Any, override
 
 
 class Variable:
@@ -41,10 +39,10 @@ class Variable:
         self,
         v_name: str,
         v_type: str,
-        v_min: Optional[Any],
-        v_max: Optional[Any],
+        v_min: Any | None,
+        v_max: Any | None,
         v_prohibited_list: list[Any],
-        v_length: Optional[int],
+        v_length: int | None,
     ) -> None:
         self.name = v_name
         self.type = v_type

@@ -1,7 +1,7 @@
 """Cloud client base module defining abstract cloud client interface."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
 
 from crczp.cloud_commons.cloud_client_elements import (
     HardwareUsage,
@@ -122,7 +122,7 @@ class CrczpCloudClientBase(ABC):
 
     @abstractmethod
     def create_keypair(
-        self, name: str, public_key: Optional[str] = None, key_type: str = 'ssh'
+        self, name: str, public_key: str | None = None, key_type: str = 'ssh'
     ) -> None:
         """
         Create key pair in cloud.
