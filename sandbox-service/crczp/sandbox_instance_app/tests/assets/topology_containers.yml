@@ -1,0 +1,24 @@
+routers:
+- name: server-router
+  os_type: debian
+  gui_access: false
+  is_accessible: true
+  ip: '100.100.100.2'
+  subnets:
+  - name: server-switch
+    cidr: 10.10.20.0/24
+    hosts: []
+- name: home-router
+  os_type: debian
+  gui_access: false
+  is_accessible: true
+  ip: '100.100.100.3'
+  subnets:
+  - name: home-switch
+    cidr: 10.10.30.0/24
+    hosts:
+    - name: home
+      os_type: debian
+      gui_access: false
+      is_accessible: true
+      ip: '10.10.30.5'

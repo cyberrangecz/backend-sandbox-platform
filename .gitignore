@@ -1,0 +1,13 @@
+# Workspace-level artifacts. Each package carries its own .gitignore for
+# anything inside its own directory.
+
+# Shared workspace environment (uv also writes .venv/.gitignore, this is belt-and-braces)
+.venv/
+
+# Tool caches at the workspace root
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/

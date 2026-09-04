@@ -1,0 +1,47 @@
+# Workspace-wide pre-commit configuration.
+#
+# pre-commit always changes to the repository root and passes it every tracked
+# file, regardless of the directory it is invoked from. Per-package configs
+# therefore cannot scope themselves in a monorepo — each would have linted the
+# whole workspace with its own settings — so this is the only pre-commit config
+# in the repository, and hooks are path-scoped here where they need to be.
+
+repos:
+  # Ruff resolves each package's own [tool.ruff] from the nearest pyproject.toml,
+  # so one pass still applies the correct per-package settings.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.11
+    hooks:
+      - id: ruff-check
+        name: ruff-lint
+        args:
+          - --output-format=github
+
+      - id: ruff-format
+        name: ruff-format
+        args:
+          - --check
+
+  # One uv.lock at the root covers every workspace member.
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.11.24
+    hooks:
+      - id: uv-lock
+
+  # NOTE: type checking is not run here. mypy has no hierarchical per-file
+  # config discovery, so from the repository root it would read the root
+  # pyproject.toml and drop every package's own [tool.mypy] settings. The
+  # per-package config is left in place, unused, so it can be re-enabled
+  # (or replaced by ty) without reconstructing it.
+
+  - repo: local
+    hooks:
+      # Only sandbox-service is versioned and tagged in this repository; the six
+      # libraries are no longer published, so they are not tag-controlled.
+      # Exits successfully when no tags exist yet.
+      - id: check-version-bump
+        name: check sandbox-service version bump
+        language: system
+        entry: 'bash -c ''current=$(git show :sandbox-service/pyproject.toml 2>/dev/null | grep -m1 "^version" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+"); latest_tag=$(git tag --sort=-version:refname | grep -E "^v?[0-9]+\.[0-9]+\.[0-9]+$" | head -1 | sed "s/^v//"); [ -z "$latest_tag" ] && exit 0; [ -z "$current" ] && { echo "Could not read version from sandbox-service/pyproject.toml" >&2; exit 1; }; [ "$current" = "$latest_tag" ] && { echo "sandbox-service version not bumped (still $current, latest tag $latest_tag)" >&2; exit 1; }; echo "sandbox-service version OK $latest_tag -> $current"'''
+        pass_filenames: false
+        always_run: true

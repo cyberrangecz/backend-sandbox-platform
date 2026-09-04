@@ -1,0 +1,20 @@
+heat_template_version: '2016-04-08'
+
+description: Integration test heat template
+
+resources:
+    test_base_network:
+        type: OS::Neutron::Net
+        properties:
+            name: $TEST_BASE_NETWORK
+
+    test_base_network_subnet:
+        type: OS::Neutron::Subnet
+        depends_on: test_base_network
+        properties:
+            name: test_base_network_subnet
+            cidr: 192.168.64.0/18
+            ip_version: 4
+            dns_nameservers: [8.8.8.8]
+            network:
+                get_resource: test_base_network

@@ -1,0 +1,35 @@
+---
+provisioning: Openstack # for this api always Openstack
+name: small
+hosts:
+  - name: host1
+    base_box: debian-12-x86_64
+    base_box_user: debian
+    flavor: standard.small
+
+routers:
+  - name: r1
+    cidr: 100.100.100.0/29
+    base_box: debian-12-x86_64
+    base_box_user: debian
+    flavor: standard.small
+
+networks:
+  - name: s1
+    cidr: 10.10.10.0/24
+
+net_mappings:
+  - host: host1
+    network: s1
+    ip: 10.10.10.3
+
+# tip: for router take first ip in the range
+# note: for dhcp openstack (very probably) takes 1. ip from (one of) pools(s) {range} / {router ip}
+# so for hosts don't use those ip(s) (1. in range or next after router ip)
+router_mappings:
+  - router: r1
+    network: s1
+    ip: 10.10.10.1
+
+block_internet: []
+include_user_access: [ s1 ]

@@ -1,0 +1,72 @@
+[project]
+name = "crczp-python-commons"
+version = "2.0.1"
+description = "crczp python commons"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [{ name = "cybersecurityhub.cz" }]
+dependencies = [
+    "crczp-topology-definition"
+]
+[project.optional-dependencies]
+dev = [
+    "types-PyYAML",
+]
+
+[tool.uv.sources]
+crczp-topology-definition = { workspace = true }
+
+[build-system]
+# TODO: Replace this with uv_build when it is it released for GA.
+#   https://github.com/astral-sh/uv/issues/3957
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["crczp"]
+exclude-packages = ["tests"]
+
+[tool.ruff]
+line-length = 100
+preview = true
+
+[tool.ruff.lint]
+select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+]
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.mypy]
+check_untyped_defs = true
+ignore_missing_imports = true
+strict = true
+pretty = true
+enable_error_code = ["deprecated", "explicit-override"]
+explicit_package_bases = true
+
+[tool.pylint]
+# You can add pylint configs here or in .pylintrc
+
+[tool.bandit]
+skips = ["B101", "B311"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = ["tests"]

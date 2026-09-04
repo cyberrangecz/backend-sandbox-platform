@@ -1,0 +1,52 @@
+name: small-sandbox
+hosts:
+  - name: vpn-gw
+    base_box: { image: crczp/debian-12-x86_64, mgmt_user: debian }
+    flavor: standard.small
+
+  - name: server
+    base_box: { image: crczp/debian-12-x86_64, mgmt_user: debian }
+    flavor: standard.small
+    block_internet: True
+    hidden: True
+
+routers:
+  - name: server-router
+    base_box: { image: crczp/debian-12-x86_64, mgmt_user: debian }
+    flavor: standard.small
+
+wan:
+  name: internet-connection
+  cidr: 100.100.100.0/29
+
+networks:
+  - name: server-switch
+    cidr: 10.10.20.0/24
+
+net_mappings:
+  - host: vpn-gw
+    network: server-switch
+    ip: 10.10.20.2
+
+  - host: server
+    network: server-switch
+    ip: 10.10.20.5
+
+router_mappings:
+  - router: server-router
+    network: server-switch
+    ip: 10.10.20.1
+
+groups: []
+
+vpn:
+  dns:
+    servers:
+      - 10.10.20.5
+    search_domains:
+      - sandbox.local
+  entrypoints:
+    - name: vpn-gw
+      routes:
+        - 10.10.0.0/16
+        - 192.168.100.0/24

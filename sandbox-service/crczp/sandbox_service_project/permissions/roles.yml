@@ -1,0 +1,221 @@
+- name: admin
+  default: false
+  permissions:
+    - view_definition
+    - add_definition
+    - change_definition
+    - delete_definition
+
+    - view_pool
+    - add_pool
+    - change_pool
+    - delete_pool
+
+    - view_sandboxallocationunit
+    - add_sandboxallocationunit
+    - change_sandboxallocationunit
+    - delete_sandboxallocationunit
+
+    - view_allocationrequest
+    - add_allocationrequest
+    - change_allocationrequest
+    - delete_allocationrequest
+
+    - view_cleanuprequest
+    - add_cleanuprequest
+    - change_cleanuprequest
+    - delete_cleanuprequest
+
+    - view_sandbox
+    - add_sandbox
+    - change_sandbox
+    - delete_sandbox
+
+    - view_poollock
+    - add_poollock
+    - change_poollock
+    - delete_poollock
+
+    - view_sandboxlock
+    - add_sandboxlock
+    - change_sandboxlock
+    - delete_sandboxlock
+
+    # Allocation Stages
+    - view_allocationstage
+    - add_allocationstage
+    - change_allocationstage
+    - delete_allocationstage
+
+    - view_stackallocationstage
+    - add_stackallocationstage
+    - change_stackallocationstage
+    - delete_stackallocationstage
+
+    - view_networkingansibleallocationstage
+    - add_networkingansibleallocationstage
+    - change_networkingansibleallocationstage
+    - delete_networkingansibleallocationstage
+
+    - view_useransibleallocationstage
+    - add_useransibleallocationstage
+    - change_useransibleallocationstage
+    - delete_useransibleallocationstage
+
+    - view_allocationansibleoutput
+    - add_allocationansibleoutput
+    - change_allocationansibleoutput
+    - delete_allocationansibleoutput
+
+    - view_allocationterraformoutput
+    - add_allocationterraformoutput
+    - change_allocationterraformoutput
+    - delete_allocationterraformoutput
+
+    # Cleanup Stages
+    - view_cleanupstage
+    - add_cleanupstage
+    - change_cleanupstage
+    - delete_cleanupstage
+
+    - view_stackcleanupstage
+    - add_stackcleanupstage
+    - change_stackcleanupstage
+    - delete_stackcleanupstage
+
+    - view_networkingansiblecleanupstage
+    - add_networkingansiblecleanupstage
+    - change_networkingansiblecleanupstage
+    - delete_networkingansiblecleanupstage
+
+    - view_useransiblecleanupstage
+    - add_useransiblecleanupstage
+    - change_useransiblecleanupstage
+    - delete_useransiblecleanupstage
+
+    - view_cleanupansibleoutput
+    - add_cleanupansibleoutput
+    - change_cleanupansibleoutput
+    - delete_cleanupansibleoutput
+
+    - view_cleanupterraformoutput
+    - add_cleanupterraformoutput
+    - change_cleanupterraformoutput
+    - delete_cleanupterraformoutput
+
+- name: designer
+  default: false
+  permissions:
+    - view_definition
+    - add_definition
+    - change_definition
+    - delete_definition
+
+- name: organizer
+  default: false
+  permissions:
+    - view_definition
+
+    - view_pool
+    - add_pool
+    - change_pool
+    - delete_pool
+
+    - view_sandboxallocationunit
+    - add_sandboxallocationunit
+    - change_sandboxallocationunit
+    - delete_sandboxallocationunit
+
+    - view_allocationrequest
+    - add_allocationrequest
+    - change_allocationrequest
+    - delete_allocationrequest
+
+    - view_cleanuprequest
+    - add_cleanuprequest
+    - change_cleanuprequest
+    - delete_cleanuprequest
+
+    - view_sandbox
+    - add_sandbox
+    - change_sandbox
+    - delete_sandbox
+
+    - view_poollock
+    - add_poollock
+    - change_poollock
+    - delete_poollock
+
+    - view_sandboxlock
+    - add_sandboxlock
+    - change_sandboxlock
+    - delete_sandboxlock
+
+    # Allocation Stages
+    - view_allocationstage
+    - add_allocationstage
+    - change_allocationstage
+    - delete_allocationstage
+
+    - view_stackallocationstage
+    - add_stackallocationstage
+    - change_stackallocationstage
+    - delete_stackallocationstage
+
+    - view_networkingansibleallocationstage
+    - add_networkingansibleallocationstage
+    - change_networkingansibleallocationstage
+    - delete_networkingansibleallocationstage
+
+    - view_useransibleallocationstage
+    - add_useransibleallocationstage
+    - change_useransibleallocationstage
+    - delete_useransibleallocationstage
+
+    - view_allocationansibleoutput
+    - add_allocationansibleoutput
+    - change_allocationansibleoutput
+    - delete_allocationansibleoutput
+
+    - view_allocationterraformoutput
+    - add_allocationterraformoutput
+    - change_allocationterraformoutput
+    - delete_allocationterraformoutput
+
+    # Cleanup Stages
+    - view_cleanupstage
+    - add_cleanupstage
+    - change_cleanupstage
+    - delete_cleanupstage
+
+    - view_stackcleanupstage
+    - add_stackcleanupstage
+    - change_stackcleanupstage
+    - delete_stackcleanupstage
+
+    - view_networkingansiblecleanupstage
+    - add_networkingansiblecleanupstage
+    - change_networkingansiblecleanupstage
+    - delete_networkingansiblecleanupstage
+
+    - view_useransiblecleanupstage
+    - add_useransiblecleanupstage
+    - change_useransiblecleanupstage
+    - delete_useransiblecleanupstage
+
+    - view_cleanupansibleoutput
+    - add_cleanupansibleoutput
+    - change_cleanupansibleoutput
+    - delete_cleanupansibleoutput
+
+    - view_cleanupterraformoutput
+    - add_cleanupterraformoutput
+    - change_cleanupterraformoutput
+    - delete_cleanupterraformoutput
+
+- name: trainee
+  default: true
+  permissions:
+    - view_definition
+    - view_sandbox
+    - change_sandbox
