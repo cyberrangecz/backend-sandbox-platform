@@ -2,7 +2,7 @@
 
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import boto3
@@ -306,8 +306,8 @@ class CrczpAwsClient(CrczpCloudClientBase):
                 {'Name': 'Service', 'Value': 'EC2'},
                 {'Name': 'Class', 'Value': 'Standard/OnDemand'},
             ],
-            StartTime=datetime.now(timezone.utc) - timedelta(days=1),
-            EndTime=datetime.now(timezone.utc),
+            StartTime=datetime.now(UTC) - timedelta(days=1),
+            EndTime=datetime.now(UTC),
             Period=300,
             Statistics=['Maximum'],
         )

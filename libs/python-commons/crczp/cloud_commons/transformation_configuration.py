@@ -1,7 +1,5 @@
 """Transformation configuration module for cloud resource settings."""
 
-from typing import Optional
-
 from yamlize import Attribute, Object, StrList
 
 BASE_NETWORK = 'crczp-network'
@@ -34,7 +32,7 @@ class TransformationConfiguration(Object):
         base_network: str = BASE_NETWORK,
         man_out_port: str = MAN_OUT_PORT,
         sandbox_man_cidr: str = SANDBOX_MAN_CIDR,
-        dns_name_servers: Optional[list[str]] = None,
+        dns_name_servers: list[str] | None = None,
     ):
         self.man_image = man_image
         self.man_flavor = man_flavor

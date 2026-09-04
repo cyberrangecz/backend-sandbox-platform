@@ -4,7 +4,7 @@ version = "1.0.4"
 description = "Terraform Client"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 authors = [{ name = "cybersecurityhub.cz" }]
 dependencies = [
     "crczp-python-commons",

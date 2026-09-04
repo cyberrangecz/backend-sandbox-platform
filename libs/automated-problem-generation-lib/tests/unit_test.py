@@ -2,15 +2,14 @@
 
 import copy
 import os
-from typing import Optional
 from unittest import TestCase
 
 from generator.var_generator import generate
 from generator.var_object import Variable
 from generator.var_parser import parser_var_file
 
-PARSED_FILE: Optional[list[Variable]] = None
-GENERATED_VARIABLES: Optional[list[Variable]] = None
+PARSED_FILE: list[Variable] | None = None
+GENERATED_VARIABLES: list[Variable] | None = None
 
 
 def setUpModule() -> None:

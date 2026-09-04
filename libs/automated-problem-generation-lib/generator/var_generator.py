@@ -5,7 +5,7 @@ import random
 import string
 import warnings
 from ipaddress import AddressValueError, IPv4Address
-from typing import Any, Optional
+from typing import Any
 
 from better_profanity import profanity
 
@@ -159,7 +159,7 @@ def get_random_ip(var_obj: Variable) -> str:
             Generated IP address in dotted-decimal notation
     """
 
-    def parse_ip_to_int(ip_value: Optional[Any], default: int) -> int:
+    def parse_ip_to_int(ip_value: Any | None, default: int) -> int:
         """
         Parse IP value to integer, return default on any failure.
 

@@ -1,9 +1,7 @@
 """Cloud client elements module for wrapping cloud resource data."""
 
 from dataclasses import dataclass
-from typing import Union
-
-from typing_extensions import override
+from typing import override
 
 from crczp.cloud_commons.exceptions import CrczpException
 
@@ -15,20 +13,20 @@ class Image:
 
     def __init__(
         self,
-        os_distro: Union[str, None],
-        os_type: Union[str, None],
-        disk_format: Union[str, None],
-        container_format: Union[str, None],
-        visibility: Union[str, None],
-        size: Union[int, None],
-        status: Union[str, None],
-        min_ram: Union[int, None],
-        min_disk: Union[int, None],
-        created_at: Union[str, None],
-        updated_at: Union[str, None],
+        os_distro: str | None,
+        os_type: str | None,
+        disk_format: str | None,
+        container_format: str | None,
+        visibility: str | None,
+        size: int | None,
+        status: str | None,
+        min_ram: int | None,
+        min_disk: int | None,
+        created_at: str | None,
+        updated_at: str | None,
         tags: list[str],
-        default_user: Union[str, None],
-        name: Union[str, None],
+        default_user: str | None,
+        name: str | None,
         owner_specified: dict[str, str],
     ):
         self.os_distro = os_distro

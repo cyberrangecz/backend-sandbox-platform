@@ -1,6 +1,6 @@
 """CrczpOpenStackClient — high-level interface for the OpenStack driver."""
 
-from typing import Any, Optional
+from typing import Any
 
 import novaclient.v2.keypairs
 
@@ -180,7 +180,7 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
 
     @check_authentication
     def create_keypair(
-        self, name: str, public_key: Optional[str] = None, key_type: str = 'ssh'
+        self, name: str, public_key: str | None = None, key_type: str = 'ssh'
     ) -> None:
         """
         Create key-pair in OpenStack. If public_key is not specified, new key-pair is created.

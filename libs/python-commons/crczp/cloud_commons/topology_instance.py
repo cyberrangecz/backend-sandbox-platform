@@ -1,7 +1,7 @@
 """Topology instance module for managing topology instances."""
 
 from collections.abc import Iterable
-from typing import Optional, cast
+from typing import cast, override
 
 import yaml
 from crczp.topology_definition.models import (
@@ -19,7 +19,6 @@ from crczp.topology_definition.models import (
     TopologyDefinition,
 )
 from netaddr import IPNetwork, IPSet
-from typing_extensions import override
 
 from crczp.cloud_commons.exceptions import CrczpException, InvalidTopologyDefinition
 from crczp.cloud_commons.topology_elements import (
@@ -45,7 +44,7 @@ class TopologyInstance:
         self,
         topology_definition: TopologyDefinition,
         trc: TransformationConfiguration,
-        containers: Optional[DockerContainers] = None,
+        containers: DockerContainers | None = None,
     ):
         self.topology_definition = topology_definition
         self.containers = containers
@@ -110,7 +109,7 @@ class TopologyInstance:
         """
         return cast(Iterable[Router], self.topology_definition.routers)
 
-    def get_node(self, name: str) -> Optional[Node]:
+    def get_node(self, name: str) -> Node | None:
         """
         Return a TI virtual machine, or None if there is no machine of that name.
 
@@ -174,7 +173,7 @@ class TopologyInstance:
         mt = self.topology_definition.monitoring_targets
         return mt.icmp or [] if mt else []
 
-    def get_monitored_hosts_http(self) -> Optional[MonitoringTargetHTTP]:
+    def get_monitored_hosts_http(self) -> MonitoringTargetHTTP | None:
         """
         Return the HTTP monitoring target configuration (URL list).
         """
@@ -191,7 +190,7 @@ class TopologyInstance:
             if host_network.accessible_by_user
         ]
 
-    def get_network(self, name: str) -> Optional[Network]:
+    def get_network(self, name: str) -> Network | None:
         """
         Return a TI virtual network, or None if there is no network of that name.
 
@@ -225,9 +224,7 @@ class TopologyInstance:
 
     # get links
 
-    def get_node_links(
-        self, node: Node, networks: Optional[Iterable[Network]] = None
-    ) -> list[Link]:
+    def get_node_links(self, node: Node, networks: Iterable[Network] | None = None) -> list[Link]:
         """
         Return a list of Links associated with a given node.
 
@@ -241,7 +238,7 @@ class TopologyInstance:
         ]
 
     def get_network_links(
-        self, network: Network, nodes: Optional[Iterable[Node]] = None
+        self, network: Network, nodes: Iterable[Node] | None = None
     ) -> list[Link]:
         """
         Return a list of Links associated with a given network.
@@ -255,7 +252,7 @@ class TopologyInstance:
             if nodes is None or link.node in nodes
         ]
 
-    def get_link_between_node_and_network(self, node: Node, network: Network) -> Optional[Link]:
+    def get_link_between_node_and_network(self, node: Node, network: Network) -> Link | None:
         """
         Return a Link associated with given server and network.
         """
@@ -270,7 +267,7 @@ class TopologyInstance:
             raise CrczpException(msg)
         return links[0]
 
-    def get_network_default_gateway_link(self, network: Network) -> Optional[Link]:
+    def get_network_default_gateway_link(self, network: Network) -> Link | None:
         """
         Return a default gateway Link of the given network.
         """
@@ -322,8 +319,8 @@ class TopologyInstance:
     def get_node_to_nodes_link_pairs(
         self,
         node: Node,
-        networks: Optional[Iterable[Network]] = None,
-        nodes: Optional[list[Node]] = None,
+        networks: Iterable[Network] | None = None,
+        nodes: list[Node] | None = None,
     ) -> list[NodeToNodeLinkPair]:
         """
         Return a list of NodeToNodeLinkPairs starting from a node to all other nodes
@@ -472,7 +469,9 @@ class TopologyInstance:
         # one of first IP addresses in range of straight sequence of IP addresses is taken by DHCP
         # backward iteration so that picking free IP address will not
         #   unnecessarily divide range of straight sequence of IP addresses
-        for lower, upper in zip(reversed(ip_list[:-1]), reversed(ip_list)):
+        # strict=False is deliberate: the two iterables differ in length by one by
+        # construction, which is what makes each pair a consecutive (lower, upper).
+        for lower, upper in zip(reversed(ip_list[:-1]), reversed(ip_list), strict=False):
             if lower + 1 == upper:
                 return str(upper)
 
@@ -483,8 +482,8 @@ class TopologyInstance:
         node: Node,
         network: Network,
         security_group: SecurityGroups,
-        ip: Optional[str] = None,
-        mac: Optional[str] = None,
+        ip: str | None = None,
+        mac: str | None = None,
     ) -> None:
         """
         Create and add Link amongst TI links.
