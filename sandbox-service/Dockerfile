@@ -11,9 +11,13 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends gcc && \
-    pip install --no-cache-dir uv && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+# Pinned in step with .github/workflows/github-actions.yml and .pre-commit-config.yaml,
+# so one uv version writes and reads uv.lock everywhere. This replaces an apt gcc layer
+# plus an unpinned `pip install uv`: gcc is not needed, because every compiled dependency
+# in the locked set ships a cp312/abi3 manylinux wheel (psycopg2-binary, cryptography,
+# hiredis, ruamel.yaml.clib, bcrypt, pynacl), and the one sdist-only package, coreschema,
+# is pure Python.
+COPY --from=ghcr.io/astral-sh/uv:0.11.24 /uv /uvx /bin/
 
 # Workspace manifests and every member's source, so uv can resolve and build
 # the crczp-* path dependencies.
