@@ -1,7 +1,7 @@
 """Database models for sandbox instance app."""
 
 from functools import partial
-from typing import override
+from typing import TYPE_CHECKING, override
 
 import structlog
 from django.conf import settings
@@ -13,12 +13,33 @@ from crczp.sandbox_common_lib import utils
 from crczp.sandbox_definition_app.models import Definition
 from crczp.sandbox_instance_app.lib.email_notifications import send_email, validate_emails_enabled
 
+if TYPE_CHECKING:
+    # Only for the reverse-accessor annotations below; importing at runtime would
+    # be circular (sandbox_ansible_app.models imports from this module).
+    from crczp.sandbox_ansible_app.models import (
+        AllocationAnsibleOutput,
+        CleanupAnsibleOutput,
+        Container,
+        ContainerCleanup,
+        NetworkingAnsibleAllocationStage,
+        NetworkingAnsibleCleanupStage,
+        UserAnsibleAllocationStage,
+        UserAnsibleCleanupStage,
+    )
+
 DEFAULT_SANDBOX_UUID = '1'
 LOG = structlog.get_logger()
 
 
 class Pool(models.Model):
     """Represents a pool of sandboxes sharing a common definition and key-pair."""
+
+    # Descriptors Django creates at runtime (implicit pk and reverse relations).
+    # Bare annotations only: they declare types for the type checker and are
+    # invisible to Django's model machinery, so they never affect the schema.
+    id: int
+    allocation_units: models.Manager['SandboxAllocationUnit']
+    lock: 'PoolLock'
 
     definition = models.ForeignKey(
         Definition,
@@ -88,6 +109,11 @@ class Pool(models.Model):
 class SandboxAllocationUnit(models.Model):
     """Represents a single sandbox allocation unit within a pool."""
 
+    id: int
+    sandbox: 'Sandbox'
+    allocation_request: 'AllocationRequest'
+    cleanup_request: 'CleanupRequest'
+
     pool = models.ForeignKey(
         Pool,
         on_delete=models.PROTECT,
@@ -110,6 +136,10 @@ class SandboxAllocationUnit(models.Model):
 
 class Sandbox(models.Model):
     """Represents an allocated sandbox with user access keys."""
+
+    lock: 'SandboxLock'
+    netbird_access: 'SandboxNetbirdAccess'
+    netbird_resources: models.Manager['SandboxNetbirdResources']
 
     id = models.CharField(
         primary_key=True,
@@ -145,6 +175,8 @@ class Sandbox(models.Model):
 class SandboxLock(models.Model):
     """Represents a lock on a sandbox preventing concurrent access."""
 
+    id: int
+
     sandbox = models.OneToOneField(
         Sandbox,
         on_delete=models.PROTECT,
@@ -161,6 +193,8 @@ class SandboxLock(models.Model):
 
 class PoolLock(models.Model):
     """Represents a lock on a pool used during active training sessions."""
+
+    id: int
 
     pool = models.OneToOneField(
         Pool,
@@ -195,6 +229,11 @@ class SandboxRequest(models.Model):
 class AllocationRequest(SandboxRequest):
     """Represents a request to allocate a sandbox for an allocation unit."""
 
+    stages: models.Manager['AllocationStage']
+    stackallocationstage: 'StackAllocationStage'
+    networkingansibleallocationstage: 'NetworkingAnsibleAllocationStage'
+    useransibleallocationstage: 'UserAnsibleAllocationStage'
+
     allocation_unit = models.OneToOneField(
         SandboxAllocationUnit,
         on_delete=models.CASCADE,
@@ -213,6 +252,11 @@ class AllocationRequest(SandboxRequest):
 
 class CleanupRequest(SandboxRequest):
     """Represents a request to clean up and delete a sandbox allocation unit."""
+
+    stages: models.Manager['CleanupStage']
+    stackcleanupstage: 'StackCleanupStage'
+    networkingansiblecleanupstage: 'NetworkingAnsibleCleanupStage'
+    useransiblecleanupstage: 'UserAnsibleCleanupStage'
 
     allocation_unit = models.OneToOneField(
         SandboxAllocationUnit,
@@ -273,6 +317,18 @@ class Stage(models.Model):
 class AllocationStage(Stage):
     """Concrete stage associated with an allocation request."""
 
+    rq_job: 'AllocationRQJob'
+    terraform_outputs: models.Manager['AllocationTerraformOutput']
+    outputs: models.Manager['AllocationAnsibleOutput']
+    # Reverse OneToOne links of the multi-table-inheritance children.
+    stackallocationstage: 'StackAllocationStage'
+    networkingansibleallocationstage: 'NetworkingAnsibleAllocationStage'
+    useransibleallocationstage: 'UserAnsibleAllocationStage'
+    # Reverse OneToOne links of the concrete ExternalDependency subclasses.
+    terraformstack: 'TerraformStack'
+    systemprocess: 'SystemProcess'
+    container: 'Container'
+
     allocation_request_fk_many = models.ForeignKey(
         AllocationRequest, on_delete=models.CASCADE, related_name='stages'
     )
@@ -280,6 +336,16 @@ class AllocationStage(Stage):
 
 class CleanupStage(Stage):
     """Concrete stage associated with a cleanup request."""
+
+    rq_job: 'CleanupRQJob'
+    terraform_outputs: models.Manager['CleanupTerraformOutput']
+    outputs: models.Manager['CleanupAnsibleOutput']
+    # Reverse OneToOne links of the multi-table-inheritance children.
+    stackcleanupstage: 'StackCleanupStage'
+    networkingansiblecleanupstage: 'NetworkingAnsibleCleanupStage'
+    useransiblecleanupstage: 'UserAnsibleCleanupStage'
+    # Reverse OneToOne link of the concrete ExternalDependencyCleanup subclass.
+    containercleanup: 'ContainerCleanup'
 
     cleanup_request_fk_many = models.ForeignKey(
         CleanupRequest, on_delete=models.CASCADE, related_name='stages'
@@ -453,6 +519,9 @@ class SandboxNetbirdAccess(models.Model):
     the cleanup path tolerates nulls and issues 404-tolerant deletes.
     """
 
+    # Implicit FK attribute; Sandbox has a CharField primary key.
+    sandbox_id: str
+
     sandbox = models.OneToOneField(
         Sandbox,
         on_delete=models.CASCADE,
@@ -496,6 +565,9 @@ class SandboxNetbirdResources(models.Model):
     All fields are nullable so that a partial-failure state can be persisted:
     the cleanup path tolerates nulls and issues 404-tolerant deletes.
     """
+
+    # Implicit FK attribute; Sandbox has a CharField primary key.
+    sandbox_id: str
 
     sandbox = models.ForeignKey(
         Sandbox,

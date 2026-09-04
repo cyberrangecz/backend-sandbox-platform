@@ -13,8 +13,10 @@ from crczp.topology_definition.utils import rename_deprecated_attribute
 # ruamel.yaml >=0.19.1 added a max_depth check in Composer.compose_node that
 # accesses self.loader.max_depth, but RoundTripLoader (used by yamlize directly)
 # does not define this attribute. Patch the class so the depth check is a no-op.
+# The assignment deliberately introduces an attribute the class does not declare,
+# which is exactly what ty flags, hence the suppression.
 if not hasattr(_RoundTripLoader, 'max_depth'):
-    _RoundTripLoader.max_depth = None
+    _RoundTripLoader.max_depth = None  # ty: ignore[unresolved-attribute]
 from crczp.topology_definition.validators import TopologyValidation
 
 
@@ -37,15 +39,17 @@ class Protocol(Enum):
             raise ValueError(f'Invalid value for Protocol: {val}') from exc
 
 
-class BaseBox(Object):  # type: ignore[misc]
+class BaseBox(Object):
     """
     Base box definition.
     """
 
     image = Attribute(type=str)
     mgmt_user = Attribute(type=str, default='debian')
+    # yamlize's Typed is a metaclass whose __new__ builds and returns a separate class,
+    # so type.__init__ is never reached; ty still checks the call against its overloads.
     mgmt_protocol = Attribute(
-        type=Typed(
+        type=Typed(  # ty: ignore[no-matching-overload]
             Protocol,
             from_yaml=(lambda loader, node, rtd: Protocol.create(loader.construct_object(node))),
             to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.name)),
@@ -60,10 +64,10 @@ class BaseBox(Object):  # type: ignore[misc]
         """
         rename_deprecated_attribute(node.value, 'man_user', 'mgmt_user')
         rename_deprecated_attribute(node.value, 'mng_protocol', 'mgmt_protocol')
-        return super().from_yaml(loader, node, _rtd)  # type: ignore[no-any-return]
+        return super().from_yaml(loader, node, _rtd)
 
 
-class ExtraValues(Map):  # type: ignore[misc]
+class ExtraValues(Map):
     """
     Map for extra values.
     """
@@ -72,7 +76,7 @@ class ExtraValues(Map):  # type: ignore[misc]
     value_type = Dynamic
 
 
-class Volume(Object):  # type: ignore[misc]
+class Volume(Object):
     """
     Volume definition.
     """
@@ -80,7 +84,7 @@ class Volume(Object):  # type: ignore[misc]
     size = Attribute(type=int, default=None)
 
 
-class VolumeList(Sequence):  # type: ignore[misc]
+class VolumeList(Sequence):
     """
     List of volumes.
     """
@@ -88,7 +92,7 @@ class VolumeList(Sequence):  # type: ignore[misc]
     item_type = Volume
 
 
-class Host(Object):  # type: ignore[misc]
+class Host(Object):
     """
     Host definition.
     """
@@ -120,7 +124,7 @@ class Host(Object):  # type: ignore[misc]
         self.volumes = volumes
 
 
-class HostList(Sequence):  # type: ignore[misc]
+class HostList(Sequence):
     """
     List of hosts.
     """
@@ -128,7 +132,7 @@ class HostList(Sequence):  # type: ignore[misc]
     item_type = Host
 
 
-class Router(Object):  # type: ignore[misc]
+class Router(Object):
     """
     Router definition.
     """
@@ -145,7 +149,7 @@ class Router(Object):  # type: ignore[misc]
         self.flavor = flavor
 
 
-class RouterList(Sequence):  # type: ignore[misc]
+class RouterList(Sequence):
     """
     List of routers.
     """
@@ -153,7 +157,7 @@ class RouterList(Sequence):  # type: ignore[misc]
     item_type = Router
 
 
-class Network(Object):  # type: ignore[misc]
+class Network(Object):
     """
     Network definition.
     """
@@ -170,7 +174,7 @@ class Network(Object):  # type: ignore[misc]
         self.hidden = hidden
 
 
-class WAN(Object):  # type: ignore[misc]
+class WAN(Object):
     """
     WAN definition.
     """
@@ -183,7 +187,7 @@ class WAN(Object):  # type: ignore[misc]
         self.cidr = cidr
 
 
-class NetworkList(Sequence):  # type: ignore[misc]
+class NetworkList(Sequence):
     """
     List of networks.
     """
@@ -191,7 +195,7 @@ class NetworkList(Sequence):  # type: ignore[misc]
     item_type = Network
 
 
-class NetworkMapping(Object):  # type: ignore[misc]
+class NetworkMapping(Object):
     """
     Network mapping definition.
     """
@@ -206,7 +210,7 @@ class NetworkMapping(Object):  # type: ignore[misc]
         self.ip = ip
 
 
-class NetworkMappingList(Sequence):  # type: ignore[misc]
+class NetworkMappingList(Sequence):
     """
     List of network mappings.
     """
@@ -214,7 +218,7 @@ class NetworkMappingList(Sequence):  # type: ignore[misc]
     item_type = NetworkMapping
 
 
-class RouterMapping(Object):  # type: ignore[misc]
+class RouterMapping(Object):
     """
     Router mapping definition.
     """
@@ -229,7 +233,7 @@ class RouterMapping(Object):  # type: ignore[misc]
         self.ip = ip
 
 
-class RouterMappingList(Sequence):  # type: ignore[misc]
+class RouterMappingList(Sequence):
     """
     List of router mappings.
     """
@@ -237,7 +241,7 @@ class RouterMappingList(Sequence):  # type: ignore[misc]
     item_type = RouterMapping
 
 
-class Group(Object):  # type: ignore[misc]
+class Group(Object):
     """
     Group definition.
     """
@@ -256,7 +260,7 @@ class Group(Object):  # type: ignore[misc]
         self.nodes.append(node)
 
 
-class GroupList(Sequence):  # type: ignore[misc]
+class GroupList(Sequence):
     """
     List of groups.
     """
@@ -264,7 +268,7 @@ class GroupList(Sequence):  # type: ignore[misc]
     item_type = Group
 
 
-class TargetTCP(Object):  # type: ignore[misc]
+class TargetTCP(Object):
     """
     TCP monitoring target definition. Exactly one of interface or address must be specified.
     """
@@ -274,7 +278,7 @@ class TargetTCP(Object):  # type: ignore[misc]
     port = Attribute(type=int)
 
 
-class TargetTCPList(Sequence):  # type: ignore[misc]
+class TargetTCPList(Sequence):
     """
     List of TCP targets.
     """
@@ -282,7 +286,7 @@ class TargetTCPList(Sequence):  # type: ignore[misc]
     item_type = TargetTCP
 
 
-class MonitoringTargetTCP(Object):  # type: ignore[misc]
+class MonitoringTargetTCP(Object):
     """
     TCP monitoring target node definition.
     """
@@ -291,7 +295,7 @@ class MonitoringTargetTCP(Object):  # type: ignore[misc]
     targets = Attribute(type=TargetTCPList, validator=TopologyValidation.validate_targets_tcp)
 
 
-class MonitoringTargetTCPList(Sequence):  # type: ignore[misc]
+class MonitoringTargetTCPList(Sequence):
     """
     List of TCP monitoring targets.
     """
@@ -299,7 +303,7 @@ class MonitoringTargetTCPList(Sequence):  # type: ignore[misc]
     item_type = MonitoringTargetTCP
 
 
-class TargetICMP(Object):  # type: ignore[misc]
+class TargetICMP(Object):
     """
     ICMP monitoring target definition. Exactly one of interface or address must be specified.
     """
@@ -308,7 +312,7 @@ class TargetICMP(Object):  # type: ignore[misc]
     address = Attribute(type=str, default=None)
 
 
-class TargetICMPList(Sequence):  # type: ignore[misc]
+class TargetICMPList(Sequence):
     """
     List of ICMP targets.
     """
@@ -316,7 +320,7 @@ class TargetICMPList(Sequence):  # type: ignore[misc]
     item_type = TargetICMP
 
 
-class MonitoringTargetICMP(Object):  # type: ignore[misc]
+class MonitoringTargetICMP(Object):
     """
     ICMP monitoring target node definition.
     """
@@ -325,7 +329,7 @@ class MonitoringTargetICMP(Object):  # type: ignore[misc]
     targets = Attribute(type=TargetICMPList, validator=TopologyValidation.validate_targets_icmp)
 
 
-class MonitoringTargetICMPList(Sequence):  # type: ignore[misc]
+class MonitoringTargetICMPList(Sequence):
     """
     List of ICMP monitoring targets.
     """
@@ -333,7 +337,7 @@ class MonitoringTargetICMPList(Sequence):  # type: ignore[misc]
     item_type = MonitoringTargetICMP
 
 
-class TargetHTTP(Object):  # type: ignore[misc]
+class TargetHTTP(Object):
     """
     HTTP monitoring target definition.
     """
@@ -342,7 +346,7 @@ class TargetHTTP(Object):  # type: ignore[misc]
     check_string = Attribute(type=str, default=None)
 
 
-class TargetHTTPList(Sequence):  # type: ignore[misc]
+class TargetHTTPList(Sequence):
     """
     List of HTTP targets.
     """
@@ -350,7 +354,7 @@ class TargetHTTPList(Sequence):  # type: ignore[misc]
     item_type = TargetHTTP
 
 
-class MonitoringTargetHTTP(Object):  # type: ignore[misc]
+class MonitoringTargetHTTP(Object):
     """
     HTTP monitoring targets (not bound to a specific node).
     """
@@ -358,7 +362,7 @@ class MonitoringTargetHTTP(Object):  # type: ignore[misc]
     targets = Attribute(type=TargetHTTPList, validator=TopologyValidation.validate_targets_http)
 
 
-class MonitoringTargets(Object):  # type: ignore[misc]
+class MonitoringTargets(Object):
     """
     Consolidated monitoring targets definition.
     """
@@ -376,7 +380,7 @@ class MonitoringTargets(Object):  # type: ignore[misc]
     http = Attribute(type=MonitoringTargetHTTP, default=None)
 
 
-class VpnEntrypoint(Object):  # type: ignore[misc]
+class VpnEntrypoint(Object):
     """
     VPN entrypoint definition. Declares a topology host or router that acts as a
     Netbird VPN gateway.
@@ -386,7 +390,7 @@ class VpnEntrypoint(Object):  # type: ignore[misc]
     routes = Attribute(type=StrList, validator=TopologyValidation.validate_vpn_routes)
 
 
-class VpnEntrypointList(Sequence):  # type: ignore[misc]
+class VpnEntrypointList(Sequence):
     """
     List of VPN entrypoints.
     """
@@ -394,7 +398,7 @@ class VpnEntrypointList(Sequence):  # type: ignore[misc]
     item_type = VpnEntrypoint
 
 
-class VpnDns(Object):  # type: ignore[misc]
+class VpnDns(Object):
     """
     VPN DNS settings distributed to every client in the sandbox access group.
 
@@ -410,7 +414,7 @@ class VpnDns(Object):  # type: ignore[misc]
     )
 
 
-class Vpn(Object):  # type: ignore[misc]
+class Vpn(Object):
     """
     VPN settings for the sandbox (Netbird).
 
@@ -423,7 +427,7 @@ class Vpn(Object):  # type: ignore[misc]
     dns = Attribute(type=VpnDns, default=None)
 
 
-class TopologyDefinition(Object):  # type: ignore[misc]  # pylint: disable=too-many-instance-attributes
+class TopologyDefinition(Object):  # pylint: disable=too-many-instance-attributes
     """
     Topology definition.
     """
@@ -481,7 +485,7 @@ class TopologyDefinition(Object):  # type: ignore[misc]  # pylint: disable=too-m
         Load TopologyDefinition from file.
         """
         with open(file, encoding='utf-8') as f:
-            return TopologyDefinition.load(f)  # type: ignore[no-any-return]
+            return TopologyDefinition.load(f)
 
     def index(self) -> None:
         """
@@ -552,7 +556,7 @@ class TopologyDefinition(Object):  # type: ignore[misc]  # pylint: disable=too-m
         self._indexed = False
 
 
-class Container(Object):  # type: ignore[misc]
+class Container(Object):
     """
     Container definition.
     """
@@ -562,7 +566,7 @@ class Container(Object):  # type: ignore[misc]
     dockerfile = Attribute(type=str, default='')
 
 
-class ContainerList(Sequence):  # type: ignore[misc]
+class ContainerList(Sequence):
     """
     List of containers.
     """
@@ -570,7 +574,7 @@ class ContainerList(Sequence):  # type: ignore[misc]
     item_type = Container
 
 
-class ContainerMapping(Object):  # type: ignore[misc]
+class ContainerMapping(Object):
     """
     Container mapping definition.
     """
@@ -581,7 +585,7 @@ class ContainerMapping(Object):  # type: ignore[misc]
     hidden = Attribute(type=bool, default=False)
 
 
-class ContainerMappingList(Sequence):  # type: ignore[misc]
+class ContainerMappingList(Sequence):
     """
     List of container mappings.
     """
@@ -589,7 +593,7 @@ class ContainerMappingList(Sequence):  # type: ignore[misc]
     item_type = ContainerMapping
 
 
-class DockerContainers(Object):  # type: ignore[misc]
+class DockerContainers(Object):
     """
     Docker containers definition.
     """
@@ -604,4 +608,4 @@ class DockerContainers(Object):  # type: ignore[misc]
         Load DockerContainers from file.
         """
         with open(file, encoding='utf-8') as f:
-            return DockerContainers.load(f)  # type: ignore[no-any-return]
+            return DockerContainers.load(f)

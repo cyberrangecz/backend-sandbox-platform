@@ -112,6 +112,9 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       FORCE_COLOR: "1"
+      # The ty hook wraps `uv check` and takes no ty flags, so its output format
+      # is set here rather than in .pre-commit-config.yaml.
+      TY_OUTPUT_FORMAT: github
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4

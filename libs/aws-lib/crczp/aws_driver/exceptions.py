@@ -5,7 +5,7 @@ from typing import override
 from crczp.cloud_commons import CrczpException
 
 
-class CrczpAwsClientException(CrczpException):  # type: ignore[misc]
+class CrczpAwsClientException(CrczpException):
     """
     Base exception for all AWS client exceptions
     """

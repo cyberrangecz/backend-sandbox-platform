@@ -21,7 +21,7 @@ Core tooling:
 * **Package Manager:** `uv`
 * **Project configuration:** `pyproject.toml`
 * **Task orchestration:** `tox`
-* **Code quality:** `pre-commit`, `ruff`, `mypy`, `pylint`
+* **Code quality:** `pre-commit`, `ruff`, `ty`, `pylint`
 * **Security:** `bandit`, dependency audit
 * **Testing:** `pytest`
 
@@ -120,7 +120,7 @@ Configured hooks include:
 
 * `ruff` (linting)
 * `ruff format` (formatting)
-* `mypy` (static type checking)
+* `ty` (static type checking)
 
 Agents must ensure all hooks pass.
 
@@ -134,7 +134,7 @@ Agents must ensure all hooks pass.
 * Rules are defined in `pyproject.toml`
 * Manual formatting outside Ruff is not allowed
 
-### MyPy
+### ty
 
 * All new and modified code must be fully type-annotated
 * Avoid `Any` unless absolutely necessary

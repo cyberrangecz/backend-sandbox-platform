@@ -29,7 +29,8 @@ class TryParser(TestCase):
 
     def test_invalid_argument(self) -> None:
         """Test that invalid argument returns None."""
-        self.assertTrue(not parser_var_file('path'))  # type: ignore
+        # Passing a str where TextIO is expected is the point of this test.
+        self.assertTrue(not parser_var_file('path'))  # ty: ignore[invalid-argument-type]
 
     def test_invalid_file(self) -> None:
         """Test that invalid file returns None."""

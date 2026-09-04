@@ -233,15 +233,27 @@ class Routing:  # pylint: disable=too-few-public-methods
         """
         The main method that initializes a Routing instance from TopologyInstance.
         """
+        # The MAN is always attached to the WAN and, on an enriched TopologyInstance, every
+        # Link carries an ip/mac. crczp.cloud_commons declares those as Optional for the
+        # pre-enrichment state, hence the suppressions below (see also
+        # _create_interface_for_link).
         man_to_routers_link = self.topology_instance.get_link_between_node_and_network(
             self.topology_instance.man, self.topology_instance.wan
         )
-        man_to_routers_interface = self._create_interface_for_link(man_to_routers_link)
+        man_to_routers_interface = self._create_interface_for_link(
+            man_to_routers_link  # ty: ignore[invalid-argument-type]
+        )
         for router_link in self.topology_instance.get_links_from_wan_to_routers():
             router_to_man_interface = self._create_interface_for_link(
-                router_link, man_to_routers_link.ip
+                router_link,
+                man_to_routers_link.ip,  # ty: ignore[invalid-argument-type, unresolved-attribute]
             )
-            for network in self._get_host_networks_for_routing(router_link.node):
+            # get_links_from_wan_to_routers only yields links whose node is a Router, but
+            # the return type is the generic list[Link].
+            router_networks = self._get_host_networks_for_routing(
+                router_link.node  # ty: ignore[invalid-argument-type]
+            )
+            for network in router_networks:
                 man_to_routers_interface.add_route(Route(network.cidr, router_to_man_interface.ip))
 
     def _get_host_networks_for_routing(self, router: Router) -> list[Network]:
@@ -258,8 +270,15 @@ class Routing:  # pylint: disable=too-few-public-methods
         ]
 
     def _create_interface_for_link(self, link: Link, default_gateway_ip: str = '') -> Interface:
-        interface = Interface(link.mac, link.ip, default_gateway_ip)
-        self.interfaces[link.node.name][link.mac] = interface
+        # Link.ip/Link.mac are Optional in crczp.cloud_commons because they are only filled
+        # in by the cloud enrichment step; every Inventory is built from an enriched
+        # TopologyInstance, so they are always populated here.
+        interface = Interface(
+            link.mac,  # ty: ignore[invalid-argument-type]
+            link.ip,  # ty: ignore[invalid-argument-type]
+            default_gateway_ip,
+        )
+        self.interfaces[link.node.name][link.mac] = interface  # ty: ignore[invalid-assignment]
         return interface
 
     @staticmethod
@@ -388,7 +407,15 @@ class Inventory(BaseInventory):
         }
         mgmt_links[self.topology_instance.man.name] = self.topology_instance.ip
         for node in self.topology_instance.get_nodes():
-            self._add_host(Host(node.name, mgmt_links[node.name], node.base_box.mgmt_user))
+            # mgmt_links values come from Link.ip / TopologyInstance.ip, both Optional in
+            # crczp.cloud_commons only for the pre-enrichment state.
+            self._add_host(
+                Host(
+                    node.name,
+                    mgmt_links[node.name],  # ty: ignore[invalid-argument-type]
+                    node.base_box.mgmt_user,
+                )
+            )
 
     def _add_host(self, host: Host) -> None:
         """

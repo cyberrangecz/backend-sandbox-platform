@@ -34,17 +34,17 @@ class TestAllocationStackStageHandler:
     """Tests for the Terraform stack allocation stage handler."""
 
     @pytest.fixture(autouse=True)
-    def set_up(self, mocker, process):
-        """Patch stage handler internals and return a mock process."""
+    def terraform_client(self, mocker, process):
+        """Patch stage handler internals and return the mocked Terraform client."""
         mocker.patch('crczp.sandbox_instance_app.lib.stage_handlers.LOG')
         mocker.patch('crczp.sandbox_instance_app.lib.stage_handlers.definitions.get_definition')
         mocker.patch('crczp.sandbox_instance_app.lib.stage_handlers.utils.get_terraform_client')
-        stage_handlers.AllocationStackStageHandler._client = mocker.Mock()
-        stage_handlers.AllocationStackStageHandler._client.get_process_output.return_value = [
-            'output'
-        ]
-        stage_handlers.AllocationStackStageHandler._client.create_stack.return_value = process
+        client = mocker.Mock()
+        stage_handlers.AllocationStackStageHandler._client = client
+        client.get_process_output.return_value = ['output']
+        client.create_stack.return_value = process
         stage_handlers.AllocationStackStageHandler._wait_for_process = mocker.Mock()
+        return client
 
     def test_execute_success(self, now, allocation_stage_stack, process):
         """Test successful execution of the allocation stack stage."""
@@ -55,11 +55,11 @@ class TestAllocationStackStageHandler:
         assert allocation_stage_stack.terraformstack.stack_id == process.pid
         assert_db_stage(allocation_stage_stack, now, failed=False)
 
-    def test_execute_failed_creation_request(self, now, allocation_stage_stack):
+    def test_execute_failed_creation_request(self, now, allocation_stage_stack, terraform_client):
         """Test that a failed stack creation request marks the stage as failed."""
         handler = stage_handlers.AllocationStackStageHandler(allocation_stage_stack)
-        stage_handlers.AllocationStackStageHandler._client.create_stack.side_effect = (
-            driver_exceptions.StackCreationFailed('error-message')
+        terraform_client.create_stack.side_effect = driver_exceptions.StackCreationFailed(
+            'error-message'
         )
 
         with pytest.raises(driver_exceptions.StackCreationFailed):
@@ -79,11 +79,11 @@ class TestAllocationStackStageHandler:
         assert_db_stage(allocation_stage_stack_started, now, failed=True)
 
     @pytest.mark.xfail(reason="cancellation should set error_message to 'canceled'")
-    def test_cancel_failed_deletion(self, now, allocation_stage_stack_started):
+    def test_cancel_failed_deletion(self, now, allocation_stage_stack_started, terraform_client):
         """Test that a failed stack deletion during cancel still marks the stage as failed."""
         handler = stage_handlers.AllocationStackStageHandler(allocation_stage_stack_started)
-        stage_handlers.AllocationStackStageHandler._client.delete_stack.side_effect = (
-            driver_exceptions.StackException('error-message')
+        terraform_client.delete_stack.side_effect = driver_exceptions.StackException(
+            'error-message'
         )
 
         handler.cancel()

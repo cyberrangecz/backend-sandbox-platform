@@ -8,7 +8,6 @@ import structlog
 from django.conf import settings
 from jinja2 import Environment, FileSystemLoader
 
-from crczp.cloud_commons import TopologyInstance
 from crczp.sandbox_ansible_app.lib.container import (
     BaseContainer,
     DockerContainer,
@@ -32,6 +31,7 @@ from crczp.sandbox_instance_app.models import (
     SandboxAllocationUnit,
     SandboxNetbirdResources,
 )
+from crczp.topology_definition.models import DockerContainers
 
 LOG = structlog.get_logger()
 
@@ -192,23 +192,23 @@ class AllocationAnsibleRunner(AnsibleRunner):
         inventory_object = self.create_inventory(sandbox)
         self.save_file(self.inventory_path, inventory_object.serialize())
 
-    def _generate_docker_composes(self, top_ins: TopologyInstance) -> None:
+    def _generate_docker_composes(self, containers: DockerContainers) -> None:
         """Generate docker-compose files for each host in the topology."""
         parsed_docker_hosts = []
-        for container_mapping in top_ins.containers.container_mappings:
+        for container_mapping in containers.container_mappings:
             if container_mapping.host not in parsed_docker_hosts:
                 containers_host_path = os.path.join(self.containers_path, container_mapping.host)
                 self.make_dir(containers_host_path)
                 current_container_mappings = [
                     mapping
-                    for mapping in top_ins.containers.container_mappings
+                    for mapping in containers.container_mappings
                     if mapping.host == container_mapping.host
                 ]
                 try:
                     template = self.template_environment.get_template(DOCKER_COMPOSE_TEMPLATE)
                     docker_compose = template.render(
                         container_mappings=current_container_mappings,
-                        containers=top_ins.containers.containers,
+                        containers=containers.containers,
                     )
                     docker_compose_path = os.path.join(containers_host_path, 'docker-compose.yml')
                     self.save_file(docker_compose_path, docker_compose)
@@ -221,14 +221,15 @@ class AllocationAnsibleRunner(AnsibleRunner):
     def _generate_dockerfiles(self, sandbox: Sandbox) -> None:
         """Generate Dockerfiles for each container in the topology."""
         top_ins = sandboxes.get_topology_instance(sandbox)
-        for container_mapping in top_ins.containers.container_mappings:
+        containers = top_ins.containers
+        if not containers:
+            return
+        for container_mapping in containers.container_mappings:
             host_path = os.path.join(self.containers_path, container_mapping.host)
             host_container_path = os.path.join(host_path, container_mapping.container)
             self.make_dir(host_container_path)
             container_definition = [
-                cont
-                for cont in top_ins.containers.containers
-                if cont.name == container_mapping.container
+                cont for cont in containers.containers if cont.name == container_mapping.container
             ][0]
             if container_definition.image:
                 try:
@@ -250,9 +251,10 @@ class AllocationAnsibleRunner(AnsibleRunner):
     def prepare_containers_directory(self, sandbox: Sandbox) -> None:
         """Create and populate the containers directory if the topology has containers."""
         top_ins = sandboxes.get_topology_instance(sandbox)
-        if top_ins.containers:
+        containers = top_ins.containers
+        if containers:
             self._prepare_container_directory()
-            self._generate_docker_composes(top_ins)
+            self._generate_docker_composes(containers)
             self._generate_dockerfiles(sandbox)
 
     def create_inventory(self, sandbox: Sandbox) -> Inventory:

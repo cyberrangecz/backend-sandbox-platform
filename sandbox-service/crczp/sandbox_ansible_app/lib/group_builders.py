@@ -41,7 +41,11 @@ def _add_hosts_group(inventory: 'Inventory', topology: TopologyInstance) -> None
 
 
 def _add_management_group(inventory: 'Inventory', topology: TopologyInstance) -> None:
-    inventory.add_group(Group(DefaultAnsibleHostsGroups.MANAGEMENT.value, [topology.man]))
+    # Use the inventory Host built for MAN (as the other builders do) rather than the
+    # topology MAN element; Group only ever reads ``.name``, so the output is identical.
+    inventory.add_group(
+        Group(DefaultAnsibleHostsGroups.MANAGEMENT.value, [inventory.hosts[topology.man.name]])
+    )
 
 
 def _add_routers_group(inventory: 'Inventory', topology: TopologyInstance) -> None:
@@ -166,7 +170,7 @@ def _add_monitored_hosts_http_vars(inventory: 'Inventory', topology: TopologyIns
                 }.items()
                 if v is not None
             }
-            for target in topology.get_monitored_hosts_http().targets
+            for target in _mt.http.targets
         ]
     )
 

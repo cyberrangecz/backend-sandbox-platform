@@ -21,7 +21,7 @@ CACHE = caches['default']
 OIDC_SUB_PREFIX = 'oidc-sub-'
 
 
-class JWTAccessTokenAuthentication(BearerTokenAuthentication):  # type: ignore[misc]
+class JWTAccessTokenAuthentication(BearerTokenAuthentication):
     """Use for Bearer token in JWT format. It allows multiple OIDC providers support."""
 
     @staticmethod
@@ -30,7 +30,7 @@ class JWTAccessTokenAuthentication(BearerTokenAuthentication):  # type: ignore[m
         data = JWT().unpack(token).payload()
         return cast(str, data.get('iss', '')).rstrip('/')
 
-    @cache(ttl=WELL_KNOWN_CONFIG_CACHE_TTL)  # type: ignore[untyped-decorator]
+    @cache(ttl=WELL_KNOWN_CONFIG_CACHE_TTL)
     def get_well_known_config(self, provider: dict[str, str]) -> dict[str, Any]:
         """Fetch and cache the OpenID Connect well-known configuration for the given provider."""
         well_known_config_url = provider.get('well_known_config')

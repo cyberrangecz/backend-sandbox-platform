@@ -71,10 +71,10 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "django-stubs[compatible-mypy] ~=6.1.0",
+    "django-stubs ~=6.1.0",
     # 3.17.1 retyped Request.data as dict | list, which the views do not handle yet.
     # Keep the stubs aligned with the pinned djangorestframework version.
-    "djangorestframework-stubs[compatible-mypy]==3.17.0",
+    "djangorestframework-stubs==3.17.0",
     "types-requests ~=2.33.0.20260712",
     "types-paramiko ~=5.0.0.20260724",
 ]
@@ -117,26 +117,6 @@ known-first-party = ["crczp"]
 quote-style = "single"
 indent-style = "space"
 docstring-code-format = true
-
-[tool.mypy]
-check_untyped_defs = true
-ignore_missing_imports = true
-strict = true
-pretty = true
-show_error_codes = true
-enable_error_code = ["deprecated", "explicit-override"]
-explicit_package_bases = true
-plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
-exclude = ["crczp/.*/migrations/.*\\.py$"]
-
-[tool.django-stubs]
-django_settings_module = "crczp.sandbox_service_project.settings"
-
-[[tool.mypy.overrides]]
-module = ["crczp.*.tests.*", "crczp.*.tests"]
-disallow_untyped_defs = false
-disallow_untyped_decorators = false
-disable_error_code = ["method-assign", "attr-defined"]
 
 [tool.pylint.main]
 ignore-paths = [".*/migrations/.*"]

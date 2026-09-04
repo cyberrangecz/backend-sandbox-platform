@@ -133,14 +133,14 @@ class PoolSerializerCreate(PoolSerializer):
     class Meta(PoolSerializer.Meta):  # pylint: disable=too-few-public-methods
         """Meta options for PoolSerializerCreate."""
 
-        read_only_fields = ('id', 'size')  # type: ignore[assignment]
+        read_only_fields = ('id', 'size')
 
 
 class RequestSerializer(serializers.ModelSerializer[Any]):
     """Base serializer for allocation and cleanup request models."""
 
-    allocation_unit_id: serializers.PrimaryKeyRelatedField[Any] = (
-        serializers.PrimaryKeyRelatedField(source='allocation_unit', read_only=True)
+    allocation_unit_id = serializers.PrimaryKeyRelatedField(
+        source='allocation_unit', read_only=True
     )
     stages = serializers.SerializerMethodField()
 
@@ -200,9 +200,7 @@ class SandboxAllocationUnitSerializer(serializers.ModelSerializer[models.Sandbox
 
     allocation_request = AllocationRequestSerializer(read_only=True)
     cleanup_request = CleanupRequestSerializer()
-    pool_id: serializers.PrimaryKeyRelatedField[Any] = serializers.PrimaryKeyRelatedField(
-        source='pool', read_only=True
-    )
+    pool_id = serializers.PrimaryKeyRelatedField(source='pool', read_only=True)
     created_by = serializers.SerializerMethodField()
     locked = serializers.SerializerMethodField()
 
@@ -259,9 +257,7 @@ class SandboxAllocationUnitIdListSerializer(serializers.Serializer[Any]):
 class TerraformAllocationStageSerializer(serializers.ModelSerializer[models.StackAllocationStage]):
     """Serializer for StackAllocationStage model."""
 
-    request_id: serializers.PrimaryKeyRelatedField[Any] = serializers.PrimaryKeyRelatedField(
-        source='allocation_request', read_only=True
-    )
+    request_id = serializers.PrimaryKeyRelatedField(source='allocation_request', read_only=True)
 
     class Meta:  # pylint: disable=too-few-public-methods
         """Meta options for TerraformAllocationStageSerializer."""
@@ -283,9 +279,7 @@ class TerraformAllocationStageSerializer(serializers.ModelSerializer[models.Stac
 class TerraformCleanupStageSerializer(serializers.ModelSerializer[models.StackCleanupStage]):
     """Serializer for StackCleanupStage model."""
 
-    request_id: serializers.PrimaryKeyRelatedField[Any] = serializers.PrimaryKeyRelatedField(
-        source='cleanup_request', read_only=True
-    )
+    request_id = serializers.PrimaryKeyRelatedField(source='cleanup_request', read_only=True)
     # allocation_stage_id = serializers.PrimaryKeyRelatedField(
     #    source='allocation_stage', read_only=True)
 
@@ -322,8 +316,8 @@ class SandboxSerializer(serializers.ModelSerializer[models.Sandbox]):
     """Serializer for Sandbox model."""
 
     lock_id = serializers.SerializerMethodField()
-    allocation_unit_id: serializers.PrimaryKeyRelatedField[Any] = (
-        serializers.PrimaryKeyRelatedField(source='allocation_unit', read_only=True)
+    allocation_unit_id = serializers.PrimaryKeyRelatedField(
+        source='allocation_unit', read_only=True
     )
 
     class Meta:  # pylint: disable=too-few-public-methods
@@ -342,9 +336,7 @@ class SandboxSerializer(serializers.ModelSerializer[models.Sandbox]):
 class SandboxLockSerializer(serializers.ModelSerializer[models.SandboxLock]):
     """Serializer for SandboxLock model."""
 
-    sandbox_id: serializers.PrimaryKeyRelatedField[Any] = serializers.PrimaryKeyRelatedField(
-        source='sandbox', read_only=True
-    )
+    sandbox_id = serializers.PrimaryKeyRelatedField(source='sandbox', read_only=True)
 
     class Meta:  # pylint: disable=too-few-public-methods
         """Meta options for SandboxLockSerializer."""
@@ -357,9 +349,7 @@ class SandboxLockSerializer(serializers.ModelSerializer[models.SandboxLock]):
 class PoolLockSerializer(serializers.ModelSerializer[models.PoolLock]):
     """Serializer for PoolLock model."""
 
-    pool_id: serializers.PrimaryKeyRelatedField[Any] = serializers.PrimaryKeyRelatedField(
-        source='pool', read_only=True
-    )
+    pool_id = serializers.PrimaryKeyRelatedField(source='pool', read_only=True)
 
     class Meta:  # pylint: disable=too-few-public-methods
         """Meta options for PoolLockSerializer."""

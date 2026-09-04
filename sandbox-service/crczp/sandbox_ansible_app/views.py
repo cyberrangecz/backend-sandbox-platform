@@ -45,7 +45,7 @@ class NetworkingAnsibleAllocationStageDetailView(
     """
 
     serializer_class = serializers.NetworkingAnsibleAllocationStageSerializer
-    queryset = AllocationRequest.objects.all()  # type: ignore[assignment]
+    queryset = AllocationRequest.objects.all()
     lookup_url_kwarg = 'request_id'
 
     @override
@@ -67,7 +67,7 @@ class UserAnsibleAllocationStageDetailView(generics.RetrieveAPIView[UserAnsibleA
     """
 
     serializer_class = serializers.UserAnsibleAllocationStageSerializer
-    queryset = AllocationRequest.objects.all()  # type: ignore[assignment]
+    queryset = AllocationRequest.objects.all()
     lookup_url_kwarg = 'request_id'
 
     @override
@@ -91,7 +91,7 @@ class NetworkingAnsibleCleanupStageDetailView(
     """
 
     serializer_class = serializers.NetworkingAnsibleCleanupStageSerializer
-    queryset = CleanupRequest.objects.all()  # type: ignore[assignment]
+    queryset = CleanupRequest.objects.all()
     lookup_url_kwarg = 'request_id'
 
     @override
@@ -113,7 +113,7 @@ class UserAnsibleCleanupStageDetailView(generics.RetrieveAPIView[UserAnsibleClea
     """
 
     serializer_class = serializers.UserAnsibleCleanupStageSerializer
-    queryset = CleanupRequest.objects.all()  # type: ignore[assignment]
+    queryset = CleanupRequest.objects.all()
     lookup_url_kwarg = 'request_id'
 
     @override

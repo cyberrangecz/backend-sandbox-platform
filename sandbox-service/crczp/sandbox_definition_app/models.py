@@ -9,6 +9,9 @@ from django.db import models
 class Definition(models.Model):
     """Represents a sandbox definition consisting of a git URL and revision."""
 
+    # Implicit primary key Django adds; a bare annotation is invisible to Django.
+    id: int
+
     name = models.CharField(max_length=100, help_text='Name of the definition.')
     url = models.TextField(help_text='URL of the definition.')
     rev = models.TextField(default='master', help_text='Default revision.')

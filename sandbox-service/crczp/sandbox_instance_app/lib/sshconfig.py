@@ -153,8 +153,10 @@ class CrczpUserSSHConfig(CrczpSSHConfig):
             else f'{proxy_user}@{proxy_host}'
         )
         # Create an entry for MAN as a proxy jump host.
+        # TopologyInstance.ip and Link.ip are Optional in crczp.cloud_commons only for the
+        # pre-enrichment state; every SSH config here is built from an enriched instance.
         self.add_host(
-            top_ins.ip,
+            top_ins.ip,  # ty: ignore[invalid-argument-type]
             SSH_PROXY_USERNAME,
             sandbox_private_key_path,
             proxy_jump=proxy_jump,
@@ -165,7 +167,7 @@ class CrczpUserSSHConfig(CrczpSSHConfig):
         # Create an entry for user-accessible nodes of a sandbox.
         for link in top_ins.get_links_to_user_accessible_nodes():
             self.add_host(
-                link.ip,
+                link.ip,  # ty: ignore[invalid-argument-type]
                 SSH_PROXY_USERNAME,
                 sandbox_private_key_path,
                 proxy_jump=man_proxy_jump,
@@ -208,8 +210,10 @@ class CrczpMgmtSSHConfig(CrczpSSHConfig):
             else f'{proxy_user}@{proxy_host}'
         )
         # Create an entry for MAN as a proxy jump host.
+        # TopologyInstance.ip and Link.ip are Optional in crczp.cloud_commons only for the
+        # pre-enrichment state; every SSH config here is built from an enriched instance.
         self.add_host(
-            top_ins.ip,
+            top_ins.ip,  # ty: ignore[invalid-argument-type]
             top_ins.man.base_box.mgmt_user,
             pool_private_key_path,
             proxy_jump=proxy_jump,
@@ -220,7 +224,7 @@ class CrczpMgmtSSHConfig(CrczpSSHConfig):
         # Create an entry for every other node of a sandbox.
         for link in self._get_man_accessible_node_links(top_ins):
             self.add_host(
-                link.ip,
+                link.ip,  # ty: ignore[invalid-argument-type]
                 link.node.base_box.mgmt_user,
                 pool_private_key_path,
                 proxy_jump=man_proxy_jump,
