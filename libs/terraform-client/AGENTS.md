@@ -71,7 +71,11 @@ Agents must use **`uv`** for dependency management.
 uv sync
 ```
 
-There are **no separate development dependencies**.
+Tooling dependencies live in the `[dependency-groups]` table of this package's
+`pyproject.toml` — `test`, `lint` and `security`. `tox.ini` pulls them in via
+`dependency_groups` / `only_groups`; to get one in your own shell, run
+`uv sync --group test` from the repository root. They are not default groups, so a
+plain `uv sync` does not install them.
 
 Python version must match the version specified in `pyproject.toml`.
 
