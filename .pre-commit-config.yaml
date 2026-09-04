@@ -27,6 +27,11 @@ repos:
     rev: 0.11.24
     hooks:
       - id: uv-lock
+        # Upstream anchors this at both ends (^(uv\.lock|pyproject\.toml|uv\.toml)$), so
+        # it matched only the root pair - and the root manifest has no [project] table, so
+        # it can never carry a dependency change. Widened to the member manifests, which
+        # are the only place dependencies are actually declared.
+        files: (^|/)(uv\.lock|pyproject\.toml|uv\.toml)$
 
   # ty reads the single workspace-root [tool.ty]; see the note there on why the
   # type-checker config is not per-package. The hook wraps `uv check`, which takes
@@ -40,10 +45,16 @@ repos:
     hooks:
       # Only sandbox-service is versioned and tagged in this repository; the six
       # libraries are no longer published, so they are not tag-controlled.
-      # Exits successfully when no tags exist yet.
+      #
+      # This is the local pre-push gate; CI enforces the same rule again in the
+      # `control_tag` job, but that only reports after a push. Ordering is compared with
+      # `sort -V`, so a version LOWER than the latest tag fails too - the previous
+      # equality-only test printed "version OK 2.4.2 -> 0.0.1" and exited 0, and a plain
+      # string compare would also rank 2.10.0 below 2.9.0. Exits 0 only when the
+      # repository genuinely has no semver tag yet.
       - id: check-version-bump
         name: check sandbox-service version bump
         language: system
-        entry: 'bash -c ''current=$(git show :sandbox-service/pyproject.toml 2>/dev/null | grep -m1 "^version" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+"); latest_tag=$(git tag --sort=-version:refname | grep -E "^v?[0-9]+\.[0-9]+\.[0-9]+$" | head -1 | sed "s/^v//"); [ -z "$latest_tag" ] && exit 0; [ -z "$current" ] && { echo "Could not read version from sandbox-service/pyproject.toml" >&2; exit 1; }; [ "$current" = "$latest_tag" ] && { echo "sandbox-service version not bumped (still $current, latest tag $latest_tag)" >&2; exit 1; }; echo "sandbox-service version OK $latest_tag -> $current"'''
+        entry: 'bash -c ''current=$(git show :sandbox-service/pyproject.toml 2>/dev/null | grep -m1 "^version" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+"); latest=$(git tag --sort=-version:refname | grep -E "^v?[0-9]+\.[0-9]+\.[0-9]+$" | head -1 | sed "s/^v//"); [ -z "$latest" ] && exit 0; [ -z "$current" ] && { echo "Could not read version from sandbox-service/pyproject.toml" >&2; exit 1; }; lowest=$(printf "%s\n%s\n" "$current" "$latest" | sort -V | head -1); if [ "$current" = "$latest" ] || [ "$lowest" = "$current" ]; then echo "sandbox-service version $current is not higher than latest tag $latest" >&2; exit 1; fi; echo "sandbox-service version OK $latest -> $current"'''
         pass_filenames: false
         always_run: true

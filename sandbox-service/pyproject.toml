@@ -104,13 +104,13 @@ security = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["crczp"]
-exclude-packages = [
-    "crczp/sandbox_ansible_app/tests",
-    "crczp/sandbox_common_lib/tests",
-    "crczp/sandbox_definition_app/tests",
-    "crczp/sandbox_instance_app/tests",
-    "crczp/sandbox_service_project/tests",
-]
+# `exclude-packages` is not a hatchling option - it was silently ignored, and the wheel
+# shipped 64 test files. Patterns here are gitignore-style: the leading slash anchors at
+# the project root and `*` spans exactly one segment, so this covers every app's tests/
+# without listing them. The libraries need no equivalent; their tests/ sit outside the
+# `packages` include set.
+exclude = ["/crczp/*/tests"]
+skip-excluded-dirs = true
 
 [tool.ruff]
 line-length = 100
