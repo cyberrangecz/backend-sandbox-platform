@@ -118,11 +118,17 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          # The check-version-bump hook compares against the latest git tag. The default
+          # shallow, --no-tags checkout left `git tag` empty, so the hook always took its
+          # "no tags yet" exit 0 and verified nothing in the one place it runs unattended.
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
           version: "0.11.24"
+          python-version: "3.12"
 
       - name: Install pre-commit
         run: uv tool install pre-commit
