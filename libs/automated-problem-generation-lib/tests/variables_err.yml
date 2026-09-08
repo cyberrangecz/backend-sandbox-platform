@@ -1,0 +1,11 @@
+level_2_flag:
+type: text
+    challenge_id: 2
+
+level_3_flag:
+    type: password
+    challenge_id: 3
+
+level_5_flag:
+    type: text
+    challenge_id: 5
