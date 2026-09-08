@@ -1,0 +1,15 @@
+routers:
+- name: router
+  os_type: debian
+  gui_access: false
+  is_accessible: true
+  ip: null
+  subnets:
+  - name: switch
+    cidr: 10.10.30.0/24
+    hosts:
+    - name: deb
+      os_type: debian
+      gui_access: false
+      is_accessible: true
+      ip: '10.10.30.5'
