@@ -1,0 +1,10 @@
+name: empty-definition
+
+hosts: []
+routers: []
+networks: []
+
+net_mappings: []
+router_mappings: []
+
+groups: []

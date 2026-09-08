@@ -1,0 +1,80 @@
+---
+provisioning: Openstack # for this api always Openstack
+
+name: example
+hosts:
+  - name: vm1
+    base_box: debian-12-x86_64
+    flavor: standard.small
+    base_box_user: debian
+
+  - name: vm2
+    base_box: debian-12-x86_64
+    flavor: standard.small
+    base_box_user: debian
+
+  - name: vm3
+    base_box: debian-12-x86_64
+    flavor: standard.small
+    base_box_user: debian
+
+  - name: vm4
+    base_box: debian-12-x86_64
+    flavor: standard.small
+    base_box_user: debian
+
+routers:
+  - name: r1
+    cidr: 100.100.100.0/29
+    base_box: debian-12-x86_64
+    flavor: standard.small
+    base_box_user: debian
+
+  - name: r2
+    cidr: 200.100.100.0/29
+    base_box: debian-12-x86_64
+    flavor: standard.small
+    base_box_user: debian
+
+networks:
+  - name: s1
+    cidr: 10.10.10.0/24
+
+  - name: s2
+    cidr: 10.10.20.0/24
+
+  - name: s3
+    cidr: 10.10.30.0/24
+
+net_mappings:
+  - host: vm2
+    network: s1
+    ip: 10.10.10.5
+  - host: vm1
+    network: s1
+    ip: 10.10.10.3
+  - host: vm3
+    network: s2
+    ip: 10.10.20.5
+  - host: vm4
+    network: s3
+    ip: 10.10.30.5
+
+# tip: for router take first ip in the range
+# note: for dhcp openstack (very probably) takes 1. ip from (one of) pools(s) {range} / {router ip}
+# so for hosts don't use those ip(s) (1. in range or next after router ip)
+router_mappings:
+  - router: r1
+    network: s1
+    ip: 10.10.10.1
+  - router: r1
+    network: s2
+    ip: 10.10.20.1
+  - router: r2
+    network: s3
+    ip: 10.10.30.1
+
+block_internet: []
+include_user_access: [ s1, s2, s3 ]
+hidden_hosts: []
+suspended_hosts: []
