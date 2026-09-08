@@ -24,6 +24,8 @@ dependencies = [
 [project.urls]
 GitHub = "https://github.com/cyberrangecz/backend-openstack-lib"
 
+[tool.uv.sources]
+crczp-python-commons = { workspace = true }
 
 [build-system]
 # TODO: Replace this with uv_build when it is it released for GA.

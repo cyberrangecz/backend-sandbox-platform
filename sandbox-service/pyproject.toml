@@ -55,6 +55,14 @@ dependencies = [
 [project.urls]
 GitHub = "https://github.com/cyberrangecz/backend-sandbox-service"
 
+[tool.uv.sources]
+crczp-terraform-client = { workspace = true }
+crczp-python-commons = { workspace = true }
+crczp-openstack-lib = { workspace = true }
+crczp-aws-lib = { workspace = true }
+crczp-topology-definition = { workspace = true }
+crczp-automated-problem-generation-lib = { workspace = true }
+
 [build-system]
 # TODO: Replace this with uv_build when it is it released for GA.
 #   https://github.com/astral-sh/uv/issues/3957

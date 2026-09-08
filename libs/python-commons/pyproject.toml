@@ -14,6 +14,9 @@ dev = [
     "types-PyYAML",
 ]
 
+[tool.uv.sources]
+crczp-topology-definition = { workspace = true }
+
 [build-system]
 # TODO: Replace this with uv_build when it is it released for GA.
 #   https://github.com/astral-sh/uv/issues/3957
