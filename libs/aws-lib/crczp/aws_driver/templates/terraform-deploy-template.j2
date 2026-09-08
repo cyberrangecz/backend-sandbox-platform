@@ -1,0 +1,122 @@
+{%- macro tf_network(name, cidr_block) %}
+resource "aws_vpc" "{{ name }}" {
+    cidr_block = "{{ cidr_block }}"
+    tags = {
+        Name = "{{ name }}"
+    }
+}
+
+{% include 'security-groups-template.j2' %}
+
+resource "aws_subnet" "{{ name }}-subnet" {
+    vpc_id = aws_vpc.{{ name }}.id
+    cidr_block = "{{ cidr_block }}"
+    availability_zone = "{{ availability_zone }}"
+    tags = {
+        Name = "{{ name }}-subnet"
+    }
+}
+{%- endmacro -%}
+
+{%- macro tf_port(name, network_name, security_group_name, fixed_ip) %}
+resource "aws_network_interface" "{{ name }}" {
+    subnet_id = aws_subnet.{{ network_name }}-subnet.id
+    {%- if fixed_ip is not none %}
+        private_ips = ["{{ fixed_ip }}"]
+    {%- endif %}
+    security_groups = [aws_security_group.{{ network_name }}-{{ security_group_name }}.id]
+    source_dest_check = false
+}
+{%- endmacro -%}
+
+{%- macro tf_instance(name, ami_id, instance_type, key_pair, link_names, default_ip) %}
+resource "aws_instance" "{{ name }}" {
+    ami = "{{ ami_id }}"
+    instance_type = "{{ instance_type }}"
+    tags = {
+        Name = "{{ name }}"
+    }
+    key_name = "{{ key_pair }}"
+
+{% for link_name in link_names %}
+    network_interface {
+        network_interface_id = aws_network_interface.{{ link_name }}.id
+        device_index = {{ loop.index0 }}
+    }
+{% endfor -%}
+    user_data = <<EOF
+#!/bin/bash
+sudo ip r del default
+sudo ip r add default via {{ default_ip }}
+
+EOF
+}
+{%- endmacro -%}
+
+{%- for network in topology_instance.get_networks() -%}
+    {%- set default_gateway = topology_instance.get_network_default_gateway_link(network) -%}
+    {%- set network_name = resource_prefix ~ '-' ~ network.name -%}
+    {%- set subnet_name = network_name ~ '-subnet' -%}
+    {{ tf_network(network_name, network.cidr) }}
+
+    {%- for link in topology_instance.get_network_links(network) -%}
+        {%- set link_name = resource_prefix ~ '-' ~ link.name -%}
+        {{ tf_port(link_name, network_name, link.security_group, link.ip) }}
+    {%- endfor %}
+{% endfor -%}
+
+{%- for node in topology_instance.get_nodes_without_man() %}
+    {%- set node_name = resource_prefix ~ '-' ~ node.name -%}
+    {%- set link_names = topology_instance.get_node_links(node) | map(attribute = 'name')
+                         | map('regex_replace', '^', resource_prefix ~ '-') | list -%}
+    {%- set default_ip = get_default_route_ip(topology_instance, node) -%}
+
+    {{ tf_instance(node_name, node.base_box.image, node.flavor,
+                   key_pair_name_ssh, link_names, default_ip) }}
+{% endfor %}
+
+data "aws_vpc" "base-vpc" {
+    tags = {
+        Name = "{{ base_vpc_name }}"
+    }
+}
+
+data "aws_subnet" "base-subnet" {
+    tags = {
+        Name = "{{ base_subnet_name }}"
+    }
+}
+
+data "aws_security_group" "sandbox-access-sg" {
+    vpc_id = data.aws_vpc.base-vpc.id
+    name = "sandbox-access-sg"
+}
+
+{% set man_out_port_name = resource_prefix ~ '-' ~ trc.man_out_port -%}
+
+resource "aws_network_interface" "{{ man_out_port_name }}" {
+    subnet_id = data.aws_subnet.base-subnet.id
+    security_groups = [data.aws_security_group.sandbox-access-sg.id]
+    source_dest_check = false
+}
+
+{% set man = topology_instance.man -%}
+{% set man_name = resource_prefix ~ '-' ~ man.name %}
+{% set man_links = topology_instance.get_node_links(man) -%}
+{% set man_link_names = [man_out_port_name] + (man_links | map(attribute='name')
+                         | map('regex_replace', '^', resource_prefix ~ '-') | list) -%}
+resource "aws_instance" "{{ man_name }}" {
+    ami = "{{ man.base_box.image }}"
+    instance_type = "{{ man.flavor }}"
+    tags = {
+        Name = "{{ man_name }}"
+    }
+    key_name = "{{ key_pair_name_ssh }}"
+{%- for link_name in man_link_names %}
+    network_interface {
+        network_interface_id = aws_network_interface.{{ link_name }}.id
+        device_index = {{ loop.index0 }}
+    }
+{%- endfor %}
+}
+

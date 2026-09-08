@@ -1,0 +1,88 @@
+resource "aws_security_group" "{{ name }}-sandbox-internal-sg" {
+    name = "sandbox-internal-sg"
+    vpc_id = aws_vpc.{{ name }}.id
+    tags = {
+        Name = "sandbox-internal-sg"
+    }
+}
+resource "aws_security_group" "{{ name }}-sandbox-man-int-sg" {
+    name = "sandbox-man-int-sg"
+    vpc_id = aws_vpc.{{ name }}.id
+    tags = {
+        Name = "sandbox-man-int-sg"
+    }
+}
+resource "aws_security_group" "{{ name }}-sandbox-man-sg" {
+    name = "sandbox-man-sg"
+    vpc_id = aws_vpc.{{ name }}.id
+    tags = {
+        Name = "sandbox-man-sg"
+    }
+}
+resource "aws_vpc_security_group_ingress_rule" "{{ name }}-sandbox-internal-sg-1" {
+    security_group_id = aws_security_group.{{ name }}-sandbox-internal-sg.id
+    ip_protocol = -1
+    cidr_ipv4 = "0.0.0.0/0"
+}
+resource "aws_vpc_security_group_egress_rule" "{{ name }}-sandbox-internal-sg-2" {
+    security_group_id = aws_security_group.{{ name }}-sandbox-internal-sg.id
+    ip_protocol = -1
+    cidr_ipv4 = "0.0.0.0/0"
+}
+resource "aws_vpc_security_group_egress_rule" "{{ name }}-sandbox-internal-sg-3" {
+    security_group_id = aws_security_group.{{ name }}-sandbox-internal-sg.id
+    ip_protocol = -1
+    cidr_ipv6 = "::/0"
+}
+resource "aws_vpc_security_group_egress_rule" "{{ name }}-sandbox-man-int-sg-1" {
+    security_group_id = aws_security_group.{{ name }}-sandbox-man-int-sg.id
+    ip_protocol = "TCP"
+    from_port = 515
+    to_port = 515
+    referenced_security_group_id = aws_security_group.{{ name }}-sandbox-man-sg.id
+}
+resource "aws_vpc_security_group_egress_rule" "{{ name }}-sandbox-man-int-sg-2" {
+    security_group_id = aws_security_group.{{ name }}-sandbox-man-int-sg.id
+    ip_protocol = "UDP"
+    from_port = 67
+    to_port = 67
+    cidr_ipv4 = "0.0.0.0/0"
+}
+resource "aws_vpc_security_group_ingress_rule" "{{ name }}-sandbox-man-int-sg-3" {
+    security_group_id = aws_security_group.{{ name }}-sandbox-man-int-sg.id
+    ip_protocol = "ICMP"
+    from_port = -1
+    to_port = -1
+    referenced_security_group_id = aws_security_group.{{ name }}-sandbox-man-sg.id
+}
+resource "aws_vpc_security_group_ingress_rule" "{{ name }}-sandbox-man-int-sg-4" {
+    security_group_id = aws_security_group.{{ name }}-sandbox-man-int-sg.id
+    ip_protocol = "TCP"
+    from_port = 22
+    to_port = 22
+    referenced_security_group_id = aws_security_group.{{ name }}-sandbox-man-sg.id
+}
+resource "aws_vpc_security_group_ingress_rule" "{{ name }}-sandbox-man-int-sg-5" {
+    security_group_id = aws_security_group.{{ name }}-sandbox-man-int-sg.id
+    ip_protocol = "TCP"
+    from_port = 5986
+    to_port = 5986
+    referenced_security_group_id = aws_security_group.{{ name }}-sandbox-man-sg.id
+}
+resource "aws_vpc_security_group_egress_rule" "{{ name }}-sandbox-man-sg-1" {
+    security_group_id = aws_security_group.{{ name }}-sandbox-man-sg.id
+    ip_protocol = -1
+    cidr_ipv4 = "0.0.0.0/0"
+}
+resource "aws_vpc_security_group_egress_rule" "{{ name }}-sandbox-man-sg-2" {
+    security_group_id = aws_security_group.{{ name }}-sandbox-man-sg.id
+    ip_protocol = -1
+    cidr_ipv6 = "::/0"
+}
+resource "aws_vpc_security_group_ingress_rule" "{{ name }}-sandbox-man-sg-3" {
+    security_group_id = aws_security_group.{{ name }}-sandbox-man-sg.id
+    ip_protocol = "TCP"
+    from_port = 515
+    to_port = 515
+    referenced_security_group_id = aws_security_group.{{ name }}-sandbox-man-int-sg.id
+}
