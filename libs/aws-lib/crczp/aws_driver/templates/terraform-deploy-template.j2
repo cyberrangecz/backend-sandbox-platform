@@ -120,3 +120,30 @@ resource "aws_instance" "{{ man_name }}" {
 {%- endfor %}
 }
 
+{#- Network forwarding (port mirroring) via AWS VPC Traffic Mirroring. Each source ENI is
+    mirrored (VXLAN-encapsulated) to the destination ENI target through a filter. -#}
+{% if traffic_mirror_plan.target %}
+resource "aws_ec2_traffic_mirror_target" "{{ traffic_mirror_plan.target.name }}" {
+    network_interface_id = aws_network_interface.{{ traffic_mirror_plan.target.dest_port_name }}.id
+}
+{% set mirror_filter = traffic_mirror_plan.mirror_filter %}
+resource "aws_ec2_traffic_mirror_filter" "{{ mirror_filter.name }}" {}
+{% for fr in mirror_filter.rules %}
+resource "aws_ec2_traffic_mirror_filter_rule" "{{ fr.name }}" {
+    traffic_mirror_filter_id = aws_ec2_traffic_mirror_filter.{{ mirror_filter.name }}.id
+    source_cidr_block        = "0.0.0.0/0"
+    destination_cidr_block   = "0.0.0.0/0"
+    rule_number              = {{ fr.rule_number }}
+    rule_action              = "accept"
+    traffic_direction        = "{{ fr.traffic_direction }}"
+}
+{% endfor -%}
+{% endif -%}
+{% for session in traffic_mirror_plan.sessions %}
+resource "aws_ec2_traffic_mirror_session" "{{ session.name }}" {
+    network_interface_id     = aws_network_interface.{{ session.source_port_name }}.id
+    traffic_mirror_target_id = aws_ec2_traffic_mirror_target.{{ session.target_name }}.id
+    traffic_mirror_filter_id = aws_ec2_traffic_mirror_filter.{{ session.filter_name }}.id
+    session_number           = {{ session.session_number }}
+}
+{% endfor -%}

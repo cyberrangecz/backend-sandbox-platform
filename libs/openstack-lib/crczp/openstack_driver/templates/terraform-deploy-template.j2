@@ -2,7 +2,8 @@
 {%- set tf_resource_network = "openstack_networking_network_v2" -%}
 {%- set tf_resource_subnet = "openstack_networking_subnet_v2" -%}
 {%- set tf_resource_port = "openstack_networking_port_v2" -%}
-{%- set tf_data_secgroup = "openstack_networking_secgroup_v2" -%}
+{%- set tf_secgroup = "openstack_networking_secgroup_v2" -%}
+{%- set tf_secgroup_rule = "openstack_networking_secgroup_rule_v2" -%}
 
 {%- set tf_provider = "openstack" -%}
 {%- set tf_provider_source = "terraform-provider-openstack/openstack" -%}
@@ -44,7 +45,7 @@ resource "{{ tf_resource_subnet }}" "{{ name }}" {
 
 
 {%- macro tf_port(name, network_name, security_group_name, fixed_ip, subnet_name,
-                  allowed_address_pairs=false, admin_state_up=true) %}
+                  allowed_address_pairs=false, admin_state_up=true, security_group_ref=none) %}
 resource "{{ tf_resource_port }}" "{{ name }}" {
     name = "{{ name }}"
 {%- if network_name == trc.base_network %}
@@ -54,7 +55,11 @@ resource "{{ tf_resource_port }}" "{{ name }}" {
 {%- endif %}
     admin_state_up = "{{ (admin_state_up | string).lower() }}"
     security_group_ids = [
-        data.{{ tf_data_secgroup + '.' + security_group_name}}.id
+{%- if security_group_ref %}
+        {{ security_group_ref }}
+{%- else %}
+        data.{{ tf_secgroup + '.' + security_group_name}}.id
+{%- endif %}
     ]
 {% if subnet_name %}
     fixed_ip {
@@ -110,7 +115,7 @@ resource "{{ tf_resource_instance }}" "{{ name }}" {
     }
 {% endfor -%}
 }
-{%- endmacro -%}
+{% endmacro -%}
 
 data "{{ tf_resource_network }}" "{{ trc.base_network }}" {
     name = "{{ trc.base_network }}"
@@ -118,7 +123,7 @@ data "{{ tf_resource_network }}" "{{ trc.base_network }}" {
 
 {%- if True %}
 {% for group in security_groups %}
-data "{{ tf_data_secgroup }}" "{{ group.value }}" {
+data "{{ tf_secgroup }}" "{{ group.value }}" {
     name = "{{ group.value }}"
 }
 {% endfor -%}
@@ -136,16 +141,20 @@ data "{{ tf_data_secgroup }}" "{{ group.value }}" {
 
     {%- for link in topology_instance.get_network_links(network) -%}
         {%- set link_name = resource_prefix ~ '-' ~ link.name -%}
+        {#- A mirror destination is exposed by a floating IP, so it drops the topology security
+            group for one that admits the hypervisors only. -#}
+        {%- set secgroup_ref = (tf_secgroup ~ '.' ~ tap_mirror_plan.secgroup_name ~ '.id')
+                               if link_name in tap_mirror_plan.destination_port_names else none -%}
         {%- if network == topology_instance.man_network and link.node.name == man.name %}
             {# Allow any source IP on MAN's management interface to enable VPN traffic to relay server -#}
             {{ tf_port(link_name, network_name, link.security_group, link.ip, subnet_name,
-                       allowed_address_pairs=false) }}
+                       allowed_address_pairs=false, security_group_ref=secgroup_ref) }}
         {%- elif link.node.name in hosts_names or network == topology_instance.man_network %}
             {{ tf_port(link_name, network_name, link.security_group, link.ip, subnet_name,
-                       allowed_address_pairs=true) }}
+                       allowed_address_pairs=true, security_group_ref=secgroup_ref) }}
         {%- else %}
             {{ tf_port(link_name, network_name, link.security_group, link.ip, subnet_name,
-                       allowed_address_pairs=false) }}
+                       allowed_address_pairs=false, security_group_ref=secgroup_ref) }}
         {%- endif %}
     {%- endfor %}
 {% endfor -%}
@@ -169,4 +178,83 @@ data "{{ tf_data_secgroup }}" "{{ group.value }}" {
     {%- set man_link_names = [man_out_port_name] + (man_links | map(attribute='name')
                              | map('regex_replace', '^', resource_prefix ~ '-') | list) -%}
     {{ tf_instance(man_name, man.base_box.image, man.flavor, key_pair_name_ssh, man_link_names) }}
+{%- endif -%}
+
+{#- Network forwarding (port mirroring) via OVN Tap-as-a-Service. Traffic on each source
+    port is mirrored into a GRE/ERSPAN tunnel to the destination's floating IP.
+    The platform router below is only read from, to learn which external network to use. -#}
+{%- if tap_mirror_plan.tap_mirrors %}
+{# Auto-discover the router base_network attaches to via its router-interface port. -#}
+data "openstack_networking_port_v2" "network-forwarding-base-router-port" {
+    network_id   = data.{{ tf_resource_network }}.{{ trc.base_network }}.id
+    device_owner = "network:router_interface"
+}
+data "openstack_networking_router_v2" "network-forwarding-platform-router" {
+    router_id = data.openstack_networking_port_v2.network-forwarding-base-router-port.device_id
+}
+data "{{ tf_resource_network }}" "network-forwarding-ext-net" {
+    network_id = data.openstack_networking_router_v2.network-forwarding-platform-router.external_network_id
+}
+
+{# The destination ports are the only sandbox ports with a floating IP, so they get their own
+   security group in place of the topology one: nothing but the hypervisors, which originate the
+   mirrored traffic, may reach them. Neutron's default egress-any rules are kept. -#}
+resource "{{ tf_secgroup }}" "{{ tap_mirror_plan.secgroup_name }}" {
+    name        = "{{ tap_mirror_plan.secgroup_name }}"
+    description = "Network forwarding: mirrored traffic from the hypervisors"
+}
+resource "{{ tf_secgroup_rule }}" "{{ tap_mirror_plan.secgroup_name }}-ingress" {
+    direction         = "ingress"
+    ethertype         = "IPv4"
+    remote_ip_prefix  = "{{ hypervisor_cidr }}"
+    security_group_id = {{ tf_secgroup }}.{{ tap_mirror_plan.secgroup_name }}.id
+}
+
+{# A router per sandbox: a pool renders the same destination CIDRs for every sandbox, which
+   Neutron would reject as overlapping subnets if they all attached to the platform router. -#}
+resource "openstack_networking_router_v2" "{{ tap_mirror_plan.router_name }}" {
+    name                = "{{ tap_mirror_plan.router_name }}"
+    admin_state_up      = "true"
+    external_network_id = data.openstack_networking_router_v2.network-forwarding-platform-router.external_network_id
+}
+{% set ri = tap_mirror_plan.router_interface %}
+resource "{{ tf_resource_port }}" "{{ ri.port_name }}" {
+    name = "{{ ri.port_name }}"
+    network_id = {{ tf_resource_network }}.{{ ri.network_name }}.id
+    fixed_ip {
+        subnet_id = {{ tf_resource_subnet }}.{{ ri.subnet_name }}.id
+        ip_address = "{{ ri.fixed_ip }}"
+    }
+}
+resource "openstack_networking_router_interface_v2" "{{ ri.iface_name }}" {
+    router_id = openstack_networking_router_v2.{{ tap_mirror_plan.router_name }}.id
+    port_id   = {{ tf_resource_port }}.{{ ri.port_name }}.id
+}
+{% set fip = tap_mirror_plan.floating_ip %}
+resource "openstack_networking_floatingip_v2" "{{ fip.fip_name }}" {
+    pool = data.{{ tf_resource_network }}.network-forwarding-ext-net.name
+}
+resource "openstack_networking_floatingip_associate_v2" "{{ fip.assoc_name }}" {
+    floating_ip = openstack_networking_floatingip_v2.{{ fip.fip_name }}.address
+    port_id     = {{ tf_resource_port }}.{{ fip.dest_port_name }}.id
+    depends_on  = [openstack_networking_router_interface_v2.{{ fip.router_iface_name }}]
+}
+
+
+{% for tm in tap_mirror_plan.tap_mirrors %}
+resource "openstack_taas_tap_mirror_v2" "{{ tm.name }}" {
+    name        = "{{ tm.name }}"
+    mirror_type = "{{ tm.mirror_type }}"
+    port_id     = {{ tf_resource_port }}.{{ tm.source_port_name }}.id
+    remote_ip   = openstack_networking_floatingip_v2.{{ tm.fip_name }}.address
+    directions {
+    {%- if tm.tunnel_id_in is not none %}
+        in  = {{ tm.tunnel_id_in }}
+    {%- endif %}
+    {%- if tm.tunnel_id_out is not none %}
+        out = {{ tm.tunnel_id_out }}
+    {%- endif %}
+    }
+}
+{% endfor -%}
 {%- endif -%}

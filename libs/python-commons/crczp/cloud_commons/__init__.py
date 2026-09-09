@@ -9,7 +9,7 @@ from .exceptions import (
     StackException,
     StackNotFound,
 )
-from .topology_elements import MAN, Link, NodeToNodeLinkPair, SecurityGroups
+from .topology_elements import MAN, Link, NetworkForwarding, NodeToNodeLinkPair, SecurityGroups
 from .topology_instance import MAN_NAME, MAN_NET_NAME, TopologyInstance
 from .transformation_configuration import TransformationConfiguration
 
@@ -21,6 +21,7 @@ __all__ = [
     'MAN',
     'MAN_NAME',
     'MAN_NET_NAME',
+    'NetworkForwarding',
     'NodeDetails',
     'NodeToNodeLinkPair',
     'Quota',

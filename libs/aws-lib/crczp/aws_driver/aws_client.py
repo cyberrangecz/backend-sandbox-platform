@@ -7,6 +7,8 @@ from typing import Any, cast
 
 import boto3
 from botocore.config import Config
+from jinja2 import Environment, FileSystemLoader
+
 from crczp.cloud_commons import (
     CrczpCloudClientBase,
     HardwareUsage,
@@ -20,9 +22,9 @@ from crczp.cloud_commons import (
     TransformationConfiguration,
 )
 from crczp.cloud_commons.topology_elements import Host
-from jinja2 import Environment, FileSystemLoader
 
 from .exceptions import ImageDoesNotExist, KeyPairDoesNotExist
+from .network_forwarding import build_traffic_mirror_plan
 
 # Only provide a default CA bundle when the environment does not already specify one
 # and the fallback file exists on the system.
@@ -167,6 +169,9 @@ class CrczpAwsClient(CrczpCloudClientBase):
                 base_subnet_name=self.base_subnet_name,
                 trc=self.trc,
                 get_default_route_ip=get_default_route_ip,
+                traffic_mirror_plan=build_traffic_mirror_plan(
+                    topology_instance.get_network_forwarding(), resource_prefix
+                ),
             )
         )
 

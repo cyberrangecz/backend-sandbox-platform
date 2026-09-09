@@ -3,6 +3,6 @@ provider_installation {
     path = "/opt/tofu/provider_mirror"
   }
   direct {
-    exclude = ["*"]
+    exclude = ["*/*"]
   }
 }

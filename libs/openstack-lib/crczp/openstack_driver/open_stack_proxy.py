@@ -28,6 +28,10 @@ from crczp.cloud_commons import (
     TopologyInstance,
     TransformationConfiguration,
 )
+from crczp.openstack_driver.network_forwarding import (
+    build_tap_mirror_plan,
+    validate_router_interface_addresses,
+)
 from crczp.topology_definition.models import Protocol
 
 if TYPE_CHECKING:
@@ -74,6 +78,8 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         app_cred_id: str,
         app_cred_secret: str,
         trc: TransformationConfiguration,
+        hypervisor_cidr: str | None = None,
+        mirror_type: str = 'gre',
     ) -> None:
         self.nova = nova_client
         self.glance = glance_client
@@ -87,6 +93,8 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         )
         self.template_environment.filters['regex_replace'] = regex_replace
         self.trc = trc
+        self.hypervisor_cidr = hypervisor_cidr
+        self.mirror_type = mirror_type
 
     @staticmethod
     def _get_owner_specified_data(image: Any) -> dict[str, str]:
@@ -392,9 +400,21 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         :param key_pair_name_cert: The name of certificate key pair in the cloud
         :param resource_prefix: The prefix of all resources.
         :return: Terraform Template as a string
-        :raise: CrczpException on network validation error
+        :raise: CrczpException on network validation error or missing hypervisor CIDR
         :raise: InvalidTopologyDefinition on template rendering error
         """
+        network_forwarding = topology_instance.get_network_forwarding()
+        tap_mirror_plan = build_tap_mirror_plan(
+            network_forwarding, resource_prefix, self.mirror_type
+        )
+        if tap_mirror_plan.tap_mirrors and not self.hypervisor_cidr:
+            raise CrczpException(
+                'This topology uses network_forwarding, which exposes the mirror destination '
+                'on a floating IP. Set application_configuration.openstack.hypervisor_cidr '
+                'to the CIDR the hypervisors send the mirrored traffic from; it is the only '
+                'source allowed to reach that floating IP.'
+            )
+        validate_router_interface_addresses(network_forwarding, topology_instance)
         try:
             template = self.template_environment.get_template(TERRAFORM_DEPLOY_TEMPLATE_FILE)
             template_str = template.render(
@@ -408,6 +428,8 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
                 auth_url=self.auth_url,
                 app_cred_id=self.app_cred_id,
                 app_cred_secret=self.app_cred_secret,
+                tap_mirror_plan=tap_mirror_plan,
+                hypervisor_cidr=self.hypervisor_cidr,
             )
         except Exception as e:
             raise InvalidTopologyDefinition('Error while generating template: ', e) from e

@@ -953,7 +953,7 @@ test = [
 
 [[package]]
 name = "crczp-sandbox-service"
-version = "3.0.0"
+version = "3.1.0"
 source = { editable = "sandbox-service" }
 dependencies = [
     { name = "better-profanity" },
@@ -1153,7 +1153,7 @@ test = [
 
 [[package]]
 name = "crczp-topology-definition"
-version = "2.1.0"
+version = "2.2.0"
 source = { editable = "libs/topology-definition" }
 dependencies = [
     { name = "netaddr" },

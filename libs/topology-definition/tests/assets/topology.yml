@@ -35,6 +35,9 @@ networks:
     cidr: 10.10.30.0/24
     accessible_by_user: False
 
+  - name: capture-switch
+    cidr: 10.10.50.0/24
+
 net_mappings:
   - host: server
     network: server-switch
@@ -44,6 +47,10 @@ net_mappings:
     network: home-switch
     ip: 10.10.30.5
 
+  - host: home
+    network: capture-switch
+    ip: 10.10.50.5
+
 router_mappings:
   - router: server-router
     network: server-switch
@@ -52,6 +59,10 @@ router_mappings:
   - router: home-router
     network: home-switch
     ip: 10.10.30.1
+
+  - router: home-router
+    network: capture-switch
+    ip: 10.10.50.1
 
 groups:
   - name: user-accessible

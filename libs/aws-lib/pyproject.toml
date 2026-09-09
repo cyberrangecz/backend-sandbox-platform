@@ -66,6 +66,11 @@ select = [
     "I",
 ]
 
+[tool.ruff.lint.isort]
+# pylint resolves `crczp` as first-party from the directory layout; without this ruff
+# would rank the installed crczp.* packages as third-party and the two disagree on order.
+known-first-party = ["crczp"]
+
 [tool.ruff.format]
 quote-style = "single"
 indent-style = "space"

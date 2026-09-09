@@ -1,5 +1,7 @@
 """Tests for crczp.openstack_driver.open_stack_proxy module."""
 
+import re
+
 import pytest
 from novaclient.exceptions import ClientException as NovaClientException
 from ruamel.yaml import YAML
@@ -13,8 +15,28 @@ from crczp.cloud_commons import (
     QuotaSet,
     StackException,
 )
-from crczp.openstack_driver import utils
+from crczp.openstack_driver import network_forwarding, utils
+from crczp.openstack_driver.network_forwarding import build_tap_mirror_plan
 from crczp.openstack_driver.open_stack_proxy import OpenStackProxy
+
+
+def _resource_block(template: str, resource_type: str, name: str) -> str:
+    """Return the body of a single Terraform resource block."""
+    start = template.index(f'resource "{resource_type}" "{name}" {{')
+    return template[start : template.index('\n}', start)]
+
+
+# OpenTofu rejects `}data "x" "y" {` with "Missing newline after block definition", and a
+# single Jinja whitespace-control marker is enough to produce it.
+_BLOCK_WELD = re.compile(r'^\s*\}\s*\S')
+
+
+def _assert_blocks_newline_separated(template: str) -> None:
+    """Assert every block in a rendered template closes on a line of its own."""
+    welded = [
+        (n, line) for n, line in enumerate(template.splitlines(), 1) if _BLOCK_WELD.match(line)
+    ]
+    assert not welded, f'block definition not terminated by a newline: {welded}'
 
 
 class TestOpenStackProxy:  # pylint: disable=too-many-public-methods
@@ -40,6 +62,7 @@ class TestOpenStackProxy:  # pylint: disable=too-many-public-methods
             application_credential_id,
             application_credential_secret,
             trc,
+            hypervisor_cidr='10.99.0.0/16',
         )
 
         return open_stack_proxy
@@ -396,3 +419,217 @@ class TestOpenStackProxy:  # pylint: disable=too-many-public-methods
 
         filtered = '\n'.join(s for s in str(template_dict).split('\n') if s)
         assert filtered == str(generated_terraform_template)
+
+    def test_template_no_forwarding_omits_tap_mirror(self, open_stack_proxy, topology_instance):
+        """A definition without network_forwarding emits no TaaS/FIP resources."""
+        template_str = open_stack_proxy.validate_and_get_terraform_template(topology_instance)
+
+        assert 'openstack_taas_tap_mirror_v2' not in template_str
+        assert 'openstack_networking_floatingip_v2' not in template_str
+        assert 'openstack_networking_router_v2' not in template_str
+        assert 'resource "openstack_networking_secgroup_v2"' not in template_str
+
+    def test_template_forwarding_emits_tap_mirror(
+        self, open_stack_proxy, topology_instance_forwarding
+    ):
+        """A definition with network_forwarding emits FIP plumbing and a tap_mirror."""
+        template_str = open_stack_proxy.validate_and_get_terraform_template(
+            topology_instance_forwarding, resource_prefix='stack-p1-s2'
+        )
+
+        # Platform router auto-discovery from base_network (crczp-network) + external network.
+        assert 'data "openstack_networking_port_v2" "network-forwarding-base-router-port"' in (
+            template_str
+        )
+        assert 'device_owner = "network:router_interface"' in template_str
+        assert 'data "openstack_networking_router_v2" "network-forwarding-platform-router"' in (
+            template_str
+        )
+
+        # The sandbox gets its own router, gatewayed to the platform's external network.
+        assert 'resource "openstack_networking_router_v2" "stack-p1-s2-tapm-rtr"' in template_str
+        assert (
+            'external_network_id = '
+            'data.openstack_networking_router_v2.network-forwarding-platform-router'
+            '.external_network_id'
+        ) in template_str
+
+        # FIP plumbing for the destination interface, attached to the sandbox's own router.
+        # Names are asserted, not just resource types, so a plan/template drift cannot pass.
+        assert (
+            'resource "openstack_networking_router_interface_v2" '
+            '"stack-p1-s2-tapm-ri-monitoring-switch"'
+        ) in template_str
+        assert (
+            'resource "openstack_networking_port_v2" "stack-p1-s2-tapm-rp-monitoring-switch"'
+        ) in template_str
+        assert 'router_id = openstack_networking_router_v2.stack-p1-s2-tapm-rtr.id' in template_str
+        assert 'router_id = data.openstack_networking_router_v2.' not in template_str
+        # The destination interface name is auto-generated ("link-N"), so only the tag is pinned.
+        assert (
+            'resource "openstack_networking_floatingip_v2" "stack-p1-s2-tapm-fip-' in template_str
+        )
+        assert (
+            'resource "openstack_networking_floatingip_associate_v2" "stack-p1-s2-tapm-fipa-'
+        ) in template_str
+
+        # The tap_mirror mirrors into the destination floating IP with derived tunnel ids.
+        assert 'resource "openstack_taas_tap_mirror_v2" "stack-p1-s2-tapm-0"' in template_str
+        assert 'mirror_type = "gre"' in template_str
+        assert 'remote_ip   = openstack_networking_floatingip_v2.' in template_str
+        assert '.address' in template_str
+        # sandbox id 2 -> tunnel base 2 * 1024 = 2048; direction "both" -> in/out.
+        assert 'in  = 2048' in template_str
+        assert 'out = 2049' in template_str
+
+    def test_template_forwarding_mirror_type_from_config(
+        self, open_stack_proxy, topology_instance_forwarding
+    ):
+        """The proxy's configured mirror_type (not the topology) drives the encapsulation."""
+        open_stack_proxy.mirror_type = 'erspanv1'
+
+        template_str = open_stack_proxy.validate_and_get_terraform_template(
+            topology_instance_forwarding, resource_prefix='stack-p1-s2'
+        )
+
+        assert 'mirror_type = "erspanv1"' in template_str
+        assert 'mirror_type = "gre"' not in template_str
+
+    def test_template_forwarding_destination_port_uses_hypervisor_secgroup(
+        self, open_stack_proxy, topology_instance_forwarding
+    ):
+        """The destination port carries the hypervisor-only group instead of the topology one."""
+        template_str = open_stack_proxy.validate_and_get_terraform_template(
+            topology_instance_forwarding, resource_prefix='stack-p1-s2'
+        )
+        plan = build_tap_mirror_plan(
+            topology_instance_forwarding.get_network_forwarding(), 'stack-p1-s2', 'gre'
+        )
+        (dest_port_name,) = plan.destination_port_names
+
+        assert f'resource "openstack_networking_secgroup_v2" "{plan.secgroup_name}"' in template_str
+        assert (
+            f'resource "openstack_networking_secgroup_rule_v2" "{plan.secgroup_name}-ingress"'
+        ) in template_str
+        assert 'direction         = "ingress"' in template_str
+        assert 'remote_ip_prefix  = "10.99.0.0/16"' in template_str
+
+        # Security group rules are a union, so the destination port must not keep the topology
+        # group as well — that one admits 0.0.0.0/0.
+        dest_port = _resource_block(template_str, 'openstack_networking_port_v2', dest_port_name)
+        assert f'openstack_networking_secgroup_v2.{plan.secgroup_name}.id' in dest_port
+        assert 'sandbox-internal-sg' not in dest_port
+
+        # Mirrored source ports are untouched.
+        source_port = _resource_block(
+            template_str, 'openstack_networking_port_v2', plan.tap_mirrors[0].source_port_name
+        )
+        assert 'data.openstack_networking_secgroup_v2.sandbox-internal-sg.id' in source_port
+        assert plan.secgroup_name not in source_port
+
+    def test_template_forwarding_router_port_pins_its_address(
+        self, open_stack_proxy, topology_instance_forwarding
+    ):
+        """The router-interface port is pinned, so it cannot race the topology ports."""
+        template_str = open_stack_proxy.validate_and_get_terraform_template(
+            topology_instance_forwarding, resource_prefix='stack-p1-s2'
+        )
+
+        # Asserted inside the port's own block, so it cannot pass on some other port.
+        port = _resource_block(
+            template_str,
+            'openstack_networking_port_v2',
+            'stack-p1-s2-tapm-rp-monitoring-switch',
+        )
+        assert (
+            'subnet_id = openstack_networking_subnet_v2.stack-p1-s2-monitoring-switch-subnet.id'
+        ) in port
+        assert 'ip_address = "10.10.40.3"' in port
+
+    def test_template_forwarding_user_network_ports_all_pinned(
+        self, open_stack_proxy, topology_instance_forwarding
+    ):
+        """No port on a user network is left to Neutron, which is what makes order irrelevant."""
+        template_str = open_stack_proxy.validate_and_get_terraform_template(
+            topology_instance_forwarding, resource_prefix='stack-p1-s2'
+        )
+        user_subnets = ('server-switch-subnet', 'monitoring-switch-subnet')
+
+        for block in template_str.split('resource "openstack_networking_port_v2" ')[1:]:
+            body = block[: block.index('\n}')]
+            if any(subnet in body for subnet in user_subnets):
+                assert 'ip_address = ' in body, body
+
+    def test_template_forwarding_rejects_reserved_destination_address(
+        self, mocker, open_stack_proxy, topology_instance_forwarding
+    ):
+        """A destination network that assigns the reserved address fails before any cloud call."""
+        # The shipped definition maps the monitoring host to 10.10.40.5, so moving the
+        # reservation onto offset 5 creates the clash without a new asset.
+        mocker.patch.object(network_forwarding, 'ROUTER_INTERFACE_OFFSET', 5)
+
+        with pytest.raises(CrczpException, match='10.10.40.5'):
+            open_stack_proxy.validate_and_get_terraform_template(
+                topology_instance_forwarding, resource_prefix='stack-p1-s2'
+            )
+
+    def test_template_forwarding_requires_hypervisor_cidr(
+        self, mocker, open_stack_proxy, topology_instance_forwarding
+    ):
+        """Rendering fails rather than exposing the destination floating IP to everyone."""
+        mocker.patch.object(open_stack_proxy, 'hypervisor_cidr', None)
+
+        with pytest.raises(CrczpException, match='hypervisor_cidr'):
+            open_stack_proxy.validate_and_get_terraform_template(
+                topology_instance_forwarding, resource_prefix='stack-p1-s2'
+            )
+
+    def test_template_without_forwarding_needs_no_hypervisor_cidr(
+        self, mocker, open_stack_proxy, topology_instance
+    ):
+        """The option is only required by topologies that actually mirror traffic."""
+        mocker.patch.object(open_stack_proxy, 'hypervisor_cidr', None)
+
+        template_str = open_stack_proxy.validate_and_get_terraform_template(topology_instance)
+
+        assert 'openstack_networking_secgroup_rule_v2' not in template_str
+
+    def test_template_forwarding_router_is_per_sandbox(
+        self, open_stack_proxy, topology_instance_forwarding
+    ):
+        """Two sandboxes of one pool get distinct routers, so their subnets cannot collide."""
+        templates = [
+            open_stack_proxy.validate_and_get_terraform_template(
+                topology_instance_forwarding, resource_prefix=prefix
+            )
+            for prefix in ('stack-p1-s1', 'stack-p1-s2')
+        ]
+
+        for prefix, template_str in zip(('stack-p1-s1', 'stack-p1-s2'), templates, strict=True):
+            assert f'resource "openstack_networking_router_v2" "{prefix}-tapm-rtr"' in template_str
+            assert (
+                f'router_id = openstack_networking_router_v2.{prefix}-tapm-rtr.id'
+            ) in template_str
+
+        assert 'stack-p1-s2-tapm-rtr' not in templates[0]
+        assert 'stack-p1-s1-tapm-rtr' not in templates[1]
+
+    @pytest.mark.parametrize(
+        'topology_fixture',
+        ['topology_instance', 'topology_instance_volumes', 'topology_instance_forwarding'],
+    )
+    def test_template_blocks_are_newline_separated(
+        self, request, open_stack_proxy, topology_fixture
+    ):
+        """Every topology renders blocks OpenTofu can parse, whatever Jinja's stripping does.
+
+        A left-stripping comment used to weld the MAN instance's closing brace onto the
+        network-forwarding data block below it, which failed every build at `tofu init`.
+        """
+        topology_instance = request.getfixturevalue(topology_fixture)
+
+        template_str = open_stack_proxy.validate_and_get_terraform_template(
+            topology_instance, resource_prefix='stack-p1-s2'
+        )
+
+        _assert_blocks_newline_separated(template_str)

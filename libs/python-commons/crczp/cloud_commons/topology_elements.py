@@ -115,3 +115,34 @@ class NodeToNodeLinkPair:
             f'{self.first.network.name}({self.first.network.cidr}) <- {self.second.name} -> '
             f'{self.second.node.name}({second_ip}))'
         )
+
+
+class NetworkForwarding:
+    """
+    A resolved network-forwarding (port mirroring) rule in the TI: the traffic on
+    one or more source Links is mirrored to a single destination Link.
+    """
+
+    def __init__(
+        self,
+        sources: list[Link],
+        destination: Link,
+        direction: str,
+    ):
+        self.sources = sources
+        self.destination = destination
+        self.direction = direction
+
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Return the NetworkForwarding representation as a dictionary.
+        """
+        return {
+            'sources': [link.name for link in self.sources],
+            'destination': self.destination.name,
+            'direction': self.direction,
+        }
+
+    @override
+    def __repr__(self) -> str:
+        return f'NetworkForwarding({self.to_dict()})'

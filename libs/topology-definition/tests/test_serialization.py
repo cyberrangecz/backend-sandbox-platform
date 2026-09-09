@@ -2,6 +2,9 @@
 Tests for topology definition serialization.
 """
 
+# pytest fixtures intentionally shadow the module-level fixture functions by name.
+# pylint: disable=redefined-outer-name
+
 import io
 import os
 from typing import Any
@@ -25,6 +28,9 @@ SANDBOX_DEFINITION_MONITORING_PATH = os.path.join(
 )
 SANDBOX_DEFINITION_VPN_PATH = os.path.join(
     os.path.dirname(__file__), 'assets/topology-with-vpn.yml'
+)
+SANDBOX_DEFINITION_FORWARDING_PATH = os.path.join(
+    os.path.dirname(__file__), 'assets/topology-with-forwarding.yml'
 )
 
 
@@ -60,6 +66,14 @@ def topology_definition_monitoring() -> TopologyDefinition:
     Fixture for topology definition with monitoring.
     """
     return TopologyDefinition.from_file(SANDBOX_DEFINITION_MONITORING_PATH)
+
+
+@pytest.fixture  # type: ignore[untyped-decorator]
+def topology_definition_forwarding() -> TopologyDefinition:
+    """
+    Fixture for topology definition with network forwarding.
+    """
+    return TopologyDefinition.from_file(SANDBOX_DEFINITION_FORWARDING_PATH)
 
 
 @pytest.mark.integration
@@ -588,3 +602,182 @@ vpn:
         server_router: Router | None = td.find_router_by_name('server-router')
         assert server_router is not None
         assert server_router.base_box.image == 'debian-12-x86_64'
+
+    def test_forwarding_absent(self, topology_definition: TopologyDefinition) -> None:
+        """
+        Topology without a network_forwarding block loads with the attribute None.
+        """
+        assert topology_definition.network_forwarding is None
+
+    def test_forwarding_from_file(self, topology_definition_forwarding: TopologyDefinition) -> None:
+        """
+        A network_forwarding block is parsed: sources, destination, direction.
+        """
+        rule = topology_definition_forwarding.network_forwarding
+        assert rule is not None
+        assert rule.direction == 'both'
+        assert len(rule.sources) == 2
+        assert rule.sources[0].host == 'server'
+        assert rule.sources[0].network == 'server-switch'
+        assert rule.sources[1].host == 'server-router'
+        assert rule.destination.host == 'monitoring'
+        assert rule.destination.network == 'monitoring-switch'
+
+    def test_forwarding_defaults(self, topology_definition_string: str) -> None:
+        """
+        direction defaults to 'both' when omitted.
+        """
+        td = TopologyDefinition.load(
+            topology_definition_string
+            + """
+network_forwarding:
+  sources:
+    - { host: server, network: server-switch }
+  destination: { host: home, network: capture-switch }
+"""
+        )
+        assert td.network_forwarding is not None
+        assert td.network_forwarding.direction == 'both'
+
+    def test_forwarding_list_form_rejected(self, topology_definition_string: str) -> None:
+        """
+        A topology declares at most one rule; the former list form no longer parses.
+        """
+        with pytest.raises((YamlizingError, ValueError)):
+            TopologyDefinition.load(
+                topology_definition_string
+                + """
+network_forwarding:
+  - sources:
+      - { host: server, network: server-switch }
+    destination: { host: home, network: capture-switch }
+"""
+            )
+
+    def test_forwarding_bad_direction_rejected(self, topology_definition_string: str) -> None:
+        """
+        An invalid direction raises a parse-time error.
+        """
+        with pytest.raises((YamlizingError, ValueError)):
+            TopologyDefinition.load(
+                topology_definition_string
+                + """
+network_forwarding:
+  sources:
+    - { host: server, network: server-switch }
+  destination: { host: home, network: capture-switch }
+  direction: sideways
+"""
+            )
+
+    def test_forwarding_self_mirror_rejected(self, topology_definition_string: str) -> None:
+        """
+        A rule whose source equals its destination raises a parse-time error.
+        """
+        with pytest.raises((YamlizingError, ValueError)):
+            TopologyDefinition.load(
+                topology_definition_string
+                + """
+network_forwarding:
+  sources:
+    - { host: home, network: capture-switch }
+  destination: { host: home, network: capture-switch }
+"""
+            )
+
+    def test_forwarding_unknown_interface_rejected(self, topology_definition_string: str) -> None:
+        """
+        A rule referencing a host not attached to the network raises a parse-time error.
+        """
+        with pytest.raises((YamlizingError, ValueError)):
+            TopologyDefinition.load(
+                topology_definition_string
+                + """
+network_forwarding:
+  sources:
+    - { host: server, network: home-switch }
+  destination: { host: home, network: capture-switch }
+"""
+            )
+
+    def test_forwarding_destination_single_interface_rejected(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        A destination node with a single interface raises a parse-time error.
+        """
+        with pytest.raises((YamlizingError, ValueError), match='at least'):
+            TopologyDefinition.load(
+                topology_definition_string
+                + """
+network_forwarding:
+  sources:
+    - { host: home, network: home-switch }
+  destination: { host: server, network: server-switch }
+"""
+            )
+
+    def test_forwarding_destination_first_interface_rejected(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        The first interface of a node is reserved for default routing.
+        """
+        with pytest.raises((YamlizingError, ValueError), match='default routing'):
+            TopologyDefinition.load(
+                topology_definition_string
+                + """
+network_forwarding:
+  sources:
+    - { host: server, network: server-switch }
+  destination: { host: home, network: home-switch }
+"""
+            )
+
+    def test_forwarding_router_destination_rejected(self, topology_definition_string: str) -> None:
+        """
+        A router cannot be a mirror destination. Only a host may receive mirrored traffic.
+
+        ``home-router`` is attached to ``capture-switch`` as a dedicated (non-first) interface, so
+        the rejection is specifically because it is a router, not an interface-topology problem.
+        """
+        with pytest.raises((YamlizingError, ValueError), match='is a router'):
+            TopologyDefinition.load(
+                topology_definition_string
+                + """
+network_forwarding:
+  sources:
+    - { host: server, network: server-switch }
+  destination: { host: home-router, network: capture-switch }
+"""
+            )
+
+    def test_forwarding_router_source_accepted(self, topology_definition_string: str) -> None:
+        """
+        A router is a valid mirror source; only the destination is restricted to hosts.
+        """
+        td = TopologyDefinition.load(
+            topology_definition_string
+            + """
+network_forwarding:
+  sources:
+    - { host: server-router, network: server-switch }
+  destination: { host: home, network: capture-switch }
+"""
+        )
+        assert td.network_forwarding is not None
+        assert td.network_forwarding.sources[0].host == 'server-router'
+
+    def test_forwarding_empty_sources_rejected(self, topology_definition_string: str) -> None:
+        """
+        A rule with no sources raises a parse-time error.
+        """
+        with pytest.raises((YamlizingError, ValueError)):
+            TopologyDefinition.load(
+                topology_definition_string
+                + """
+network_forwarding:
+  sources: []
+  destination: { host: home, network: capture-switch }
+"""
+            )

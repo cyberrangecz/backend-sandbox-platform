@@ -6,6 +6,7 @@ from typing import cast, override
 import yaml
 from crczp.topology_definition.models import (
     DockerContainers,
+    ForwardingInterface,
     Group,
     Host,
     MonitoringTargetHTTP,
@@ -24,6 +25,7 @@ from crczp.cloud_commons.exceptions import CrczpException, InvalidTopologyDefini
 from crczp.cloud_commons.topology_elements import (
     MAN,
     Link,
+    NetworkForwarding,
     Node,
     NodeToNodeLinkPair,
     SecurityGroups,
@@ -313,6 +315,46 @@ class TopologyInstance:
                 accessible_links.append(link)
 
         return accessible_links
+
+    # network forwarding (port mirroring)
+
+    def get_network_forwarding(self) -> NetworkForwarding | None:
+        """
+        Return the resolved network-forwarding (port mirroring) rule.
+
+        The rule from the topology definition is resolved to concrete Links: the
+        ``(host, network)`` source/destination interfaces become their Links.
+        Returns None when no forwarding is defined.
+        """
+        rule = getattr(self.topology_definition, 'network_forwarding', None)
+        if not rule:
+            return None
+        return NetworkForwarding(
+            sources=[self._resolve_forwarding_link(iface) for iface in rule.sources],
+            destination=self._resolve_forwarding_link(rule.destination),
+            direction=rule.direction,
+        )
+
+    def _resolve_forwarding_link(self, iface: ForwardingInterface) -> Link:
+        """
+        Resolve a forwarding ``(host, network)`` interface to its Link.
+        """
+        node = self.get_node(iface.host)
+        network = self.get_network(iface.network)
+        if node is None or network is None:
+            msg = (
+                f'network_forwarding references interface "{iface.host}:{iface.network}" '
+                'which does not exist in the topology instance.'
+            )
+            raise CrczpException(msg)
+        link = self.get_link_between_node_and_network(node, network)
+        if link is None:
+            msg = (
+                f'network_forwarding interface "{iface.host}:{iface.network}" has no link '
+                'in the topology instance.'
+            )
+            raise CrczpException(msg)
+        return link
 
     # get link pairs
 

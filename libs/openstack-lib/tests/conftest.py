@@ -13,6 +13,7 @@ TESTING_DATA_DIR = 'assets'
 
 TESTING_DEFINITION = 'definition.yml'
 TESTING_DEFINITION_EMPTY = 'definition-empty.yml'
+TESTING_DEFINITION_FORWARDING = 'definition-forwarding.yml'
 TESTING_TRANSFORMATION_CONFIGURATION = 'trc-config.yml'
 TESTING_GENERATED_HEAT_TEMPLATE = 'generated-template.tf'
 TESTING_BASE_NETWORK_TEMPLATE = 'base-net-template.yml'
@@ -41,6 +42,13 @@ def empty_topology_definition():
     """Create an empty topology definition."""
     with open(data_path_join(TESTING_DEFINITION_EMPTY), encoding='utf-8') as file:
         return TopologyDefinition.load(file)
+
+
+@pytest.fixture
+def topology_instance_forwarding(trc):  # pylint: disable=redefined-outer-name
+    """Create a TopologyInstance from a definition that uses network forwarding."""
+    with open(data_path_join(TESTING_DEFINITION_FORWARDING), encoding='utf-8') as file:
+        return TopologyInstance(TopologyDefinition.load(file), trc)
 
 
 @pytest.fixture

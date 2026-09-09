@@ -5,6 +5,7 @@ terraform {
     required_providers {
         {{ tf_provider }} = {
             source = "{{ tf_provider_source }}"
+            version = ">= 3.4.0"
         }
     }
 }

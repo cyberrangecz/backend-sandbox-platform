@@ -15,11 +15,13 @@ if TYPE_CHECKING:
 
     from crczp.topology_definition.models import (
         WAN,
+        ForwardingInterface,
         GroupList,
         MonitoringTargetICMPList,
         MonitoringTargets,
         MonitoringTargetTCPList,
         Network,
+        NetworkForwardingRule,
         NetworkList,
         NetworkMapping,
         NetworkMappingList,
@@ -72,6 +74,111 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
             if not obj.find_network_by_name(net_mapping.network):
                 raise ValueError(_msg.format(net_mapping.ip, 'network', net_mapping.network))
         return True
+
+    @staticmethod
+    def validate_network_forwarding(
+        obj: TopologyDefinition, network_forwarding: NetworkForwardingRule | None
+    ) -> None:
+        """
+        Validate the network forwarding (port mirroring) rule.
+
+        The rule must have a valid ``direction``, a non-empty
+        list of sources, and a destination that differs from every source. Every
+        referenced interface must be attached to its network (a net/router mapping
+        exists). A source may be a host or a router, but the destination must be a
+        host and a dedicated interface (see ``_validate_forwarding_destination``).
+        """
+        if not network_forwarding:
+            return
+        valid_directions = {'in', 'out', 'both'}
+        rule = network_forwarding
+        if rule.direction not in valid_directions:
+            raise ValueError(
+                f'network_forwarding has invalid direction "{rule.direction}". '
+                f'Must be one of {sorted(valid_directions)}.'
+            )
+        if not rule.sources:
+            raise ValueError('network_forwarding must have at least one source.')
+        TopologyValidation._validate_forwarding_destination(obj, rule)
+        for src in rule.sources:
+            TopologyValidation._validate_forwarding_interface(obj, src, 'source')
+            if src.host == rule.destination.host and src.network == rule.destination.network:
+                raise ValueError(
+                    f'network_forwarding mirrors interface {src.host}:{src.network} to itself.'
+                )
+
+    @staticmethod
+    def _node_interface_networks(obj: TopologyDefinition, node: str) -> list[str]:
+        """
+        Return the networks a host or router is attached to, in topology definition order.
+
+        Only user-defined networks are listed; the management network and WAN interfaces are
+        added later, when the topology instance is built. Host and router names share one
+        namespace, so exactly one of the two mapping lists can match a given node.
+        """
+        return [
+            net_mapping.network for net_mapping in obj.net_mappings if net_mapping.host == node
+        ] + [
+            router_mapping.network
+            for router_mapping in obj.router_mappings
+            if router_mapping.router == node
+        ]
+
+    @staticmethod
+    def _validate_forwarding_interface(
+        obj: TopologyDefinition,
+        iface: ForwardingInterface,
+        role: str,
+    ) -> None:
+        """
+        Ensure a forwarding interface references a host/router attached to the
+        given network (i.e. a corresponding net/router mapping exists).
+        """
+        if iface.network not in TopologyValidation._node_interface_networks(obj, iface.host):
+            raise ValueError(
+                f'network_forwarding {role} interface "{iface.host}:{iface.network}" is not a '
+                'valid interface: no host or router is attached to that network.'
+            )
+
+    @staticmethod
+    def _validate_forwarding_destination(
+        obj: TopologyDefinition, rule: NetworkForwardingRule
+    ) -> None:
+        """
+        Ensure the destination is a host and a dedicated interface, not the default-routing one.
+
+        Only a host can be a mirror destination: on OpenStack the destination receives a floating
+        IP and a security group that admits only the hypervisors, and it relies on host
+        default-routing semantics that a router does not provide. Using the node's first interface —
+        the one it routes through — would cut it off from the rest of the sandbox, so the
+        destination node needs at least two interfaces and the first one is reserved.
+        """
+        iface = rule.destination
+        TopologyValidation._validate_forwarding_interface(obj, iface, 'destination')
+
+        if obj.find_router_by_name(iface.host):
+            raise ValueError(
+                f'network_forwarding destination interface "{iface.host}:{iface.network}" is '
+                f'invalid: "{iface.host}" is a router. Only a host can be a mirror destination — '
+                'the destination receives a floating IP and a hypervisor-only security group and '
+                'relies on host default-routing semantics that a router does not provide.'
+            )
+
+        networks = TopologyValidation._node_interface_networks(obj, iface.host)
+        if len(networks) < 2:
+            raise ValueError(
+                f'network_forwarding destination interface "{iface.host}:{iface.network}" is '
+                f'invalid: "{iface.host}" has only one interface in the topology definition. '
+                'A mirror destination needs at least two: the first one for default routing '
+                'and a dedicated one for the mirrored traffic.'
+            )
+        if iface.network == networks[0]:
+            raise ValueError(
+                f'network_forwarding destination interface "{iface.host}:{iface.network}" is '
+                f'invalid: "{networks[0]}" is the first interface of "{iface.host}" and is '
+                'used for default routing. Mirror the traffic to one of its other '
+                f'interfaces: {networks[1:]}.'
+            )
 
     @staticmethod
     def validate_router_mappings(

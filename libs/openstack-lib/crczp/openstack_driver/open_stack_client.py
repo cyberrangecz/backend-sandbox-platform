@@ -27,12 +27,14 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
     :raise: ValueError if some of used clients doesn't exist.
     """
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         auth_url: str,
         application_credential_id: str,
         application_credential_secret: str,
         trc: TransformationConfiguration,
+        hypervisor_cidr: str | None = None,
+        mirror_type: str = 'gre',
     ):
         self.session = utils.get_session(
             auth_url, application_credential_id, application_credential_secret
@@ -48,6 +50,8 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
             application_credential_id,
             application_credential_secret,
             trc,
+            hypervisor_cidr,
+            mirror_type,
         )
 
     def _get_project_id(self) -> str:
