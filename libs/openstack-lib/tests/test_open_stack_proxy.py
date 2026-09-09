@@ -1,5 +1,7 @@
 """Tests for crczp.openstack_driver.open_stack_proxy module."""
 
+import re
+
 import pytest
 from novaclient.exceptions import ClientException as NovaClientException
 from ruamel.yaml import YAML
@@ -12,9 +14,34 @@ from crczp.cloud_commons import (
     Quota,
     QuotaSet,
     StackException,
+    hcl_string,
 )
 from crczp.openstack_driver import utils
 from crczp.openstack_driver.open_stack_proxy import OpenStackProxy
+
+
+def _resource_block(template: str, resource_type: str, name: str) -> str:
+    """Return the body of a single Terraform resource block."""
+    start = template.index(f'resource "{resource_type}" "{name}" {{')
+    return template[start : template.index('\n}', start)]
+
+
+def _squash(text: str) -> str:
+    """Collapse whitespace runs, so assertions do not depend on column alignment."""
+    return re.sub(r'\s+', ' ', text)
+
+
+# OpenTofu rejects `}data "x" "y" {` with "Missing newline after block definition", and a
+# single Jinja whitespace-control marker is enough to produce it.
+_BLOCK_WELD = re.compile(r'^\s*\}\s*\S')
+
+
+def _assert_blocks_newline_separated(template: str) -> None:
+    """Assert every block in a rendered template closes on a line of its own."""
+    welded = [
+        (n, line) for n, line in enumerate(template.splitlines(), 1) if _BLOCK_WELD.match(line)
+    ]
+    assert not welded, f'block definition not terminated by a newline: {welded}'
 
 
 class TestOpenStackProxy:  # pylint: disable=too-many-public-methods
@@ -396,3 +423,129 @@ class TestOpenStackProxy:  # pylint: disable=too-many-public-methods
 
         filtered = '\n'.join(s for s in str(template_dict).split('\n') if s)
         assert filtered == str(generated_terraform_template)
+
+    def test_template_volumes_render_per_volume_images(
+        self, open_stack_proxy, topology_instance_volumes
+    ):
+        """The system disk comes from base_box.image; later volumes from their own image or blank.
+
+        The 'server' host declares a system disk, an extra volume with its own image, and a blank
+        extra volume.
+        """
+        server_node = topology_instance_volumes.get_node('server')
+        template_str = open_stack_proxy.validate_and_get_terraform_template(
+            topology_instance_volumes
+        )
+        squashed = _squash(template_str)
+        server = _squash(
+            _resource_block(template_str, 'openstack_compute_instance_v2', 'stack-name-server')
+        )
+
+        assert sorted(set(re.findall(r'image_data_source-[\w-]+', template_str))) == [
+            'image_data_source-stack-name-server-0',
+            'image_data_source-stack-name-server-1',
+        ]
+        assert (
+            'data "openstack_images_image_ids_v2" "image_data_source-stack-name-server-0" { '
+            f'name = "{server_node.base_box.image}" }}' in squashed
+        )
+        assert (
+            'data "openstack_images_image_ids_v2" "image_data_source-stack-name-server-1" { '
+            'name = "data-disk-x86_64" }' in squashed
+        )
+
+        image_ids = 'data.openstack_images_image_ids_v2.image_data_source-stack-name-server'
+        assert 'image_name' not in server
+        assert server.count('block_device {') == 3
+        assert (
+            'block_device { '
+            f'uuid = {image_ids}-0.ids[0] '
+            'source_type = "image" destination_type = "volume" boot_index = 0 volume_size = 20 '
+            'delete_on_termination = true }' in server
+        )
+        assert (
+            'block_device { '
+            f'uuid = {image_ids}-1.ids[0] '
+            'source_type = "image" destination_type = "volume" boot_index = -1 volume_size = 30 '
+            'delete_on_termination = true }' in server
+        )
+        assert (
+            'block_device { source_type = "blank" destination_type = "volume" boot_index = -1 '
+            'volume_size = 40 delete_on_termination = true }' in server
+        )
+
+        home = _resource_block(template_str, 'openstack_compute_instance_v2', 'stack-name-home')
+        assert 'image_name = "debian-12-x86_64"' in home
+        assert 'block_device' not in home
+
+    def test_template_volume_image_cannot_inject_terraform(
+        self, open_stack_proxy, topology_instance_volumes
+    ):
+        """A hostile volume image name stays inside its string literal.
+
+        Image names are free text from the topology definition. Left unescaped, a quote closes
+        the string, a brace closes the block, and `${...}` would be evaluated by OpenTofu.
+        """
+        payload = (
+            '"\n}\nresource "openstack_networking_secgroup_rule_v2" "inj" {}\n'
+            '${file("/etc/hostname")}'
+        )
+        server = topology_instance_volumes.get_node('server')
+        server.volumes[1].image = payload
+
+        template_str = open_stack_proxy.validate_and_get_terraform_template(
+            topology_instance_volumes
+        )
+
+        data_source = re.search(
+            r'data "openstack_images_image_ids_v2" "image_data_source-stack-name-server-1" \{\n'
+            r'  name = (.*)\n\}',
+            template_str,
+        )
+        assert data_source is not None
+        assert data_source.group(1) == hcl_string(payload)
+        assert not re.findall(
+            r'^resource "openstack_networking_secgroup_rule_v2"', template_str, re.MULTILINE
+        )
+        assert '$${file(' in template_str
+        assert not re.findall(r'(?<!\$)\$\{', template_str)
+        _assert_blocks_newline_separated(template_str)
+
+    def test_template_image_and_flavor_cannot_inject_terraform(
+        self, open_stack_proxy, topology_instance_volumes
+    ):
+        """The image and flavor of a host without volumes are escaped as well."""
+        payload = '"\n}\nresource "openstack_networking_secgroup_rule_v2" "inj" {}\n${var.x}'
+        home = topology_instance_volumes.get_node('home')
+        home.base_box.image = payload
+        home.flavor = payload
+
+        template_str = open_stack_proxy.validate_and_get_terraform_template(
+            topology_instance_volumes
+        )
+
+        home_block = _resource_block(
+            template_str, 'openstack_compute_instance_v2', 'stack-name-home'
+        )
+        assert f'image_name = {hcl_string(payload)}\n' in home_block
+        assert f'flavor_name = {hcl_string(payload)}\n' in home_block
+        assert not re.findall(
+            r'^resource "openstack_networking_secgroup_rule_v2"', template_str, re.MULTILINE
+        )
+        assert not re.findall(r'(?<!\$)\$\{', template_str)
+
+    @pytest.mark.parametrize(
+        'topology_fixture',
+        ['topology_instance', 'topology_instance_volumes'],
+    )
+    def test_template_blocks_are_newline_separated(
+        self, request, open_stack_proxy, topology_fixture
+    ):
+        """Every topology renders newline-separated blocks that OpenTofu can parse."""
+        topology_instance = request.getfixturevalue(topology_fixture)
+
+        template_str = open_stack_proxy.validate_and_get_terraform_template(
+            topology_instance, resource_prefix='stack-p1-s2'
+        )
+
+        _assert_blocks_newline_separated(template_str)

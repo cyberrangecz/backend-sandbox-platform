@@ -6,7 +6,8 @@ from django.core.cache import cache
 
 from crczp.sandbox_common_lib import utils
 
-IMAGE_LIST_CACHE_KEY = 'image_list'
+# Cached Image objects outlive the pod: bump the suffix when the Image fields change.
+IMAGE_LIST_CACHE_KEY = 'image_list-v2'
 IMAGE_LIST_CACHE_TIMEOUT = 60 * 60 * 24
 
 

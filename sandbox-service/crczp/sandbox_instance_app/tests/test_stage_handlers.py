@@ -69,6 +69,20 @@ class TestAllocationStackStageHandler:
             assert allocation_stage_stack.terraformstack
         assert_db_stage(allocation_stage_stack, now, failed=True)
 
+    def test_execute_volumes_invalid(self, mocker, now, allocation_stage_stack, terraform_client):
+        """Test that a definition failing the volume checks fails before create_stack."""
+        mocker.patch(
+            'crczp.sandbox_definition_app.lib.definitions.validate_volumes',
+            side_effect=api_exceptions.ValidationError('volume 0 is too small'),
+        )
+        handler = stage_handlers.AllocationStackStageHandler(allocation_stage_stack)
+
+        with pytest.raises(api_exceptions.ValidationError, match='volume 0 is too small'):
+            handler.execute()
+
+        terraform_client.create_stack.assert_not_called()
+        assert_db_stage(allocation_stage_stack, now, failed=True)
+
     @pytest.mark.xfail(reason="cancellation should set error_message to 'canceled'")
     def test_cancel_success(self, now, allocation_stage_stack_started):
         """Test successful cancellation of a started allocation stack stage."""

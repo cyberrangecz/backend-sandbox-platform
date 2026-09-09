@@ -230,6 +230,15 @@ class CrczpTerraformClient:  # pylint: disable=too-many-public-methods
         """
         return self.cloud_client.get_image(image_id)
 
+    def get_snapshot_sizes(self, snapshot_ids: list[str]) -> dict[str, int]:
+        """
+        Get the sizes of volume snapshots owned by the cloud account.
+
+        :param snapshot_ids: The IDs of the snapshots
+        :return: Size in GiB of each found snapshot, keyed by its ID; missing IDs are left out
+        """
+        return self.cloud_client.get_snapshot_sizes(snapshot_ids)
+
     def resume_node(self, stack_name: str, node_name: str) -> None:
         """
         Resume node.

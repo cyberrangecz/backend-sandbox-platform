@@ -69,6 +69,11 @@ ignore = ["S101"]
 # Fixture credentials and scratch paths are expected in tests.
 "tests/**" = ["S105", "S106", "S108"]
 
+[tool.ruff.lint.isort]
+# pylint resolves `crczp` as first-party from the directory layout; without this ruff
+# would rank the installed crczp.* packages as third-party and the two disagree on order.
+known-first-party = ["crczp"]
+
 [tool.ruff.format]
 quote-style = "single"
 indent-style = "space"

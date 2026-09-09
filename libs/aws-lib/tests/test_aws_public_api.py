@@ -2,9 +2,8 @@
 Import smoke test: fails if any runtime dependency of this package is undeclared.
 """
 
-from crczp.cloud_commons import CrczpCloudClientBase
-
 from crczp.aws_driver.aws_client import CrczpAwsClient
+from crczp.cloud_commons import CrczpCloudClientBase
 
 
 def test_client_is_importable() -> None:

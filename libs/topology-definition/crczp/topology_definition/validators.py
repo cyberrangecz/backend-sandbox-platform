@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     )
 
 VALID_NAMES_REGEX = r'^[a-z]([a-z0-9A-Z-])*$'
+MAX_VOLUMES = 12
 # A DNS domain: dot-separated labels, each 1-63 chars, starting and ending with
 # an alphanumeric. Accepts single-label domains (e.g. "local") as valid search domains.
 DNS_DOMAIN_REGEX = (
@@ -258,8 +259,20 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         """
         Validate volumes.
         """
-        if volumes is not None and len(volumes) < 1:
+        if volumes is None:
+            return
+        if len(volumes) < 1:
             raise ValueError('Volumes must contain at least one entry for system disk')
+        if len(volumes) > MAX_VOLUMES:
+            raise ValueError(f'Volumes must not contain more than {MAX_VOLUMES} entries')
+        if volumes[0].image is not None:
+            raise ValueError(
+                'volumes[0] is the system disk and is created from base_box.image; '
+                'set base_box.image instead'
+            )
+        for index, volume in enumerate(volumes):
+            if isinstance(volume.size, bool) or volume.size < 1:
+                raise ValueError(f'volumes[{index}].size must be a whole number of at least 1 GB')
 
     @staticmethod
     def validate_monitoring_targets(

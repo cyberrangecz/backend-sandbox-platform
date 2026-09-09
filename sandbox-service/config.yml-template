@@ -111,7 +111,11 @@ application_configuration:
     # The rev of Ansible networking Git repository.
     #ansible_networking_rev: master
 
-    # The pattern to be replaced in image names of sandbox definitions.
+    # The pattern to be replaced in image names of sandbox definitions. It also applies to
+    # volumes[].image; on AWS those are AMI and EBS snapshot ids, so the pattern must not match
+    # ami-/snap- ids. On AWS, volumes[].image must be an EBS snapshot owned by the platform
+    # account (checked at definition import, pool creation and allocation), and the volume
+    # must be at least the snapshot size.
     #image_naming_strategy:
     #    pattern: ^
     #    replace: ''

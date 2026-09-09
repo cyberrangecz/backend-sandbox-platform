@@ -7,6 +7,9 @@ from typing import Any, cast
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
+from jinja2 import Environment, FileSystemLoader
+
 from crczp.cloud_commons import (
     CrczpCloudClientBase,
     HardwareUsage,
@@ -21,7 +24,6 @@ from crczp.cloud_commons import (
     hcl_string,
 )
 from crczp.cloud_commons.topology_elements import Host
-from jinja2 import Environment, FileSystemLoader
 
 from .exceptions import ImageDoesNotExist, KeyPairDoesNotExist
 
@@ -40,6 +42,7 @@ AWS_CONFIG_FILE_TEMPLATE = """[default]
 region = {}
 """
 TEMPLATE_DIR_PATH = os.path.join(os.path.dirname(__file__), 'templates')
+SNAPSHOT_NOT_FOUND_ERRORS = frozenset({'InvalidSnapshot.NotFound', 'InvalidSnapshotID.Malformed'})
 
 
 def regex_replace(string: str, pattern: str = '', replace: str = '') -> str:
@@ -176,6 +179,15 @@ class CrczpAwsClient(CrczpCloudClientBase):
     @staticmethod
     def _map_aws_image(image_raw: dict[str, Any]) -> Image:
         os_type = 'windows' if 'windows' in image_raw['PlatformDetails'].lower() else 'linux'
+        root_device = image_raw.get('RootDeviceName')
+        min_disk = next(
+            (
+                mapping.get('Ebs', {}).get('VolumeSize', 0)
+                for mapping in image_raw.get('BlockDeviceMappings', [])
+                if mapping.get('DeviceName') == root_device
+            ),
+            0,
+        )
         return Image(
             os_distro=image_raw['Name'],
             os_type=os_type,
@@ -185,7 +197,7 @@ class CrczpAwsClient(CrczpCloudClientBase):
             size=0,
             status=image_raw['State'],
             min_ram=0,
-            min_disk=0,
+            min_disk=min_disk,
             created_at=image_raw['CreationDate'],
             updated_at=None,
             tags=[],
@@ -219,6 +231,33 @@ class CrczpAwsClient(CrczpCloudClientBase):
             raise ImageDoesNotExist(image_id)
 
         return self._map_aws_image(image_raw[0])
+
+    def get_snapshot_sizes(self, snapshot_ids: list[str]) -> dict[str, int]:
+        """
+        Get the sizes of EBS snapshots owned by the AWS account.
+
+        :param snapshot_ids: The IDs of the snapshots
+        :return: Size in GiB of each found snapshot, keyed by its ID; IDs that do not exist,
+                 are malformed or belong to another account are left out
+        """
+        if not snapshot_ids:
+            return {}
+        try:
+            snapshots = self.ec2_client.describe_snapshots(
+                SnapshotIds=snapshot_ids, OwnerIds=['self']
+            )['Snapshots']
+        except ClientError as ex:
+            if ex.response.get('Error', {}).get('Code') not in SNAPSHOT_NOT_FOUND_ERRORS:
+                raise
+            if len(snapshot_ids) == 1:
+                return {}
+            # One unknown ID fails the whole call, so look them up one by one.
+            return {
+                snapshot_id: size
+                for single_id in snapshot_ids
+                for snapshot_id, size in self.get_snapshot_sizes([single_id]).items()
+            }
+        return {snapshot['SnapshotId']: snapshot['VolumeSize'] for snapshot in snapshots}
 
     def resume_node(self, node_id: str) -> None:
         """

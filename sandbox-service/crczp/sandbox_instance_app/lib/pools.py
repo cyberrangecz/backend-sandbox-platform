@@ -76,6 +76,7 @@ def create_pool(data: dict[str, Any], created_by: User | None) -> Pool:
 
         # Validate definition
         top_def = definitions.get_definition(definition.url, pool.rev_sha, settings.CRCZP_CONFIG)
+        definitions.validate_build_requirements(top_def)
         definitions.validate_topology_definition(top_def)
 
         # Validate containers

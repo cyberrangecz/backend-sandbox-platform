@@ -4,6 +4,7 @@ Definition Service module for Definition management.
 
 import io
 import os
+import re
 from typing import TextIO
 
 import structlog
@@ -26,7 +27,7 @@ from crczp.sandbox_definition_app.lib.definition_providers import (
 )
 from crczp.sandbox_definition_app.models import Definition
 from crczp.topology_definition.image_naming import image_name_replace
-from crczp.topology_definition.models import DockerContainers, TopologyDefinition
+from crczp.topology_definition.models import DockerContainers, Host, TopologyDefinition
 
 LOG = structlog.get_logger()
 
@@ -34,6 +35,7 @@ SANDBOX_DEFINITION_FILENAME = 'topology.yml'
 DOCKER_CONTAINERS_FILENAME = 'containers.yml'
 DOCKERFILE_FILENAME = 'Dockerfile'
 VARIABLES_FILENAME = 'variables.yml'
+EBS_SNAPSHOT_ID = re.compile(r'snap-([0-9a-f]{8}|[0-9a-f]{17})')
 
 
 def create_definition(url: str, created_by: User | None, rev: str = 'master') -> Definition:
@@ -49,6 +51,7 @@ def create_definition(url: str, created_by: User | None, rev: str = 'master') ->
         and settings.CRCZP_CONFIG.topology_cache_mode is TopologyCacheMode.FRESH_IMPORT
     )
     top_def = get_definition(url, rev, settings.CRCZP_CONFIG, force_refresh=force_refresh)
+    validate_build_requirements(top_def)
     validate_topology_definition(top_def)
     validate_docker_containers(url, rev, settings.CRCZP_CONFIG)
 
@@ -218,6 +221,84 @@ def get_def_provider(url: str, config: CrczpConfiguration) -> DefinitionProvider
         f'Cannot determine provider type: {git_config.get_rest_server(url)} '
         f'Supported types: gitlab, github'
     )
+
+
+def validate_build_requirements(topology_definition: TopologyDefinition) -> None:
+    """
+    Runs the checks that apply only where a definition, pool or stack is created.
+
+    They depend on deployment settings and cloud state that may change after import, so running
+    them on reads could make already imported definitions unreadable.
+
+    :param topology_definition: Topology definition
+    :raise: ValidationError if the definition cannot be built on this deployment
+    """
+    validate_volumes(topology_definition)
+
+
+def validate_volumes(topology_definition: TopologyDefinition) -> None:
+    """
+    Validates that the images (OpenStack) or snapshots (AWS) of host volumes exist and that no
+    volume is smaller than the image or snapshot it is created from.
+
+    :param topology_definition: Topology definition
+    :raise: ValidationError if a volume source is missing or larger than the volume
+    """
+    hosts = [host for host in topology_definition.hosts if host.volumes]
+    if not hosts:
+        return
+    min_disks = {image.name: image.min_disk or 0 for image in list_images()}
+    extra_images = {
+        volume.image for host in hosts for volume in host.volumes[1:] if volume.image is not None
+    }
+    if settings.AWS_PROVIDER_CONFIGURED:
+        extra_sizes = _get_snapshot_sizes(extra_images)
+        extra_source = 'size of snapshot'
+    else:
+        extra_sizes = {image: _get_min_disk(min_disks, image) for image in extra_images}
+        extra_source = 'minimum of image'
+
+    for host in hosts:
+        base_image = host.base_box.image
+        _validate_volume_size(
+            host, 0, _get_min_disk(min_disks, base_image), f'minimum of image {base_image}'
+        )
+        for index, volume in enumerate(host.volumes[1:], start=1):
+            if volume.image is not None:
+                _validate_volume_size(
+                    host, index, extra_sizes[volume.image], f'{extra_source} {volume.image}'
+                )
+
+
+def _get_min_disk(min_disks: dict[str, int], image: str) -> int:
+    if image not in min_disks:
+        raise exceptions.ValidationError(f'Image {image} was not found on the terraform backend.')
+    return min_disks[image]
+
+
+def _get_snapshot_sizes(snapshot_ids: set[str]) -> dict[str, int]:
+    """Return the sizes of the EBS snapshots, rejecting ids the platform account does not own."""
+    ids = sorted(snapshot_ids)
+    for snapshot in ids:
+        if not EBS_SNAPSHOT_ID.fullmatch(snapshot):
+            raise exceptions.ValidationError(f'Volume image {snapshot} is not an EBS snapshot id.')
+    if not ids:
+        return {}
+    sizes = utils.get_terraform_client().get_snapshot_sizes(ids)
+    for snapshot in ids:
+        if snapshot not in sizes:
+            raise exceptions.ValidationError(
+                f'Volume image {snapshot} is not an EBS snapshot owned by the platform account.'
+            )
+    return sizes
+
+
+def _validate_volume_size(host: Host, index: int, minimum: int, source: str) -> None:
+    size = host.volumes[index].size
+    if size < minimum:
+        raise exceptions.ValidationError(
+            f'Host {host.name}: volume {index} size {size} GB is below the {minimum} GB {source}.'
+        )
 
 
 def validate_topology_definition(topology_definition: TopologyDefinition) -> None:

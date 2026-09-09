@@ -86,10 +86,13 @@ class ExtraValues(Map):
 
 class Volume(Object):
     """
-    Volume definition.
+    Disk of a host. volumes[0] is the system disk, created from base_box.image and sized by
+    size (GB); later entries are extra disks, blank or created from image (a Glance image
+    name on OpenStack, an EBS snapshot id on AWS).
     """
 
-    size = Attribute(type=int, default=None)
+    size = Attribute(type=int)
+    image = Attribute(type=str, default=None)
 
 
 class VolumeList(Sequence):

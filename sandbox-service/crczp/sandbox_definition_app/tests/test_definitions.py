@@ -35,6 +35,7 @@ class TestCreateDefinition:
         """Patch definitions.get_definition and return the patch mock."""
         definition = mocker.Mock()
         definition.name = self.NAME
+        definition.hosts = []
         return mocker.patch(
             'crczp.sandbox_definition_app.lib.definitions.get_definition', return_value=definition
         )
@@ -324,3 +325,233 @@ class TestTopologyDefinitionValidation:
 
         with pytest.raises(exceptions.ValidationError):
             definitions.validate_topology_definition(topology_definition)
+
+
+BASE = 'debian-12-x86_64'
+
+
+class VolumeFixtures:
+    """Fixtures for the volume image and size checks."""
+
+    AWS = False
+    SNAPSHOT = 'snap-0123456789abcdef0'
+
+    @pytest.fixture
+    def volumes_topology(self, correct_topology):
+        """Build topology.yml text whose host has the given volumes (a list of dicts)."""
+
+        def build(volumes):
+            entries = ''.join(
+                f'  - {{{", ".join(f"{k}: {v}" for k, v in volume.items())}}}\n'
+                for volume in volumes
+            )
+            marker = '  flavor: standard.small\nrouters:'
+            assert marker in correct_topology
+            return correct_topology.replace(
+                marker, f'  flavor: standard.small\n  volumes:\n{entries}routers:', 1
+            )
+
+        return build
+
+    @pytest.fixture
+    def make_definition(self, volumes_topology):
+        """Build a definition whose host has the given volumes (a list of dicts)."""
+
+        def build(volumes):
+            return definitions.load_definition(io.StringIO(volumes_topology(volumes)))
+
+        return build
+
+    @pytest.fixture
+    def images(self, mocker):
+        """Patch list_images with images of the given name -> min_disk mapping."""
+
+        def patch(min_disks):
+            listed = []
+            for name, min_disk in min_disks.items():
+                listed.append(mocker.Mock(min_disk=min_disk))
+                listed[-1].name = name
+            mocker.patch(
+                'crczp.sandbox_definition_app.lib.definitions.list_images', return_value=listed
+            )
+
+        return patch
+
+    @pytest.fixture(autouse=True)
+    def terraform_client(self, get_terraform_client):
+        """Provide flavors and an empty snapshot lookup for the validation."""
+        get_terraform_client.get_snapshot_sizes.return_value = {}
+        return get_terraform_client
+
+    @pytest.fixture(autouse=True)
+    def provider(self, mocker):
+        """Select the cloud provider of the test class."""
+        mocker.patch.object(settings, 'AWS_PROVIDER_CONFIGURED', self.AWS)
+
+
+class TestVolumeValidation(VolumeFixtures):
+    """Tests for volume images and sizes on OpenStack, checked only where builds start."""
+
+    URL = 'https://gitlab.example.com/my-repo.git'
+
+    @pytest.fixture
+    def git_definition(self, mocker, volumes_topology):
+        """Serve topology.yml with the given volumes from a mocked git provider."""
+        caches['topology_cache'].clear()
+        provider = mocker.MagicMock()
+        provider.get_rev_sha.return_value = 'sha'
+        mocker.patch(
+            'crczp.sandbox_definition_app.lib.definitions.get_def_provider', return_value=provider
+        )
+
+        def serve(volumes):
+            provider.get_file.return_value = volumes_topology(volumes)
+
+        yield serve
+        caches['topology_cache'].clear()
+
+    def test_openstack_missing_volume_image_rejected(self, make_definition, images):
+        """A volume image absent from the image list is rejected on OpenStack."""
+        images({BASE: None})
+        definition = make_definition([{'size': 10}, {'size': 5, 'image': 'data-image'}])
+
+        with pytest.raises(exceptions.ValidationError, match='Image data-image was not found'):
+            definitions.validate_volumes(definition)
+
+    def test_openstack_existing_volume_image_accepted(self, make_definition, images):
+        """A volume image present in the image list passes on OpenStack."""
+        images({BASE: None, 'data-image': None})
+        definition = make_definition([{'size': 10}, {'size': 5, 'image': 'data-image'}])
+
+        definitions.validate_volumes(definition)
+
+    def test_system_volume_below_base_image_minimum_rejected(self, make_definition, images):
+        """volumes[0] smaller than the base image min_disk is rejected."""
+        images({BASE: 20})
+        definition = make_definition([{'size': 10}])
+
+        with pytest.raises(
+            exceptions.ValidationError,
+            match='Host deb: volume 0 size 10 GB is below the 20 GB minimum',
+        ):
+            definitions.validate_volumes(definition)
+
+    def test_system_volume_equal_to_base_image_minimum_accepted(self, make_definition, images):
+        """volumes[0] equal to the base image min_disk passes."""
+        images({BASE: 20})
+
+        definitions.validate_volumes(make_definition([{'size': 20}]))
+
+    def test_extra_volume_below_image_minimum_rejected(self, make_definition, images):
+        """An image-backed extra volume smaller than its image min_disk is rejected on OpenStack."""
+        images({BASE: None, 'data-image': 8})
+        definition = make_definition([{'size': 10}, {'size': 5, 'image': 'data-image'}])
+
+        with pytest.raises(
+            exceptions.ValidationError,
+            match='Host deb: volume 1 size 5 GB is below the 8 GB minimum of image data-image',
+        ):
+            definitions.validate_volumes(definition)
+
+    @pytest.mark.parametrize('min_disk', [None, 0])
+    def test_unset_minimum_skips_size_check(self, make_definition, images, min_disk):
+        """An unset or zero min_disk disables the size check."""
+        images({BASE: min_disk, 'data-image': min_disk})
+        definition = make_definition([{'size': 1}, {'size': 1, 'image': 'data-image'}])
+
+        definitions.validate_volumes(definition)
+
+    def test_topology_validation_ignores_volumes(self, make_definition, images):
+        """Reading a definition does not depend on the volume checks."""
+        images({BASE: 20})
+
+        definitions.validate_topology_definition(
+            make_definition([{'size': 10}, {'size': 5, 'image': 'data-image'}])
+        )
+
+    def test_get_definition_ignores_volumes(self, git_definition, images):
+        """An already imported definition stays readable when its volumes fail the checks."""
+        images({BASE: 20})
+        git_definition([{'size': 10}])
+
+        topology_definition = definitions.get_definition('url', 'rev', settings.CRCZP_CONFIG)
+
+        assert topology_definition.hosts[0].volumes[0].size == 10
+
+    def test_create_definition_checks_volumes(self, git_definition, images, created_by):
+        """Importing a definition runs the volume checks."""
+        images({BASE: 20})
+        git_definition([{'size': 10}])
+
+        with pytest.raises(exceptions.ValidationError, match='volume 0 size 10 GB is below'):
+            definitions.create_definition(url=self.URL, rev='rev', created_by=created_by)
+
+        assert not Definition.objects.filter(url=self.URL).exists()
+
+
+class TestAwsVolumeValidation(VolumeFixtures):
+    """Tests for volume snapshots and sizes on AWS."""
+
+    AWS = True
+
+    @pytest.mark.parametrize('snapshot', ['snap-0123abcd', VolumeFixtures.SNAPSHOT])
+    def test_aws_snapshot_id_accepted(self, make_definition, images, terraform_client, snapshot):
+        """An EBS snapshot id owned by the account is accepted without being listed as an image."""
+        images({BASE: None})
+        terraform_client.get_snapshot_sizes.return_value = {snapshot: 5}
+        definition = make_definition([{'size': 10}, {'size': 5, 'image': snapshot}])
+
+        definitions.validate_volumes(definition)
+
+        terraform_client.get_snapshot_sizes.assert_called_once_with([snapshot])
+
+    @pytest.mark.parametrize(
+        'image',
+        ['debian-12', 'snap-0123456789ABCDEF0', 'snap-0123abcdx', 'snap-0123456789abcdef'],
+    )
+    def test_aws_image_name_rejected(self, make_definition, images, terraform_client, image):
+        """A volume image that is not an EBS snapshot id is rejected on AWS before any lookup."""
+        images({BASE: None, image: None})
+        definition = make_definition([{'size': 10}, {'size': 5, 'image': image}])
+
+        with pytest.raises(exceptions.ValidationError, match=f'{image} is not an EBS snapshot id'):
+            definitions.validate_volumes(definition)
+
+        terraform_client.get_snapshot_sizes.assert_not_called()
+
+    def test_aws_snapshot_not_owned_rejected(self, make_definition, images, terraform_client):
+        """A snapshot the lookup does not return (missing or of another account) is rejected."""
+        images({BASE: None})
+        terraform_client.get_snapshot_sizes.return_value = {}
+        definition = make_definition([{'size': 10}, {'size': 5, 'image': self.SNAPSHOT}])
+
+        with pytest.raises(
+            exceptions.ValidationError,
+            match=f'{self.SNAPSHOT} is not an EBS snapshot owned by the platform account',
+        ):
+            definitions.validate_volumes(definition)
+
+    def test_aws_volume_below_snapshot_size_rejected(
+        self, make_definition, images, terraform_client
+    ):
+        """On AWS an extra volume smaller than its snapshot is rejected."""
+        images({BASE: None})
+        terraform_client.get_snapshot_sizes.return_value = {self.SNAPSHOT: 8}
+        definition = make_definition([{'size': 10}, {'size': 5, 'image': self.SNAPSHOT}])
+
+        with pytest.raises(
+            exceptions.ValidationError,
+            match=f'volume 1 size 5 GB is below the 8 GB size of snapshot {self.SNAPSHOT}',
+        ):
+            definitions.validate_volumes(definition)
+
+    def test_aws_volume_equal_to_snapshot_size_accepted(
+        self, make_definition, images, terraform_client
+    ):
+        """On AWS an extra volume as large as its snapshot passes, whatever the image min_disk."""
+        images({BASE: 8, self.SNAPSHOT: 20})
+        terraform_client.get_snapshot_sizes.return_value = {self.SNAPSHOT: 8}
+
+        definitions.validate_volumes(
+            make_definition([{'size': 8}, {'size': 8, 'image': self.SNAPSHOT}])
+        )

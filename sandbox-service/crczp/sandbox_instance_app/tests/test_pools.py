@@ -12,6 +12,7 @@ from rest_framework.test import APIRequestFactory
 
 from crczp.cloud_commons import HardwareUsage, exceptions
 from crczp.sandbox_common_lib.exceptions import ApiException, StackError
+from crczp.sandbox_common_lib.exceptions import ValidationError as ApiValidationError
 from crczp.sandbox_instance_app.lib import pools, sshconfig
 from crczp.sandbox_instance_app.models import Pool, Sandbox, SandboxAllocationUnit
 from crczp.sandbox_instance_app.views import PoolListCreateView, SandboxGetAndLockView
@@ -69,6 +70,22 @@ class TestCreatePool:
         pool_count = Pool.objects.count()
 
         with pytest.raises(exceptions.CrczpException, match='bad topology'):
+            pools.create_pool(
+                {'definition_id': DEFINITION_ID, 'max_size': self.MAX_SIZE}, created_by=created_by
+            )
+
+        assert Pool.objects.count() == pool_count
+
+    @pytest.mark.usefixtures('definition', 'get_terraform_client')
+    def test_create_pool_rolls_back_when_volumes_invalid(self, mocker, created_by):
+        """Test that a definition failing the volume checks is rejected, leaving no Pool row."""
+        mocker.patch(
+            'crczp.sandbox_definition_app.lib.definitions.validate_volumes',
+            side_effect=ApiValidationError('volume 0 is too small'),
+        )
+        pool_count = Pool.objects.count()
+
+        with pytest.raises(ApiValidationError, match='volume 0 is too small'):
             pools.create_pool(
                 {'definition_id': DEFINITION_ID, 'max_size': self.MAX_SIZE}, created_by=created_by
             )

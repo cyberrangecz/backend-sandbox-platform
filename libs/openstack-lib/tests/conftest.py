@@ -1,5 +1,6 @@
 """Shared pytest fixtures for the OpenStack driver test suite."""
 
+import io
 import os
 
 import pytest
@@ -16,6 +17,14 @@ TESTING_DEFINITION_EMPTY = 'definition-empty.yml'
 TESTING_TRANSFORMATION_CONFIGURATION = 'trc-config.yml'
 TESTING_GENERATED_HEAT_TEMPLATE = 'generated-template.tf'
 TESTING_BASE_NETWORK_TEMPLATE = 'base-net-template.yml'
+
+SERVER_VOLUMES = """\
+    volumes:
+      - size: 20
+      - size: 30
+        image: data-disk-x86_64
+      - size: 40
+"""
 
 
 def data_path_join(file: str, data_dir: str = TESTING_DATA_DIR) -> str:
@@ -41,6 +50,16 @@ def empty_topology_definition():
     """Create an empty topology definition."""
     with open(data_path_join(TESTING_DEFINITION_EMPTY), encoding='utf-8') as file:
         return TopologyDefinition.load(file)
+
+
+@pytest.fixture
+def topology_instance_volumes(trc):  # pylint: disable=redefined-outer-name
+    """Create a TopologyInstance whose 'server' host declares extra volumes."""
+    with open(data_path_join(TESTING_DEFINITION), encoding='utf-8') as file:
+        text = file.read()
+    server_end = '    hidden: True\n'
+    text = text.replace(server_end, server_end + SERVER_VOLUMES, 1)
+    return TopologyInstance(TopologyDefinition.load(io.StringIO(text)), trc)
 
 
 @pytest.fixture

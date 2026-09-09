@@ -26,6 +26,9 @@ SANDBOX_DEFINITION_MONITORING_PATH = os.path.join(
 SANDBOX_DEFINITION_VPN_PATH = os.path.join(
     os.path.dirname(__file__), 'assets/topology-with-vpn.yml'
 )
+SANDBOX_DEFINITION_VOLUMES_PATH = os.path.join(
+    os.path.dirname(__file__), 'assets/topology-with-volumes.yml'
+)
 
 
 @pytest.fixture(name='topology_definition_string')
@@ -60,6 +63,14 @@ def fixture_topology_definition_monitoring() -> TopologyDefinition:
     Fixture for topology definition with monitoring.
     """
     return TopologyDefinition.from_file(SANDBOX_DEFINITION_MONITORING_PATH)
+
+
+@pytest.fixture(name='topology_definition_volumes')
+def fixture_topology_definition_volumes() -> TopologyDefinition:
+    """
+    Fixture for topology definition whose 'server' host declares extra volumes.
+    """
+    return TopologyDefinition.from_file(SANDBOX_DEFINITION_VOLUMES_PATH)
 
 
 @pytest.mark.integration
@@ -588,6 +599,107 @@ vpn:
         server_router: Router | None = td.find_router_by_name('server-router')
         assert server_router is not None
         assert server_router.base_box.image == 'debian-12-x86_64'
+
+
+class TestVolumeRules:
+    """
+    Tests for the volume schema rules.
+    """
+
+    @staticmethod
+    def _load(topology_definition_string: str, volumes: str) -> TopologyDefinition:
+        host_line = '  - name: home\n'
+        assert host_line in topology_definition_string
+        return TopologyDefinition.load(
+            topology_definition_string.replace(host_line, host_line + '    volumes:\n' + volumes, 1)
+        )
+
+    @pytest.mark.parametrize(
+        ('volumes', 'message'),
+        [
+            ('      - image: snap-0123\n', r"attributes without default: \['size'\]"),
+            ('      - size: 0\n', r'volumes\[0\]\.size must be a whole number of at least 1'),
+            (
+                '      - size: 10\n      - size: -5\n',
+                r'volumes\[1\]\.size must be a whole number of at least 1',
+            ),
+            ('      - size: true\n', r'volumes\[0\]\.size must be a whole number of at least 1'),
+            ('      - size: 10\n        image: crczp/disk\n', r'volumes\[0\] is the system disk'),
+            ('      - size: 10\n' * 13, 'more than 12 entries'),
+        ],
+        ids=[
+            'no-size',
+            'size-0',
+            'size-negative',
+            'size-bool',
+            'image-on-system-disk',
+            '13-volumes',
+        ],
+    )
+    def test_invalid_volumes_rejected(
+        self, topology_definition_string: str, volumes: str, message: str
+    ) -> None:
+        """
+        Volumes without size, below 1 GB, with an image on the system disk or over 12 entries fail.
+        """
+        with pytest.raises(YamlizingError, match=message):
+            self._load(topology_definition_string, volumes)
+
+    def test_twelve_volumes_accepted(self, topology_definition_string: str) -> None:
+        """
+        Exactly 12 volumes are allowed.
+        """
+        td = self._load(topology_definition_string, '      - size: 10\n' * 12)
+        host = td.find_host_by_name('home')
+        assert host is not None
+        assert host.volumes is not None
+        assert len(host.volumes) == 12
+
+    def test_image_on_extra_volumes_accepted(self, topology_definition_string: str) -> None:
+        """
+        Only the extra volumes may be created from an image.
+        """
+        td = self._load(
+            topology_definition_string,
+            '      - size: 10\n      - size: 20\n        image: crczp/disk\n',
+        )
+        host = td.find_host_by_name('home')
+        assert host is not None
+        assert host.volumes is not None
+        assert [volume.image for volume in host.volumes] == [None, 'crczp/disk']
+
+    def test_volume_image_loaded(self, topology_definition_volumes: TopologyDefinition) -> None:
+        """
+        A volume may optionally declare its own base image; volumes without one keep image=None.
+        """
+        server: Host | None = topology_definition_volumes.find_host_by_name('server')
+        assert server is not None
+        assert server.volumes is not None
+        assert [volume.size for volume in server.volumes] == [20, 30, 40]
+        assert [volume.image for volume in server.volumes] == [
+            None,
+            'crczp/data-disk-x86_64',
+            None,
+        ]
+
+    def test_image_name_replace_rewrites_volume_images(
+        self, topology_definition_volumes: TopologyDefinition
+    ) -> None:
+        """
+        The image-naming strategy rewrites per-volume images like it does base_box images,
+        while leaving volumes without an image untouched.
+        """
+        td = image_name_replace(r'.*/', 'crczp-', topology_definition_volumes)
+
+        server: Host | None = td.find_host_by_name('server')
+        assert server is not None
+        assert server.base_box.image == 'crczp-debian-12-x86_64'
+        assert server.volumes is not None
+        assert [volume.image for volume in server.volumes] == [
+            None,
+            'crczp-data-disk-x86_64',
+            None,
+        ]
 
 
 class TestVpnRules:
