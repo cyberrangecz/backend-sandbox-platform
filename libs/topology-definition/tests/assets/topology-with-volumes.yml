@@ -1,0 +1,62 @@
+name: small-sandbox
+hosts:
+  - name: server
+    base_box: { image: crczp/debian-12-x86_64, mgmt_user: debian }
+    flavor: standard.small
+    block_internet: True
+    hidden: True
+    volumes:
+      - size: 20
+      - size: 30
+        image: crczp/data-disk-x86_64
+      - size: 40
+
+  - name: home
+    base_box: { image: windows/windows-10-amd64, mgmt_protocol: winrm }
+    flavor: standard.small
+
+routers:
+  - name: server-router
+    base_box: { image: crczp/debian-12-x86_64, man_user: debian, mng_protocol: ssh }
+    flavor: standard.small
+
+  - name: home-router
+    base_box: { image: debian/debian-12-x86_64 }
+    flavor: standard.small
+
+wan:
+  name: internet-connection
+  cidr: 100.100.100.0/29
+
+networks:
+  - name: server-switch
+    cidr: 10.10.20.0/24
+
+  - name: home-switch
+    cidr: 10.10.30.0/24
+    accessible_by_user: False
+
+net_mappings:
+  - host: server
+    network: server-switch
+    ip: 10.10.20.5
+
+  - host: home
+    network: home-switch
+    ip: 10.10.30.5
+
+router_mappings:
+  - router: server-router
+    network: server-switch
+    ip: 10.10.20.1
+
+  - router: home-router
+    network: home-switch
+    ip: 10.10.30.1
+
+groups:
+  - name: user-accessible
+    nodes:
+      - server
+      - home
+      - home-router

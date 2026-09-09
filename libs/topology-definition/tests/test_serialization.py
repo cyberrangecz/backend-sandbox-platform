@@ -32,6 +32,9 @@ SANDBOX_DEFINITION_VPN_PATH = os.path.join(
 SANDBOX_DEFINITION_FORWARDING_PATH = os.path.join(
     os.path.dirname(__file__), 'assets/topology-with-forwarding.yml'
 )
+SANDBOX_DEFINITION_VOLUMES_PATH = os.path.join(
+    os.path.dirname(__file__), 'assets/topology-with-volumes.yml'
+)
 
 
 @pytest.fixture
@@ -74,6 +77,14 @@ def topology_definition_forwarding() -> TopologyDefinition:
     Fixture for topology definition with network forwarding.
     """
     return TopologyDefinition.from_file(SANDBOX_DEFINITION_FORWARDING_PATH)
+
+
+@pytest.fixture  # type: ignore[untyped-decorator]
+def topology_definition_volumes() -> TopologyDefinition:
+    """
+    Fixture for topology definition whose 'server' host declares extra volumes.
+    """
+    return TopologyDefinition.from_file(SANDBOX_DEFINITION_VOLUMES_PATH)
 
 
 @pytest.mark.integration
@@ -281,6 +292,39 @@ monitoring_targets:
         home_router: Router | None = td.find_router_by_name('home-router')
         assert home_router is not None
         assert home_router.base_box.image == 'crczp-debian-12-x86_64'
+
+    def test_volume_image_loaded(self, topology_definition_volumes: TopologyDefinition) -> None:
+        """
+        A volume may optionally declare its own base image; volumes without one keep image=None.
+        """
+        server: Host | None = topology_definition_volumes.find_host_by_name('server')
+        assert server is not None
+        assert server.volumes is not None
+        assert [volume.size for volume in server.volumes] == [20, 30, 40]
+        assert [volume.image for volume in server.volumes] == [
+            None,
+            'crczp/data-disk-x86_64',
+            None,
+        ]
+
+    def test_image_name_replace_rewrites_volume_images(
+        self, topology_definition_volumes: TopologyDefinition
+    ) -> None:
+        """
+        The image-naming strategy rewrites per-volume images like it does base_box images,
+        while leaving volumes without an image untouched.
+        """
+        td = image_name_replace(r'.*/', 'crczp-', topology_definition_volumes)
+
+        server: Host | None = td.find_host_by_name('server')
+        assert server is not None
+        assert server.base_box.image == 'crczp-debian-12-x86_64'
+        assert server.volumes is not None
+        assert [volume.image for volume in server.volumes] == [
+            None,
+            'crczp-data-disk-x86_64',
+            None,
+        ]
 
     def test_vpn_absent(self, topology_definition: TopologyDefinition) -> None:
         """

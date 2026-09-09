@@ -429,6 +429,50 @@ class TestOpenStackProxy:  # pylint: disable=too-many-public-methods
         assert 'openstack_networking_router_v2' not in template_str
         assert 'resource "openstack_networking_secgroup_v2"' not in template_str
 
+    def test_template_volumes_render_per_volume_images(
+        self, open_stack_proxy, topology_instance_volumes
+    ):
+        """A host with volumes gets one block_device per volume; each may come from its own image.
+
+        The 'server' host declares three volumes: a boot volume with no image (falls back to the
+        host base_box image), an extra volume with its own image, and a blank extra volume.
+        """
+        template_str = open_stack_proxy.validate_and_get_terraform_template(
+            topology_instance_volumes
+        )
+        server = _resource_block(template_str, 'openstack_compute_instance_v2', 'stack-name-server')
+
+        # A volume-backed instance boots from its block device, so no top-level image_name.
+        assert 'image_name' not in server
+        # Per-volume image data sources: boot volume falls back to base_box image, extra volume
+        # uses its own image; the blank volume gets none.
+        assert (
+            'data "openstack_images_image_ids_v2" "image_data_source-stack-name-server-0" {\n'
+            '  name = "debian-12-x86_64"' in template_str
+        )
+        assert (
+            'data "openstack_images_image_ids_v2" "image_data_source-stack-name-server-1" {\n'
+            '  name = "data-disk-x86_64"' in template_str
+        )
+        assert 'image_data_source-stack-name-server-2' not in template_str
+        # No un-indexed data source for a volume-backed host.
+        assert 'image_data_source-stack-name-server"' not in template_str
+
+        # Three block devices: image boot disk, image extra disk, blank extra disk.
+        assert server.count('block_device {') == 3
+        assert 'boot_index            = 0' in server
+        assert server.count('boot_index            = -1') == 2
+        assert server.count('source_type           = "image"') == 2
+        assert 'source_type           = "blank"' in server
+        assert 'volume_size           = 20' in server
+        assert 'volume_size           = 30' in server
+        assert 'volume_size           = 40' in server
+
+        # A host without volumes still boots directly from its image (unchanged behavior).
+        home = _resource_block(template_str, 'openstack_compute_instance_v2', 'stack-name-home')
+        assert 'image_name = "debian-12-x86_64"' in home
+        assert 'block_device' not in home
+
     def test_template_forwarding_emits_tap_mirror(
         self, open_stack_proxy, topology_instance_forwarding
     ):

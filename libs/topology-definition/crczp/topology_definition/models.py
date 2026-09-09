@@ -82,6 +82,7 @@ class Volume(Object):
     """
 
     size = Attribute(type=int, default=None)
+    image = Attribute(type=str, default=None)
 
 
 class VolumeList(Sequence):
