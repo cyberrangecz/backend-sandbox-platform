@@ -54,6 +54,7 @@ all:
     hidden_hosts:
       hosts:
         server: null
+    unmanaged_hosts: {}
     docker_hosts:
       hosts:
         home: null

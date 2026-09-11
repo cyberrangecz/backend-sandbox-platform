@@ -110,6 +110,7 @@ application_configuration:
 
     # The rev of Ansible networking Git repository.
     #ansible_networking_rev: master
+    # managed: false hosts need ansible-stage-one newer than v2.2.1 (skips unmanaged_hosts).
 
     # The pattern to be replaced in image names of sandbox definitions. It also applies to
     # volumes[].image; on AWS those are AMI and EBS snapshot ids, so the pattern must not match
@@ -140,7 +141,8 @@ application_configuration:
     #sandbox_ansible_timeout: 7200
 
     # The name of the Docker image that is able to run Ansible playbook.
-    #ansible_docker_image: ghcr.io/cyberrangecz/crczp-ansible-runner:1.4.1
+    # Hosts with base_box.mgmt_password need sshpass in the runner image (1.2.0 or newer).
+    #ansible_docker_image: ghcr.io/cyberrangecz/crczp-ansible-runner:1.2.0
 
     # The name of the Docker network that the Runner will use.
     #ansible_docker_network: bridge

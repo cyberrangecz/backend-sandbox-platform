@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Any, Self
 
 from ruamel.yaml.loader import RoundTripLoader as _RoundTripLoader
-from ruamel.yaml.nodes import MappingNode, Node
+from ruamel.yaml.nodes import MappingNode, Node, ScalarNode
 from yamlize import Attribute, Dynamic, Map, Object, Sequence, StrList, Typed, YamlizingError
 
 from crczp.topology_definition.utils import rename_deprecated_attribute
@@ -64,6 +64,9 @@ class BaseBox(Object):
         ),
         default=Protocol.SSH,
     )
+    # SSH password for images that cannot receive the injected management key;
+    # the key is still tried first.
+    mgmt_password = Attribute(type=str, default=None)
 
     @classmethod
     def from_yaml(cls, loader: Any, node: Any, _rtd: Any = None) -> 'BaseBox':
@@ -72,7 +75,33 @@ class BaseBox(Object):
         """
         rename_deprecated_attribute(node.value, 'man_user', 'mgmt_user')
         rename_deprecated_attribute(node.value, 'mng_protocol', 'mgmt_protocol')
-        return super().from_yaml(loader, node, _rtd)
+        for index, (key, value) in enumerate(node.value):
+            if (
+                key.value == 'mgmt_password'
+                and isinstance(value, ScalarNode)
+                and value.tag != 'tag:yaml.org,2002:null'
+            ):
+                # An unquoted 1234 would resolve to int and fail yamlize's str check cryptically.
+                # The node is copied because an anchor may share it with other keys.
+                node.value[index] = (
+                    key,
+                    ScalarNode(
+                        'tag:yaml.org,2002:str',
+                        value.value,
+                        value.start_mark,
+                        value.end_mark,
+                        style=value.style,
+                    ),
+                )
+        base_box = super().from_yaml(loader, node, _rtd)
+        if base_box.mgmt_password is not None and not base_box.mgmt_password:
+            raise YamlizingError(
+                'mgmt_password must not be empty.', _value_node(node, 'mgmt_password')
+            )
+        # Not an Attribute validator: those run in key order and may see the default protocol.
+        if base_box.mgmt_password is not None and base_box.mgmt_protocol != Protocol.SSH:
+            raise YamlizingError('mgmt_password is supported only with mgmt_protocol ssh.', node)
+        return base_box
 
 
 class ExtraValues(Map):
@@ -113,6 +142,10 @@ class Host(Object):
     flavor = Attribute(type=str)
     block_internet = Attribute(type=bool, default=False)
     hidden = Attribute(type=bool, default=False)
+    # When False, the host is deployed but stage one never configures it (networking, hostname,
+    # user access, docker, NetBird, exporters); the definition's own playbook may. Routers have
+    # no such switch: they carry the sandbox routing.
+    managed = Attribute(type=bool, default=True)
     extra = Attribute(type=ExtraValues, default=None)
     volumes = Attribute(
         type=VolumeList, default=None, validator=TopologyValidation.is_volumes_valid

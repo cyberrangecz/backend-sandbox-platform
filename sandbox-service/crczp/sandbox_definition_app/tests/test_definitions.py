@@ -555,3 +555,44 @@ class TestAwsVolumeValidation(VolumeFixtures):
         definitions.validate_volumes(
             make_definition([{'size': 8}, {'size': 8, 'image': self.SNAPSHOT}])
         )
+
+
+class TestDockerContainerValidation:
+    """Tests for container_mappings in docker container validation."""
+
+    @pytest.fixture
+    def map_container(self, mocker):
+        """Map a container to a single host with the given managed value."""
+
+        def build(*, managed: bool) -> None:
+            host = mocker.Mock(managed=managed)
+            host.name = 'appliance'
+            mocker.patch(
+                'crczp.sandbox_definition_app.lib.definitions.get_definition',
+                return_value=mocker.Mock(hosts=[host]),
+            )
+            container = mocker.Mock(image='nginx', dockerfile=None)
+            container.name = 'web'
+            containers = mocker.Mock(
+                containers=[container],
+                container_mappings=[mocker.Mock(container='web', host='appliance')],
+            )
+            mocker.patch(
+                'crczp.sandbox_definition_app.lib.definitions.get_containers',
+                return_value=containers,
+            )
+
+        return build
+
+    def test_container_on_managed_host_accepted(self, mocker, map_container):
+        """A container mapped to a managed host validates."""
+        map_container(managed=True)
+
+        definitions.validate_docker_containers('url', 'rev', mocker.Mock())
+
+    def test_container_on_unmanaged_host_rejected(self, mocker, map_container):
+        """Stage one never installs docker on an unmanaged host, so mapping to it is rejected."""
+        map_container(managed=False)
+
+        with pytest.raises(exceptions.ValidationError, match='"appliance" is managed: false'):
+            definitions.validate_docker_containers('url', 'rev', mocker.Mock())

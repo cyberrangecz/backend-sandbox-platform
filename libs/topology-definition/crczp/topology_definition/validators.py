@@ -279,7 +279,8 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         obj: TopologyDefinition, monitoring_targets: MonitoringTargets | None
     ) -> bool:
         """
-        Validate monitoring targets — referenced nodes must exist in the topology.
+        Validate monitoring targets — referenced nodes must exist in the topology
+        and must not be hosts with managed: false.
         Called with TopologyDefinition as obj, giving access to hosts and routers.
         """
         if monitoring_targets is None:
@@ -288,6 +289,8 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         node_names = set(
             [host.name for host in obj.hosts] + [router.name for router in obj.routers]
         )
+
+        unmanaged_hosts = {host.name for host in obj.hosts if not host.managed}
 
         for targets_list, label in (
             (monitoring_targets.tcp or [], 'TCP'),
@@ -300,6 +303,11 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
                         'No node with name "{}" found.'
                     )
                     raise ValueError(_msg.format(label, target.node))
+                if target.node in unmanaged_hosts:
+                    raise ValueError(
+                        f'Host "{target.node}" is managed: false, so stage one never '
+                        f'gathers its facts and cannot monitor it ({label} MonitoringTarget).'
+                    )
 
         return True
 
@@ -409,7 +417,8 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         structural validation of entrypoints (name/routes) and DNS (servers/
         search_domains) is handled by the per-attribute validators; this
         TopologyDefinition-level validator only performs the cross-reference
-        check that requires access to hosts and routers.
+        check that requires access to hosts and routers. An entrypoint must not
+        be a host with managed: false.
         """
         if vpn is None:
             return
@@ -417,11 +426,17 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         if not entrypoints:
             return
         known_node_names = {h.name for h in obj.hosts} | {r.name for r in obj.routers}
+        unmanaged_hosts = {h.name for h in obj.hosts if not h.managed}
         for ep in entrypoints:
             if ep.name not in known_node_names:
                 raise ValueError(
                     f'vpn.entrypoints references "{ep.name}" '
                     'which does not exist in hosts or routers.'
+                )
+            if ep.name in unmanaged_hosts:
+                raise ValueError(
+                    f'vpn.entrypoints references "{ep.name}" which is managed: false, '
+                    'so stage one never installs the NetBird agent on it.'
                 )
 
     @staticmethod

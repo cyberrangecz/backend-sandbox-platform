@@ -1,6 +1,7 @@
 """Tests for Ansible inventory generation."""
 
 import pytest
+import yaml
 
 from crczp.sandbox_ansible_app.lib.inventory import Inventory, Routing
 from crczp.sandbox_common_lib import exceptions
@@ -235,3 +236,69 @@ def test_node_without_management_link_rejected(top_ins, mocker):
 
     with pytest.raises(exceptions.AnsibleError, match='Management IP of node server is not known'):
         _inventory(top_ins)
+
+
+def _server_def(top_ins):
+    return next(h for h in top_ins.topology_definition.hosts if h.name == 'server')
+
+
+class TestPasswordHost:
+    """Tests for a host authenticating by password (e.g. an appliance without cloud-init)."""
+
+    def test_password_authentication_vars(self, top_ins):
+        """A host with a password gets ansible_password and ansible_become_password."""
+        _server_def(top_ins).base_box.mgmt_password = 'test-password'  # nosec B105
+
+        server_vars = _inventory(top_ins).to_dict()['all']['hosts']['server']
+
+        assert server_vars['ansible_password'] == 'test-password'
+        assert server_vars['ansible_become_password'] == 'test-password'
+        assert 'ansible_connection' not in server_vars
+
+    def test_host_without_password_has_no_password_vars(self, top_ins):
+        """Without mgmt_password the inventory carries no password."""
+        server_vars = _inventory(top_ins).to_dict()['all']['hosts']['server']
+
+        assert 'ansible_password' not in server_vars
+        assert 'ansible_become_password' not in server_vars
+
+    def test_password_is_serialized_unsafe(self, top_ins):
+        """A password with template syntax is tagged !unsafe so Ansible keeps it literal."""
+        _server_def(top_ins).base_box.mgmt_password = 'te{{st'  # nosec B105
+
+        serialized = _inventory(top_ins).serialize()
+
+        assert "ansible_password: !unsafe 'te{{st'" in serialized
+        assert "ansible_become_password: !unsafe 'te{{st'" in serialized
+
+    @pytest.mark.parametrize('password', ['12345', 'test-password'])
+    def test_password_without_template_syntax_is_a_plain_string(self, top_ins, password):
+        """Only template syntax gets the !unsafe tag, which plain YAML loaders cannot read."""
+        _server_def(top_ins).base_box.mgmt_password = password
+
+        serialized = _inventory(top_ins).serialize()
+
+        assert yaml.safe_load(serialized)['all']['hosts']['server']['ansible_password'] == password
+        assert '!unsafe' not in serialized
+
+
+class TestUnmanagedHostsGroup:
+    """Tests for hosts that stage one must not configure."""
+
+    def test_unmanaged_host_is_grouped_and_otherwise_unchanged(self, top_ins):
+        """The host joins unmanaged_hosts but keeps its groups and variables."""
+        baseline = _inventory(top_ins).to_dict()['all']
+        _server_def(top_ins).managed = False
+
+        result = _inventory(top_ins).to_dict()['all']
+
+        children = result['children']
+        assert children['unmanaged_hosts'] == {'hosts': {'server': None}}
+        assert 'server' in children['ssh_nodes']['hosts']
+        assert result['hosts']['server'] == baseline['hosts']['server']
+
+    def test_unmanaged_hosts_group_is_empty_by_default(self, top_ins):
+        """The group is always defined so that excluding it in a play pattern does not warn."""
+        children = _inventory(top_ins).to_dict()['all']['children']
+
+        assert children['unmanaged_hosts'] == {}

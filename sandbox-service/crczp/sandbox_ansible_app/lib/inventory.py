@@ -23,6 +23,26 @@ LOG = structlog.get_logger()
 VALID_FQDN_REGEX = re.compile(r'^[a-zA-Z0-9.\-_]+$')
 
 
+class _AnsibleUnsafe(str):
+    """A string Ansible must not template (it may contain ``{{``)."""
+
+
+class _InventoryDumper(yaml.Dumper):  # pylint: disable=too-many-ancestors
+    pass
+
+
+def _represent_unsafe(dumper: yaml.Dumper, value: str) -> yaml.ScalarNode:
+    value = str(value)
+    # Tag only what Ansible would template: plain YAML loaders reject !unsafe, and Ansible
+    # >= 2.19 re-resolves its value, so '12345' or 'true' would stop being strings.
+    if not any(marker in value for marker in ('{{', '{%', '{#')):
+        return dumper.represent_str(value)
+    return dumper.represent_scalar('!unsafe', value)
+
+
+_InventoryDumper.add_representer(_AnsibleUnsafe, _represent_unsafe)
+
+
 def _normalize_address(address: str | None) -> str | None:
     """
     Normalize an address value for use in monitoring targets.
@@ -61,6 +81,7 @@ class DefaultAnsibleHostsGroups(Enum):
     WINRM_NODES = 'winrm_nodes'
     USER_ACCESSIBLE_NODES = 'user_accessible_nodes'
     HIDDEN_HOSTS = 'hidden_hosts'
+    UNMANAGED_HOSTS = 'unmanaged_hosts'
     DOCKER_HOSTS = 'docker_hosts'
     MONITORED_HOSTS_TCP = 'monitored_hosts_tcp'
     MONITORED_HOSTS_ICMP = 'monitored_hosts_icmp'
@@ -336,7 +357,9 @@ class BaseInventory(Group):
         """
         Return YAML representation of Inventory as a string.
         """
-        return yaml.dump(self.to_dict(), default_flow_style=False, indent=2)
+        return yaml.dump(
+            self.to_dict(), Dumper=_InventoryDumper, default_flow_style=False, indent=2
+        )
 
 
 class Inventory(BaseInventory):
@@ -410,7 +433,12 @@ class Inventory(BaseInventory):
             ip = mgmt_links.get(node.name)
             if ip is None:
                 raise exceptions.AnsibleError(f'Management IP of node {node.name} is not known.')
-            self._add_host(Host(node.name, ip, node.base_box.mgmt_user))
+            host = Host(node.name, ip, node.base_box.mgmt_user)
+            # Password auth needs sshpass in the Ansible runner image.
+            if node.base_box.mgmt_password:
+                password = _AnsibleUnsafe(node.base_box.mgmt_password)
+                host.add_variables(ansible_password=password, ansible_become_password=password)
+            self._add_host(host)
 
     def _add_host(self, host: Host) -> None:
         """
@@ -435,8 +463,7 @@ class Inventory(BaseInventory):
         """
         Create CRCZP default Ansible group entries.
 
-        Default groups: 'hosts', 'management', 'routers', 'winrm_nodes', 'ssh_nodes',
-         'user_accessible_nodes', 'hidden_hosts', 'docker_hosts' and 'windows_hosts'.
+        The groups are defined by GROUP_BUILDERS and DefaultAnsibleHostsGroups.
         """
         # Imported lazily to avoid a circular import: group_builders.py itself
         # imports Group / DefaultAnsibleHostsGroups from this module.

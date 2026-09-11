@@ -378,6 +378,7 @@ def validate_docker_containers(url: str, rev: str, config: CrczpConfiguration) -
         # client = utils.get_terraform_client()
         # images = client.list_images()
     topdef_host_names = [host.name for host in topology_definition.hosts]
+    unmanaged_host_names = {host.name for host in topology_definition.hosts if not host.managed}
     container_names = [container.name for container in containers.containers]
 
     for container_mapping in containers.container_mappings:
@@ -391,4 +392,9 @@ def validate_docker_containers(url: str, rev: str, config: CrczpConfiguration) -
             raise exceptions.ValidationError(
                 f'Invalid docker container mappings in containers.yml.'
                 f' Host {container_mapping.host} does not exist.'
+            )
+        if container_mapping.host in unmanaged_host_names:
+            raise exceptions.ValidationError(
+                f'Host "{container_mapping.host}" is managed: false,'
+                f' so stage one never installs docker on it.'
             )

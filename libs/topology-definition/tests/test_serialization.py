@@ -702,6 +702,167 @@ class TestVolumeRules:
         ]
 
 
+class TestManagementAccess:
+    """
+    Tests for the BaseBox management access settings.
+    """
+
+    def test_mgmt_password_and_managed_defaults(
+        self, topology_definition: TopologyDefinition
+    ) -> None:
+        """
+        mgmt_password is optional and defaults to None; managed defaults to True.
+        """
+        server = topology_definition.find_host_by_name('server')
+        assert server is not None
+        assert server.base_box.mgmt_password is None
+        assert server.managed is True
+
+    def test_mgmt_password_and_unmanaged_load(self) -> None:
+        """
+        A host may declare an SSH password and opt out of the platform's networking stage.
+        """
+        host = Host.load(
+            'name: appliance\n'
+            'base_box:\n'
+            '  image: appliance-image\n'
+            '  mgmt_user: admin\n'
+            '  mgmt_password: test-password\n'
+            'flavor: standard.large\n'
+            'managed: false\n'
+        )
+        assert host.managed is False
+        assert host.base_box.mgmt_user == 'admin'
+        assert host.base_box.mgmt_password == 'test-password'
+
+    @pytest.mark.parametrize(('raw', 'expected'), [('1234', '1234'), ('0123', '0123')])
+    def test_mgmt_password_unquoted_number_loads_as_string(self, raw: str, expected: str) -> None:
+        """
+        An unquoted numeric mgmt_password loads as the literal string.
+        """
+        base_box = BaseBox.load(f'image: image\nmgmt_password: {raw}\n')
+        assert base_box.mgmt_password == expected
+
+    @pytest.mark.parametrize('raw', ['', '~', 'null'])
+    def test_mgmt_password_null_spellings_mean_no_password(self, raw: str) -> None:
+        """
+        Empty, ~ and null mgmt_password stay None and are accepted with a non-SSH protocol.
+        """
+        base_box = BaseBox.load(f'image: image\nmgmt_protocol: winrm\nmgmt_password: {raw}\n')
+        assert base_box.mgmt_password is None
+
+    @pytest.mark.parametrize(
+        'base_box_yaml',
+        [
+            'image: image\nmgmt_protocol: winrm\nmgmt_password: test-password\n',
+            'image: image\nmgmt_password: test-password\nmgmt_protocol: winrm\n',
+        ],
+    )
+    def test_mgmt_password_rejected_without_ssh(self, base_box_yaml: str) -> None:
+        """
+        mgmt_password is rejected with a non-SSH protocol regardless of key order.
+        """
+        with pytest.raises(YamlizingError, match='mgmt_password is supported only with'):
+            BaseBox.load(base_box_yaml)
+
+    def test_router_mgmt_password_rejected_without_ssh(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        Routers share BaseBox, so a router with winrm and a password is rejected too.
+        """
+        home_router_base_box = 'base_box: { image: debian/debian-12-x86_64 }'
+        assert home_router_base_box in topology_definition_string
+        sb_def = topology_definition_string.replace(
+            home_router_base_box,
+            'base_box: { image: debian/debian-12-x86_64, mgmt_protocol: winrm,'
+            ' mgmt_password: test-password }',
+        )
+
+        with pytest.raises(YamlizingError, match='mgmt_password is supported only with'):
+            TopologyDefinition.load(sb_def)
+
+    def test_empty_mgmt_password_rejected(self) -> None:
+        """
+        An empty mgmt_password is rejected at its key rather than ignored by the inventory.
+        """
+        with pytest.raises(YamlizingError, match='mgmt_password must not be empty') as exc_info:
+            BaseBox.load("image: image\nmgmt_password: ''\n")
+        assert 'line 2, column' in str(exc_info.value)
+
+    def test_mgmt_password_anchor_keeps_type_elsewhere(self) -> None:
+        """
+        Loading a numeric mgmt_password as a string leaves other uses of its anchor untouched.
+        """
+        host = Host.load(
+            'name: appliance\n'
+            'base_box:\n'
+            '  image: appliance-image\n'
+            '  mgmt_password: &size 20\n'
+            'flavor: standard.large\n'
+            'volumes:\n'
+            '  - size: *size\n'
+        )
+        assert host.base_box.mgmt_password == '20'
+        assert host.volumes is not None
+        assert isinstance(host.volumes[0].size, int)
+        assert host.volumes[0].size == 20
+
+
+class TestUnmanagedHosts:
+    """
+    Tests for hosts with managed: false.
+    """
+
+    @pytest.mark.parametrize(
+        ('block', 'error'),
+        [
+            (
+                'monitoring_targets:\n  tcp:\n    - node: server\n      targets:\n'
+                '        - port: 22\n          interface: ens3\n',
+                'never gathers its facts.*TCP',
+            ),
+            (
+                'monitoring_targets:\n  icmp:\n    - node: server\n      targets:\n'
+                '        - interface: ens3\n',
+                'never gathers its facts.*ICMP',
+            ),
+            (
+                'vpn:\n  entrypoints:\n    - name: server\n      routes:\n        - 10.10.0.0/16\n',
+                'never installs the NetBird agent',
+            ),
+        ],
+        ids=['tcp', 'icmp', 'vpn'],
+    )
+    def test_unmanaged_host_rejected_where_stage_one_is_needed(
+        self, topology_definition_string: str, block: str, error: str
+    ) -> None:
+        """
+        An unmanaged host cannot be a monitoring target or a VPN entrypoint; a managed one can.
+        """
+        TopologyDefinition.load(topology_definition_string + '\n' + block)
+
+        server_flavor = '    flavor: standard.small\n    block_internet: True\n'
+        assert server_flavor in topology_definition_string
+        unmanaged = topology_definition_string.replace(
+            server_flavor, server_flavor + '    managed: false\n', 1
+        )
+        with pytest.raises(YamlizingError, match=error):
+            TopologyDefinition.load(unmanaged + '\n' + block)
+
+    def test_router_managed_rejected(self, topology_definition_string: str) -> None:
+        """
+        managed is Host-only; a router carrying it is a schema error.
+        """
+        router_flavor = '    flavor: standard.small\n\n  - name: home-router'
+        assert router_flavor in topology_definition_string
+        sb_def = topology_definition_string.replace(
+            router_flavor, '    flavor: standard.small\n    managed: false\n\n  - name: home-router'
+        )
+        with pytest.raises(YamlizingError, match='found key `managed`'):
+            TopologyDefinition.load(sb_def)
+
+
 class TestVpnRules:
     """
     Tests for the VPN schema rules.
