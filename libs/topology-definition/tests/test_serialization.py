@@ -326,6 +326,34 @@ monitoring_targets:
             None,
         ]
 
+    def test_mgmt_password_and_managed_defaults(
+        self, topology_definition: TopologyDefinition
+    ) -> None:
+        """
+        mgmt_password is optional and defaults to None; managed defaults to True.
+        """
+        server = topology_definition.find_host_by_name('server')
+        assert server is not None
+        assert server.base_box.mgmt_password is None
+        assert server.managed is True
+
+    def test_mgmt_password_and_unmanaged_load(self) -> None:
+        """
+        A host may declare an SSH password and opt out of the platform's networking stage.
+        """
+        host = Host.load(
+            'name: appliance\n'
+            'base_box:\n'
+            '  image: flowmon-kvm\n'
+            '  mgmt_user: flowmon\n'
+            '  mgmt_password: inv3a-t3ch\n'
+            'flavor: standard.large\n'
+            'managed: false\n'
+        )
+        assert host.managed is False
+        assert host.base_box.mgmt_user == 'flowmon'
+        assert host.base_box.mgmt_password == 'inv3a-t3ch'  # nosec B105
+
     def test_vpn_absent(self, topology_definition: TopologyDefinition) -> None:
         """
         Topology without a vpn block loads without error; attribute is None.

@@ -56,6 +56,10 @@ class BaseBox(Object):
         ),
         default=Protocol.SSH,
     )
+    # Password for SSH access, for images that cannot receive the injected management key
+    # (e.g. appliances without cloud-init). When set, the platform authenticates over SSH
+    # with a password instead of the management key.
+    mgmt_password = Attribute(type=str, default=None)
 
     @classmethod
     def from_yaml(cls, loader: Any, node: Any, _rtd: Any = None) -> 'BaseBox':
@@ -103,6 +107,9 @@ class Host(Object):
     flavor = Attribute(type=str)
     block_internet = Attribute(type=bool, default=False)
     hidden = Attribute(type=bool, default=False)
+    # When False, the host is deployed but excluded from the stage-one networking playbook
+    # (for appliances that manage their own networking and reject external reconfiguration).
+    managed = Attribute(type=bool, default=True)
     extra = Attribute(type=ExtraValues, default=None)
     volumes = Attribute(
         type=VolumeList, default=None, validator=TopologyValidation.is_volumes_valid

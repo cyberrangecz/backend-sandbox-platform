@@ -89,6 +89,17 @@ def _add_hidden_hosts_group(inventory: 'Inventory', topology: TopologyInstance) 
     inventory.add_group(Group(DefaultAnsibleHostsGroups.HIDDEN_HOSTS.value, hidden_hosts))
 
 
+def _add_unmanaged_hosts_group(inventory: 'Inventory', topology: TopologyInstance) -> None:
+    # Hosts the platform must not reconfigure (e.g. appliances without cloud-init). The stage-one
+    # networking playbook is expected to skip this group (hosts:!unmanaged_hosts). Added only when
+    # such a host exists, so topologies without one keep an unchanged inventory.
+    unmanaged_hosts = [
+        inventory.hosts[node.name] for node in topology.get_hosts() if not node.managed
+    ]
+    if unmanaged_hosts:
+        inventory.add_group(Group(DefaultAnsibleHostsGroups.UNMANAGED_HOSTS.value, unmanaged_hosts))
+
+
 def _add_docker_hosts_group(inventory: 'Inventory', topology: TopologyInstance) -> None:
     inventory.docker_hosts = None
     if topology.containers:
@@ -271,6 +282,7 @@ GROUP_BUILDERS: list[_Builder] = [
     _add_ssh_nodes_group,
     _add_user_accessible_nodes_group,
     _add_hidden_hosts_group,
+    _add_unmanaged_hosts_group,
     _add_docker_hosts_group,
     _add_monitored_hosts_tcp_group,
     _add_monitored_hosts_icmp_group,

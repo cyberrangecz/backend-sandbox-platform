@@ -61,6 +61,7 @@ class DefaultAnsibleHostsGroups(Enum):
     WINRM_NODES = 'winrm_nodes'
     USER_ACCESSIBLE_NODES = 'user_accessible_nodes'
     HIDDEN_HOSTS = 'hidden_hosts'
+    UNMANAGED_HOSTS = 'unmanaged_hosts'
     DOCKER_HOSTS = 'docker_hosts'
     MONITORED_HOSTS_TCP = 'monitored_hosts_tcp'
     MONITORED_HOSTS_ICMP = 'monitored_hosts_icmp'
@@ -409,20 +410,28 @@ class Inventory(BaseInventory):
         for node in self.topology_instance.get_nodes():
             # mgmt_links values come from Link.ip / TopologyInstance.ip, both Optional in
             # crczp.cloud_commons only for the pre-enrichment state.
-            self._add_host(
-                Host(
-                    node.name,
-                    mgmt_links[node.name],  # ty: ignore[invalid-argument-type]
-                    node.base_box.mgmt_user,
-                )
+            host = Host(
+                node.name,
+                mgmt_links[node.name],  # ty: ignore[invalid-argument-type]
+                node.base_box.mgmt_user,
             )
+            # An image without cloud-init cannot receive the injected management key, so it
+            # authenticates over SSH with a password instead. sshpass must be present in the
+            # Ansible runner image for this to work.
+            mgmt_password = getattr(node.base_box, 'mgmt_password', None)
+            if mgmt_password:
+                host.add_variables(ansible_connection='ssh', ansible_password=mgmt_password)
+            self._add_host(host, managed=getattr(node, 'managed', True))
 
-    def _add_host(self, host: Host) -> None:
+    def _add_host(self, host: Host, managed: bool = True) -> None:
         """
         Add Ansible host entry with routing information if exist to special Ansible group 'all'.
+
+        An unmanaged host is excluded from the stage-one networking playbook, so it is not given
+        the interface routing data that playbook consumes.
         """
         interfaces = self.routing.get_node_interfaces(host.name)
-        if interfaces:
+        if interfaces and managed:
             host.add_variables(interfaces=[interface.to_dict() for interface in interfaces])
         self.add_host(host)
 

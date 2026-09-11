@@ -31,3 +31,30 @@ class TestGetSshConfig:
             '/root/.ssh/id_rsa',
         )
         assert result.asdict() == ansible_ssh_config.asdict()
+
+    def test_password_host_uses_password_auth(self, top_ins):
+        """A host with a management password gets a password-auth SSH entry, not a key."""
+        server_def = next(h for h in top_ins.topology_definition.hosts if h.name == 'server')
+        server_def.base_box.mgmt_password = 'inv3a-t3ch'  # nosec B105
+
+        proxy_jump = settings.CRCZP_CONFIG.proxy_jump_to_man
+        result = sshconfig.CrczpMgmtSSHConfig(top_ins, proxy_jump.Host, 'pool-prefix')
+
+        def first_name(host: object) -> str:
+            return host[0] if isinstance(host, (list, tuple)) else str(host).split()[0]
+
+        server_entry = next(e for e in result.asdict() if first_name(e['Host']) == 'server')
+        assert server_entry.get('PubkeyAuthentication') == 'no'
+        assert server_entry.get('PreferredAuthentications') == 'password'
+        assert 'IdentityFile' not in server_entry
+        assert 'IdentitiesOnly' not in server_entry
+
+        # The directives must reach the serialized config that SSH actually reads.
+        serialized = result.serialize()
+        assert 'PreferredAuthentications password' in serialized
+        assert 'PubkeyAuthentication no' in serialized
+
+        # A host without a password is untouched (still key-based).
+        home_entry = next(e for e in result.asdict() if first_name(e['Host']) == 'home')
+        assert 'IdentityFile' in home_entry
+        assert home_entry.get('IdentitiesOnly')  # truthy (yes)

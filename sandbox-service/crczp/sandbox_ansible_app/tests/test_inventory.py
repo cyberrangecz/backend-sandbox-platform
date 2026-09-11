@@ -261,3 +261,44 @@ class TestForwardingDestinationVars:
         hosts = self._hosts(top_ins_forwarding)
 
         assert 'forwarding_router_ip' not in hosts['monitoring']
+
+
+class TestUnmanagedPasswordHost:
+    """Tests for a password-authenticated, unmanaged host (e.g. an appliance without cloud-init)."""
+
+    @staticmethod
+    def _build(top_ins) -> dict[str, Any]:
+        return Inventory(
+            'pool-prefix',
+            'stack-name',
+            top_ins,
+            '/root/.ssh/pool_mng_key',
+            '/root/.ssh/pool_mng_cert',
+            '/root/.ssh/pool_mng_key.pub',
+            '/root/.ssh/user_key.pub',
+        ).to_dict()
+
+    def test_password_and_unmanaged_group(self, top_ins):
+        """A host with a password authenticates by password and lands in unmanaged_hosts."""
+        server_def = next(h for h in top_ins.topology_definition.hosts if h.name == 'server')
+        server_def.managed = False
+        server_def.base_box.mgmt_password = 'inv3a-t3ch'  # nosec B105
+
+        result = self._build(top_ins)
+
+        server_vars = result['all']['hosts']['server']
+        assert server_vars['ansible_password'] == 'inv3a-t3ch'
+        assert server_vars['ansible_connection'] == 'ssh'
+        assert 'interfaces' not in server_vars
+
+        children = result['all']['children']
+        assert 'server' in children['unmanaged_hosts']['hosts']
+        # Still reachable for the user-ansible stage — only the networking play is expected to skip.
+        assert 'server' in children['ssh_nodes']['hosts']
+
+    def test_managed_host_has_no_password_or_group(self, top_ins):
+        """Without the new fields, the inventory is unchanged: no password, no unmanaged group."""
+        result = self._build(top_ins)
+
+        assert 'ansible_password' not in result['all']['hosts']['server']
+        assert 'unmanaged_hosts' not in result['all'].get('children', {})
