@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from dataclasses import dataclass
 from typing import Any, cast
 
 import requests
@@ -24,6 +25,17 @@ authenticator_class = JWTAccessTokenAuthentication()
 USER_CACHE_TIMEOUT = 300
 CACHE = caches['uag_auth_groups_cache']
 UAG_SETTINGS = settings.SANDBOX_UAG
+# Bumped whenever the cache value's shape changes, so a stale entry from a previous
+# shape is never misread as the current one.
+CACHE_KEY_VERSION = 'v2'
+
+
+@dataclass(frozen=True)
+class UagIdentity:
+    """The caller's identity as resolved from the user-and-group service."""
+
+    user_id: int
+    role_names: list[str]
 
 
 def get_or_create_user(request: Request, user_info: dict[str, Any]) -> User:  # pylint: disable=too-many-locals
@@ -63,20 +75,21 @@ def get_or_create_user(request: Request, user_info: dict[str, Any]) -> User:  # 
 
     cached_value = CACHE.get(cache_key)
     if cached_value is not None:
-        (cached_groups, cached_bearer_token) = cached_value
+        (cached_groups, cached_bearer_token, cached_uag_user_id) = cached_value
         # if there is a key collision due to SHA-1 clash, this will detect it
         if cached_bearer_token == bearer_token:
             user.groups.set(cached_groups)
+            user.uag_user_id = cached_uag_user_id  # ty: ignore[unresolved-attribute]
             return user
 
     try:
-        user_roles = get_user_roles(UAG_SETTINGS['ROLES_ACQUISITION_URL'], bearer_token)
+        identity = get_uag_identity(UAG_SETTINGS['ROLES_ACQUISITION_URL'], bearer_token)
     except Exception as ex:
         raise AuthenticationFailed(str(ex)) from ex
 
-    LOG.debug('roles:', user_roles=user_roles)
+    LOG.debug('roles:', user_roles=identity.role_names)
     groups = []
-    for group_name in user_roles:
+    for group_name in identity.role_names:
         # We work only with existing predefined groups.
         try:
             group = Group.objects.get(name=group_name)
@@ -93,7 +106,10 @@ def get_or_create_user(request: Request, user_info: dict[str, Any]) -> User:  # 
         groups.append(group)
 
     user.groups.set(groups)
-    value_to_cache = (groups, bearer_token)
+    # Dynamic attribute: User declares no uag_user_id, but every instance carries a
+    # __dict__, so the assignment is valid and callers may read it back for the request.
+    user.uag_user_id = identity.user_id  # ty: ignore[unresolved-attribute]
+    value_to_cache = (groups, bearer_token, identity.user_id)
     CACHE.set(cache_key, value_to_cache, USER_CACHE_TIMEOUT)
 
     return user
@@ -108,7 +124,7 @@ def get_cache_key(username: str, bearer_token: bytes) -> str:
         str(bearer_token).encode('UTF-8'), usedforsecurity=False
     ).hexdigest()  # nosec B324
     # 140 + 40 + 1 < 250
-    return f'{username}|{hashed_bearer_token}'
+    return f'{CACHE_KEY_VERSION}|{username}|{hashed_bearer_token}'
 
 
 def get_unique_username(sub: str, iss: str) -> str:
@@ -116,8 +132,8 @@ def get_unique_username(sub: str, iss: str) -> str:
     return f'{str(sub)}|{str(iss)}'
 
 
-def get_user_roles(url: str, bearer_token: bytes) -> list[str]:
-    """Get user roles from User-and-group service."""
+def get_uag_identity(url: str, bearer_token: bytes) -> UagIdentity:
+    """Get the caller's user-and-group id and roles for this microservice."""
     err_msg = f"Failed to get User roles from '{url}': "
 
     headers = {'Authorization': f'Bearer {bearer_token.decode("ascii")}'}
@@ -130,15 +146,17 @@ def get_user_roles(url: str, bearer_token: bytes) -> list[str]:
         raise exceptions.NetworkError(err_msg + str(ex)) from ex
 
     try:
-        user_roles = [
+        response_json = response.json()
+        role_names = [
             role['role_type']
-            for role in response.json()['roles']
+            for role in response_json['roles']
             if role['name_of_microservice'] == UAG_SETTINGS['MICROSERVICE_NAME']
         ]
+        user_id = response_json['id']
     except ValueError as ex:
         raise ValueError(err_msg + 'Invalid JSON returned.') from ex
 
-    return user_roles
+    return UagIdentity(user_id=user_id, role_names=role_names)
 
 
 def post_user_roles(

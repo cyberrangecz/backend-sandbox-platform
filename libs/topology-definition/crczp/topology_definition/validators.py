@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     )
 
 VALID_NAMES_REGEX = r'^[a-z]([a-z0-9A-Z-])*$'
+ROLE_NAME_REGEX = r'^[a-z0-9_-]{1,128}$'
 # A DNS domain: dot-separated labels, each 1-63 chars, starting and ending with
 # an alphanumeric. Accepts single-label domains (e.g. "local") as valid search domains.
 DNS_DOMAIN_REGEX = (
@@ -342,6 +343,35 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         """
         if volumes is not None and len(volumes) < 1:
             raise ValueError('Volumes must contain at least one entry for system disk')
+
+    @staticmethod
+    def _validate_role_list(obj: object, roles: StrList, field_name: str) -> None:
+        """
+        Validate a declared role list and collapse it to a sorted set of names.
+        """
+        for role in roles:
+            if not re.match(ROLE_NAME_REGEX, role):
+                _msg = 'Cannot set {}.{} entry "{}". It does not match regex "{}".'
+                raise ValueError(
+                    _msg.format(obj.__class__.__name__, field_name, role, ROLE_NAME_REGEX)
+                )
+        roles[:] = sorted(set(roles))
+
+    @staticmethod
+    def validate_visible_by_roles(obj: object, roles: StrList | None) -> None:
+        """
+        Validate a declared visible_by_roles list.
+        """
+        if roles is not None:
+            TopologyValidation._validate_role_list(obj, roles, 'visible_by_roles')
+
+    @staticmethod
+    def validate_accessible_by_roles(obj: object, roles: StrList | None) -> None:
+        """
+        Validate a declared accessible_by_roles list.
+        """
+        if roles is not None:
+            TopologyValidation._validate_role_list(obj, roles, 'accessible_by_roles')
 
     @staticmethod
     def validate_monitoring_targets(

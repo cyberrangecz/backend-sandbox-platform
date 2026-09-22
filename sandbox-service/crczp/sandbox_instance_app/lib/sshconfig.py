@@ -5,7 +5,7 @@ from typing import Any, override
 import structlog
 from ssh_config.client import Host, parse_config  # Don't import SSHConfig unless reading from file
 
-from crczp.cloud_commons import Link, TopologyInstance
+from crczp.cloud_commons import Link, TopologyInstance, UsersRoles
 
 LOG = structlog.getLogger()
 
@@ -148,6 +148,7 @@ class CrczpUserSSHConfig(CrczpSSHConfig):
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         top_ins: TopologyInstance,
+        users_roles: UsersRoles,
         proxy_host: str,
         proxy_user: str,
         sandbox_private_key_path: str = '<path_to_sandbox_private_key>',
@@ -174,7 +175,7 @@ class CrczpUserSSHConfig(CrczpSSHConfig):
         man_proxy_jump = f'{SSH_PROXY_USERNAME}@{top_ins.man.name}'
 
         # Create an entry for user-accessible nodes of a sandbox.
-        for link in top_ins.get_links_to_user_accessible_nodes():
+        for link in top_ins.get_links_to_user_accessible_nodes(users_roles):
             self.add_host(
                 link.ip,  # ty: ignore[invalid-argument-type]
                 SSH_PROXY_USERNAME,

@@ -10,7 +10,7 @@ from .exceptions import (
     StackNotFound,
 )
 from .topology_elements import MAN, Link, NetworkForwarding, NodeToNodeLinkPair, SecurityGroups
-from .topology_instance import MAN_NAME, MAN_NET_NAME, TopologyInstance
+from .topology_instance import MAN_NAME, MAN_NET_NAME, UNIVERSAL_ROLES, TopologyInstance, UsersRoles
 from .transformation_configuration import TransformationConfiguration
 
 __all__ = [
@@ -29,6 +29,8 @@ __all__ = [
     'SecurityGroups',
     'TopologyInstance',
     'TransformationConfiguration',
+    'UNIVERSAL_ROLES',
+    'UsersRoles',
     'CrczpException',
     'InvalidTopologyDefinition',
     'StackCreationFailed',

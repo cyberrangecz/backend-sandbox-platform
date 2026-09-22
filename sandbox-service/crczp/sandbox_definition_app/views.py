@@ -5,13 +5,19 @@ from typing import Any, override
 import structlog
 from django.conf import settings
 from django.contrib.auth.models import User
-from drf_spectacular.utils import OpenApiRequest, OpenApiResponse, extend_schema
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiRequest,
+    OpenApiResponse,
+    extend_schema,
+)
 from generator.var_generator import generate
 from rest_framework import generics, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from crczp.cloud_commons import UNIVERSAL_ROLES
 from crczp.sandbox_common_lib import exceptions, utils
 from crczp.sandbox_common_lib.swagger_typing import (
     DefinitionRequestSerializer,
@@ -24,6 +30,7 @@ from crczp.sandbox_definition_app.models import Definition
 from crczp.sandbox_instance_app import serializers as instance_serializers
 from crczp.sandbox_instance_app.lib import sandboxes
 from crczp.sandbox_instance_app.lib.topology import Topology
+from crczp.sandbox_uag.permissions import AdminPermission, DesignerPermission, OrganizerPermission
 
 LOG = structlog.get_logger()
 
@@ -117,16 +124,23 @@ class DefinitionRefsListView(generics.ListAPIView[Any]):
 
 @extend_schema(
     methods=['GET'],
-    responses={200: instance_serializers.TopologySerializer(), **COMMON_RESPONSE_PATTERNS},
+    responses={
+        200: instance_serializers.DefinitionTopologySerializer(),
+        **COMMON_RESPONSE_PATTERNS,
+    },
 )
 class DefinitionTopologyView(generics.RetrieveAPIView[Any]):
     """
     get: Retrieve topology visualisation data from TopologyDefinition
+
+    Previews every entity of the definition regardless of role, each carrying the role
+    names its own declaration names: there is no pool yet to resolve a requester's roles
+    against.
     """
 
     queryset = Definition.objects.all()
     lookup_url_kwarg = 'definition_id'
-    serializer_class = instance_serializers.TopologySerializer
+    serializer_class = instance_serializers.DefinitionTopologySerializer
 
     @override
     def get_object(self) -> Any:
@@ -138,7 +152,9 @@ class DefinitionTopologyView(generics.RetrieveAPIView[Any]):
             definition.url, definition.rev, settings.CRCZP_CONFIG
         )
         client = utils.get_terraform_client()
-        return Topology(client.get_topology_instance(topology_definition, containers))
+        return Topology(
+            client.get_topology_instance(topology_definition, containers), UNIVERSAL_ROLES
+        )
 
 
 @extend_schema(
@@ -201,3 +217,46 @@ class DefinitionVariablesView(APIView):
         except exceptions.GitError:
             pass
         return Response({'variables': variable_names})
+
+
+@extend_schema(
+    methods=['GET'],
+    parameters=[
+        OpenApiParameter(
+            'rev',
+            str,
+            description="Revision to read. Defaults to the definition's stored revision.",
+        )
+    ],
+    responses={
+        200: OpenApiResponse(
+            response=serializers.DefinitionRolesSerializer,
+            description='The declared role names, with the revision that answered',
+        ),
+        **COMMON_RESPONSE_PATTERNS,
+    },
+)
+class DefinitionRolesView(APIView):
+    """View to retrieve the role names a definition declares, at a revision."""
+
+    queryset = Definition.objects.none()
+    permission_classes = [DesignerPermission | OrganizerPermission | AdminPermission]
+
+    # noinspection PyMethodMayBeStatic
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Return the definition's declared role names at the requested (or stored) revision."""
+        definition = utils.get_object_or_404(Definition, pk=kwargs.get('definition_id'))
+        rev = request.query_params.get('rev') or definition.rev
+        provider = definitions.get_def_provider(definition.url, settings.CRCZP_CONFIG)
+        rev_sha = provider.get_rev_sha(rev)
+        topology_definition = definitions.get_definition(
+            definition.url, rev_sha, settings.CRCZP_CONFIG
+        )
+        roles = sorted(topology_definition.get_declared_roles())
+        return Response(
+            serializers.DefinitionRolesSerializer({
+                'rev': rev,
+                'rev_sha': rev_sha,
+                'roles': roles,
+            }).data
+        )

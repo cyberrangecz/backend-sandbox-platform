@@ -39,6 +39,7 @@ urlpatterns = [
         name='pool-cleanup-request-unlocked',
     ),
     path('pools/<int:pool_id>/variables', views.PoolVariablesView.as_view(), name='pool-variables'),
+    path('pools/<int:pool_id>/roles', views.PoolRolesView.as_view(), name='pool-roles'),
     path(
         'pools/<int:pool_id>/sandbox-allocation-units',
         views.SandboxAllocationUnitListCreateView.as_view(),

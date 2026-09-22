@@ -8,7 +8,11 @@ from typing import Any, Self
 from ruamel.yaml.loader import RoundTripLoader as _RoundTripLoader
 from yamlize import Attribute, Dynamic, Map, Object, Sequence, StrList, Typed
 
-from crczp.topology_definition.utils import rename_deprecated_attribute
+from crczp.topology_definition.utils import (
+    reject_key_conflict,
+    reject_null_value,
+    rename_deprecated_attribute,
+)
 
 # ruamel.yaml >=0.19.1 added a max_depth check in Composer.compose_node that
 # accesses self.loader.max_depth, but RoundTripLoader (used by yamlize directly)
@@ -107,6 +111,9 @@ class Host(Object):
     flavor = Attribute(type=str)
     block_internet = Attribute(type=bool, default=False)
     hidden = Attribute(type=bool, default=False)
+    visible_by_roles = Attribute(
+        type=StrList, default=None, validator=TopologyValidation.validate_visible_by_roles
+    )
     # When False, the host is deployed but excluded from the stage-one networking playbook
     # (for appliances that manage their own networking and reject external reconfiguration).
     managed = Attribute(type=bool, default=True)
@@ -131,6 +138,15 @@ class Host(Object):
         self.hidden = hidden
         self.volumes = volumes
 
+    @classmethod
+    def from_yaml(cls, loader: Any, node: Any, _rtd: Any = None) -> 'Host':
+        """
+        Load Host from YAML.
+        """
+        reject_key_conflict(node.value, 'hidden', 'visible_by_roles')
+        reject_null_value(node.value, 'visible_by_roles')
+        return super().from_yaml(loader, node, _rtd)
+
 
 class HostList(Sequence):
     """
@@ -150,11 +166,23 @@ class Router(Object):
     flavor = Attribute(type=str)
     extra = Attribute(type=ExtraValues, default=None)
     hidden = Attribute(type=bool, default=False)
+    visible_by_roles = Attribute(
+        type=StrList, default=None, validator=TopologyValidation.validate_visible_by_roles
+    )
 
     def __init__(self, name: str, base_box: BaseBox, flavor: str) -> None:
         self.name = name
         self.base_box = base_box
         self.flavor = flavor
+
+    @classmethod
+    def from_yaml(cls, loader: Any, node: Any, _rtd: Any = None) -> 'Router':
+        """
+        Load Router from YAML.
+        """
+        reject_key_conflict(node.value, 'hidden', 'visible_by_roles')
+        reject_null_value(node.value, 'visible_by_roles')
+        return super().from_yaml(loader, node, _rtd)
 
 
 class RouterList(Sequence):
@@ -173,13 +201,30 @@ class Network(Object):
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
     cidr = Attribute(type=str)
     accessible_by_user = Attribute(type=bool, default=True)
+    accessible_by_roles = Attribute(
+        type=StrList, default=None, validator=TopologyValidation.validate_accessible_by_roles
+    )
     hidden = Attribute(type=bool, default=False)
+    visible_by_roles = Attribute(
+        type=StrList, default=None, validator=TopologyValidation.validate_visible_by_roles
+    )
 
     def __init__(self, name: str, cidr: str, accessible_by_user: bool, hidden: bool) -> None:
         self.name = name
         self.cidr = cidr
         self.accessible_by_user = accessible_by_user
         self.hidden = hidden
+
+    @classmethod
+    def from_yaml(cls, loader: Any, node: Any, _rtd: Any = None) -> 'Network':
+        """
+        Load Network from YAML.
+        """
+        reject_key_conflict(node.value, 'hidden', 'visible_by_roles')
+        reject_key_conflict(node.value, 'accessible_by_user', 'accessible_by_roles')
+        reject_null_value(node.value, 'visible_by_roles')
+        reject_null_value(node.value, 'accessible_by_roles')
+        return super().from_yaml(loader, node, _rtd)
 
 
 class WAN(Object):
@@ -613,6 +658,20 @@ class TopologyDefinition(Object):  # pylint: disable=too-many-instance-attribute
         """
         self.groups.append(group)
         self._indexed = False
+
+    def get_declared_roles(self) -> set[str]:
+        """
+        Return every role name declared anywhere in the definition.
+        """
+        roles: set[str] = set()
+        for host in self.hosts:
+            roles.update(host.visible_by_roles or ())
+        for router in self.routers:
+            roles.update(router.visible_by_roles or ())
+        for network in self.networks:
+            roles.update(network.visible_by_roles or ())
+            roles.update(network.accessible_by_roles or ())
+        return roles
 
 
 class Container(Object):

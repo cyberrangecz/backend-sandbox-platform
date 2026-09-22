@@ -7,6 +7,7 @@ from wsgiref.util import FileWrapper
 import structlog
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.db import transaction
 from django.db.models import QuerySet
 from django.http import Http404, HttpResponse
 from drf_spectacular.utils import OpenApiParameter, OpenApiRequest, OpenApiResponse, extend_schema
@@ -26,13 +27,14 @@ from crczp.sandbox_common_lib.utils import get_object_or_404
 from crczp.sandbox_definition_app.lib import definitions
 from crczp.sandbox_definition_app.serializers import DefinitionSerializer
 from crczp.sandbox_instance_app import serializers
-from crczp.sandbox_instance_app.lib import nodes, pools, sandboxes, stage_handlers
+from crczp.sandbox_instance_app.lib import nodes, pools, roles, sandboxes, stage_handlers
 from crczp.sandbox_instance_app.lib import requests as sandbox_requests
 from crczp.sandbox_instance_app.models import (
     AllocationRequest,
     CleanupRequest,
     Pool,
     PoolLock,
+    PoolRoleGrant,
     Sandbox,
     SandboxAllocationUnit,
     SandboxLock,
@@ -914,7 +916,9 @@ class SandboxTopologyView(generics.RetrieveAPIView[Any]):
 
     @override
     def get_object(self) -> Any:
-        return sandboxes.get_sandbox_topology(super().get_object())
+        sandbox = super().get_object()
+        users_roles = roles.resolve_users_roles(self.request, sandbox.allocation_unit.pool)
+        return sandboxes.get_sandbox_topology(sandbox, users_roles)
 
 
 @extend_schema(
@@ -998,7 +1002,8 @@ class SandboxUserSSHAccessView(APIView):
         """Generate SSH config for User access to this sandbox.
         Some values are user specific, the config contains placeholders for them."""
         sandbox = sandboxes.get_sandbox(kwargs['sandbox_uuid'])
-        in_memory_zip_file = sandboxes.get_user_ssh_access(sandbox)
+        users_roles = roles.resolve_users_roles(request, sandbox.allocation_unit.pool)
+        in_memory_zip_file = sandboxes.get_user_ssh_access(sandbox, users_roles)
         response = HttpResponse(FileWrapper(in_memory_zip_file), content_type='application/zip')
         response['Content-Disposition'] = (
             f'attachment; filename=user-ssh-access-pool-{sandbox.allocation_unit.pool.id}'
@@ -1089,6 +1094,102 @@ class PoolVariablesView(APIView):
         return Response({'variables': variable_names})
 
 
+def _grants_by_user(pool: Pool) -> dict[int, list[str]]:
+    """Return a pool's role grants keyed by user id."""
+    by_user: dict[int, list[str]] = {}
+    for grant in PoolRoleGrant.objects.filter(pool=pool):
+        by_user.setdefault(grant.user, []).append(grant.role)
+    return by_user
+
+
+def _get_pool_declared_roles(pool: Pool) -> set[str] | None:
+    """Return the role names the pool's pinned definition revision declares.
+
+    Returns None, logging a warning, if that revision cannot be read.
+    """
+    try:
+        topology_definition = definitions.get_definition(
+            pool.definition.url, pool.rev_sha, settings.CRCZP_CONFIG
+        )
+    except exceptions.GitError as ex:
+        LOG.warning(
+            "Failed to read pool's definition for role validation; skipping validation",
+            pool_id=pool.id,
+            exc_info=ex,
+        )
+        return None
+    return topology_definition.get_declared_roles()
+
+
+@extend_schema(
+    methods=['GET'],
+    responses={
+        200: OpenApiResponse(
+            response=serializers.PoolRoleGrantsSerializer, description='Grants held in the pool'
+        ),
+        **POOL_RESPONSES,
+    },
+)
+@extend_schema(
+    methods=['POST'],
+    request=serializers.PoolRoleGrantsSerializer,
+    responses={
+        200: OpenApiResponse(
+            response=serializers.PoolRoleGrantsSerializer,
+            description="The pool's grants after the call",
+        ),
+        400: OpenApiResponse(description="A role name is not declared by the pool's definition"),
+        **POOL_RESPONSES,
+    },
+)
+class PoolRolesView(APIView):
+    """
+    get: Retrieve role grants held in a pool.
+    post: Replace the roles of the users named in the body. A user absent from the body is
+    untouched; an empty list removes that user's grants.
+    """
+
+    queryset = PoolRoleGrant.objects.all()
+
+    # noinspection PyMethodMayBeStatic
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Return the pool's role grants keyed by user id."""
+        pool = utils.get_object_or_404(Pool, pk=kwargs['pool_id'])
+        return Response(serializers.PoolRoleGrantsSerializer(_grants_by_user(pool)).data)
+
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Replace the roles of the users named in the body."""
+        pool = utils.get_object_or_404(Pool, pk=kwargs['pool_id'])
+        body = serializers.PoolRoleGrantsSerializer().to_internal_value(request.data)
+
+        declared_roles = _get_pool_declared_roles(pool)
+        if declared_roles is not None:
+            undeclared = [
+                {'user': user_id, 'role': role_name}
+                for user_id, role_names in body.items()
+                for role_name in role_names
+                if role_name not in declared_roles
+            ]
+            if undeclared:
+                return Response(
+                    {
+                        'detail': "One or more roles are not declared by the pool's definition.",
+                        'undeclared': undeclared,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        with transaction.atomic():
+            for user_id, role_names in body.items():
+                PoolRoleGrant.objects.filter(pool=pool, user=user_id).delete()
+                PoolRoleGrant.objects.bulk_create([
+                    PoolRoleGrant(pool=pool, user=user_id, role=role_name)
+                    for role_name in role_names
+                ])
+
+        return Response(serializers.PoolRoleGrantsSerializer(_grants_by_user(pool)).data)
+
+
 @extend_schema(
     responses={
         200: OpenApiResponse(
@@ -1120,9 +1221,10 @@ class TopologyNodeConnectionData(APIView):
                 f'Node with name {node_name} does not exist'
                 f' in the topology of sandbox {sandbox.id}.'
             )
+        users_roles = roles.resolve_users_roles(request, sandbox.allocation_unit.pool)
         return Response(
             serializers.NodeAccessDataSerializer(
-                nodes.get_node_access_data(topology_instance, node)
+                nodes.get_node_access_data(topology_instance, node, users_roles)
             ).data
         )
 

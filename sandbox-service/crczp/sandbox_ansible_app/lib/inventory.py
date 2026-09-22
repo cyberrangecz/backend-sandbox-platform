@@ -60,6 +60,7 @@ class DefaultAnsibleHostsGroups(Enum):
     SSH_NODES = 'ssh_nodes'
     WINRM_NODES = 'winrm_nodes'
     USER_ACCESSIBLE_NODES = 'user_accessible_nodes'
+    USER_VISIBLE_NODES = 'user_visible_nodes'
     HIDDEN_HOSTS = 'hidden_hosts'
     UNMANAGED_HOSTS = 'unmanaged_hosts'
     DOCKER_HOSTS = 'docker_hosts'
@@ -464,11 +465,29 @@ class Inventory(BaseInventory):
     def get_user_accessible_nodes(self) -> list[Host]:
         """
         Create and return user accessible nodes from user accessible networks.
+
+        Generation has no requesting user: membership follows each network's
+        ``accessible_by_user`` boolean alone, defaulted or authored, regardless of
+        whether it also declares ``accessible_by_roles``.
         """
-        return [
-            self.hosts[link.node.name]
-            for link in self.topology_instance.get_links_to_user_accessible_nodes()
+        accessible_networks = [
+            network
+            for network in self.topology_instance.get_hosts_networks()
+            if network.accessible_by_user
         ]
+        accessible_links: list[Link] = []
+        for network in accessible_networks:
+            accessible_links.extend(
+                self.topology_instance.get_network_links(
+                    network, self.topology_instance.get_hosts()
+                )
+            )
+            accessible_links.extend(
+                self.topology_instance.get_network_links(
+                    network, self.topology_instance.get_routers()
+                )
+            )
+        return [self.hosts[link.node.name] for link in accessible_links]
 
     def _create_user_defined_groups(self) -> None:
         """

@@ -5,10 +5,109 @@ from typing import Any
 import pytest
 from django.conf import settings
 
-from crczp.cloud_commons import TopologyInstance
+from crczp.cloud_commons import TopologyInstance, TransformationConfiguration
 from crczp.sandbox_ansible_app.lib.inventory import Inventory, Routing
+from crczp.topology_definition.models import TopologyDefinition
 
 pytestmark = pytest.mark.django_db
+
+ROLE_AWARE_INVENTORY_DEFINITION = """
+name: role-inventory-sandbox
+hosts:
+  - name: victim
+    base_box: { image: debian-12-x86_64, mgmt_user: debian }
+    flavor: standard.small
+    visible_by_roles: [red-team]
+
+routers:
+  - name: gw
+    base_box: { image: debian-12-x86_64, mgmt_user: debian }
+    flavor: standard.small
+
+networks:
+  - name: role-lan
+    cidr: 10.10.90.0/24
+    accessible_by_roles: [red-team, blue-team]
+
+  - name: vis-lan
+    cidr: 10.10.91.0/24
+    visible_by_roles: [blue-team]
+
+net_mappings:
+  - host: victim
+    network: role-lan
+    ip: 10.10.90.5
+
+  - host: victim
+    network: vis-lan
+    ip: 10.10.91.5
+
+router_mappings:
+  - router: gw
+    network: role-lan
+    ip: 10.10.90.1
+
+  - router: gw
+    network: vis-lan
+    ip: 10.10.91.1
+
+groups: []
+"""
+
+ROLE_FREE_INVENTORY_DEFINITION = """
+name: role-free-inventory-sandbox
+hosts:
+  - name: plain
+    base_box: { image: debian-12-x86_64, mgmt_user: debian }
+    flavor: standard.small
+
+routers:
+  - name: gw
+    base_box: { image: debian-12-x86_64, mgmt_user: debian }
+    flavor: standard.small
+
+networks:
+  - name: office-lan
+    cidr: 10.10.95.0/24
+
+net_mappings:
+  - host: plain
+    network: office-lan
+    ip: 10.10.95.5
+
+router_mappings:
+  - router: gw
+    network: office-lan
+    ip: 10.10.95.1
+
+groups: []
+"""
+
+
+def _build_topology_instance(definition_yaml: str) -> TopologyInstance:
+    topology_definition = TopologyDefinition.load(definition_yaml)
+    trc_config = TransformationConfiguration(
+        man_image='debian-12-x86_64', man_flavor='standard.small', man_user='debian'
+    )
+    ti = TopologyInstance(topology_definition, trc_config)
+    ti.name = 'stack-name'
+    ti.ip = '10.10.10.10'
+    for i, link in enumerate(ti.get_links()):
+        link.ip = f'10.0.0.{i + 1}'
+        link.mac = f'52:54:00:00:00:{i:02x}'
+    return ti
+
+
+def _build_inventory(topology_instance: TopologyInstance) -> Inventory:
+    return Inventory(
+        'pool-prefix',
+        'stack-name',
+        topology_instance,
+        '/root/.ssh/pool_mng_key',
+        '/root/.ssh/pool_mng_cert',
+        '/root/.ssh/pool_mng_key.pub',
+        '/root/.ssh/user_key.pub',
+    )
 
 
 class TestCreateInventory:
@@ -213,6 +312,60 @@ class TestVpnEntrypointsGroup:
         )
 
         assert 'vpn_entrypoints' not in result.to_dict()['all']['children']
+
+
+class TestRoleAwareInventoryMetadata:
+    """Tests for role-scoped visibility/reach metadata in the generated inventory."""
+
+    def test_role_free_definition_generates_todays_inventory(self, top_ins, inventory):
+        """A definition naming no role generates a byte-identical inventory (already
+        covered by test_create_inventory_success passing unchanged; this only confirms
+        neither new group name leaks into a role-free inventory)."""
+        result = _build_inventory(top_ins).to_dict()
+        children = result['all']['children']
+        assert 'user_visible_nodes' not in children
+
+    def test_accessible_by_roles_does_not_move_membership(self):
+        """A network declaring accessible_by_roles leaves accessible_by_user at its
+        default, so its machines join user_accessible_nodes exactly as they would."""
+        ti = _build_topology_instance(ROLE_AWARE_INVENTORY_DEFINITION)
+        result = _build_inventory(ti).to_dict()
+        accessible_hosts = result['all']['children']['user_accessible_nodes']['hosts']
+        assert 'victim' in accessible_hosts
+        assert 'gw' in accessible_hosts
+
+    def test_accessible_by_roles_carried_as_hosts_var(self):
+        """The declared accessible_by_roles set is recorded on the accessible member."""
+        ti = _build_topology_instance(ROLE_AWARE_INVENTORY_DEFINITION)
+        result = _build_inventory(ti).to_dict()
+        accessible_hosts = result['all']['children']['user_accessible_nodes']['hosts']
+        assert accessible_hosts['victim'] == {'accessible_by_roles': ['blue-team', 'red-team']}
+        assert accessible_hosts['gw'] == {'accessible_by_roles': ['blue-team', 'red-team']}
+
+    def test_user_visible_nodes_absent_when_nothing_declares_it(self):
+        """The group is emitted only when it has members."""
+        ti = _build_topology_instance(ROLE_FREE_INVENTORY_DEFINITION)
+        result = _build_inventory(ti).to_dict()
+        assert 'user_visible_nodes' not in result['all']['children']
+
+    def test_user_visible_nodes_present_and_unions_declared_sources(self):
+        """A multihomed machine's visible_by_roles is the union of its own declaration
+        and that of every network declaring it; a router attached to that same
+        declaring network carries the network's set too."""
+        ti = _build_topology_instance(ROLE_AWARE_INVENTORY_DEFINITION)
+        result = _build_inventory(ti).to_dict()
+        visible_group = result['all']['children']['user_visible_nodes']
+        assert visible_group['hosts'] == {
+            'victim': {'visible_by_roles': ['blue-team', 'red-team']},
+            'gw': {'visible_by_roles': ['blue-team']},
+        }
+
+    def test_hidden_hosts_group_is_untouched(self):
+        """Role-scoped visibility never writes to hidden_hosts: with no boolean-hidden
+        host declared, the group carries no members, exactly as it would without roles."""
+        ti = _build_topology_instance(ROLE_AWARE_INVENTORY_DEFINITION)
+        result = _build_inventory(ti).to_dict()
+        assert result['all']['children']['hidden_hosts'] == {}
 
 
 class TestForwardingDestinationVars:

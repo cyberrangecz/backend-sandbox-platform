@@ -10,6 +10,7 @@ Swagger can utilise type hints to determine type, so use them in your own method
 
 from __future__ import annotations
 
+import re
 from typing import Any, override
 
 from django.db import transaction
@@ -22,6 +23,7 @@ from crczp.sandbox_definition_app.models import Definition
 from crczp.sandbox_definition_app.serializers import DefinitionSerializer
 from crczp.sandbox_instance_app import models
 from crczp.sandbox_instance_app.lib import pools, requests
+from crczp.topology_definition.validators import ROLE_NAME_REGEX
 
 
 class PoolSerializer(serializers.ModelSerializer[models.Pool]):
@@ -414,6 +416,36 @@ class TopologySerializer(serializers.Serializer[Any]):
     routers = RouterSerializer(many=True)
 
 
+class DefinitionHostSerializer(HostSerializer):
+    """Host topology serializer carrying its declared visibility roles."""
+
+    visible_by_roles = serializers.ListField(child=serializers.CharField(), allow_null=True)
+
+
+class DefinitionSubnetSerializer(SubnetSerializer):
+    """Subnet topology serializer carrying its declared visibility and reach roles."""
+
+    hosts = DefinitionHostSerializer(many=True)
+    accessible_by_roles = serializers.ListField(child=serializers.CharField(), allow_null=True)
+    visible_by_roles = serializers.ListField(child=serializers.CharField(), allow_null=True)
+
+
+class DefinitionRouterSerializer(RouterSerializer):
+    """Router topology serializer carrying its declared visibility roles."""
+
+    subnets = DefinitionSubnetSerializer(many=True)
+    visible_by_roles = serializers.ListField(child=serializers.CharField(), allow_null=True)
+
+
+class DefinitionTopologySerializer(TopologySerializer):
+    """
+    Topology serializer for a definition preview: every entity renders regardless of
+    role, each carrying the role names its own declaration names, if any.
+    """
+
+    routers = DefinitionRouterSerializer(many=True)
+
+
 class NodeSerializer(serializers.Serializer[Any]):
     """CRCZP OS lib Instance serializer"""
 
@@ -480,4 +512,42 @@ class SandboxVpnConfigSerializer(serializers.Serializer[Any]):
     management_url = serializers.CharField()
     setup_key = serializers.CharField(allow_null=True)
     routes = serializers.ListField(child=serializers.CharField())
+
+
+class PoolRoleGrantsSerializer(serializers.Serializer[Any]):
+    """
+    Serializer for role grants held in a pool, keyed by user-and-group user id.
+
+    Values are sets of role names; a repeat collapses, order carries no meaning.
+    """
+
+    @override
+    def to_representation(self, instance: dict[int, list[str]]) -> dict[str, list[str]]:
+        return {str(user_id): sorted(set(role_names)) for user_id, role_names in instance.items()}
+
+    @override
+    def to_internal_value(self, data: Any) -> dict[int, list[str]]:
+        if not isinstance(data, dict):
+            raise serializers.ValidationError('Expected an object mapping user id to role names.')
+
+        result: dict[int, list[str]] = {}
+        for user_key, role_names in data.items():
+            try:
+                user_id = int(user_key)
+            except (TypeError, ValueError):
+                raise serializers.ValidationError(f'"{user_key}" is not a valid user id.') from None
+
+            if not isinstance(role_names, list) or not all(
+                isinstance(role_name, str) for role_name in role_names
+            ):
+                raise serializers.ValidationError(
+                    f'Roles for user {user_key} must be a list of role name strings.'
+                )
+            for role_name in role_names:
+                if not re.match(ROLE_NAME_REGEX, role_name):
+                    raise serializers.ValidationError(f'"{role_name}" is not a valid role name.')
+            result[user_id] = sorted(set(role_names))
+
+        return result
+
     command = serializers.CharField(allow_null=True)

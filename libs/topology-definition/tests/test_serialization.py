@@ -16,6 +16,7 @@ from yamlize.yamlizing_error import YamlizingError
 from crczp.topology_definition.image_naming import image_name_replace, image_name_strip
 from crczp.topology_definition.models import (
     BaseBox,
+    ContainerMapping,
     Host,
     Protocol,
     Router,
@@ -674,6 +675,389 @@ vpn:
         server_router: Router | None = td.find_router_by_name('server-router')
         assert server_router is not None
         assert server_router.base_box.image == 'debian-12-x86_64'
+
+    def test_visible_by_roles_round_trip(self, topology_definition_string: str) -> None:
+        """
+        A host's visible_by_roles round-trips: parsed values, a repeated name collapsing to
+        one, no hidden key emitted alongside it, and hidden left at its default.
+        """
+        td = TopologyDefinition.load(
+            topology_definition_string.replace(
+                '    flavor: standard.small\n    extra:',
+                '    flavor: standard.small\n'
+                '    visible_by_roles: [red-team, red-team, blue_team]\n'
+                '    extra:',
+            )
+        )
+
+        home = td.find_host_by_name('home')
+        assert home is not None
+        assert list(home.visible_by_roles) == ['blue_team', 'red-team']
+        assert home.hidden is False
+
+        dumped_stream = io.StringIO()
+        TopologyDefinition.dump(td, dumped_stream)
+        reloaded = dict(YAML(typ='safe', pure=True).load(dumped_stream.getvalue()))
+        home_dict = next(h for h in reloaded['hosts'] if h['name'] == 'home')
+        assert home_dict['visible_by_roles'] == ['blue_team', 'red-team']
+        assert 'hidden' not in home_dict
+
+    def test_accessible_by_roles_round_trip(self, topology_definition_string: str) -> None:
+        """
+        A network's accessible_by_roles round-trips: parsed values, a repeated name
+        collapsing to one, and no accessible_by_user key emitted alongside it.
+        """
+        td = TopologyDefinition.load(
+            topology_definition_string.replace(
+                '    cidr: 10.10.20.0/24\n\n  - name: home-switch',
+                '    cidr: 10.10.20.0/24\n'
+                '    accessible_by_roles: [red-team, red-team]\n\n'
+                '  - name: home-switch',
+            )
+        )
+
+        server_switch = td.find_network_by_name('server-switch')
+        assert server_switch is not None
+        assert list(server_switch.accessible_by_roles) == ['red-team']
+        assert server_switch.accessible_by_user is True
+
+        dumped_stream = io.StringIO()
+        TopologyDefinition.dump(td, dumped_stream)
+        reloaded = dict(YAML(typ='safe', pure=True).load(dumped_stream.getvalue()))
+        network_dict = next(n for n in reloaded['networks'] if n['name'] == 'server-switch')
+        assert network_dict['accessible_by_roles'] == ['red-team']
+        assert 'accessible_by_user' not in network_dict
+
+    def test_visible_by_roles_accepted_on_host_router_network(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        visible_by_roles is accepted on a host, a router, and a network.
+        """
+        modified = (
+            topology_definition_string
+            .replace(
+                '    flavor: standard.small\n    extra:',
+                '    flavor: standard.small\n    visible_by_roles: [red-team]\n    extra:',
+            )
+            .replace(
+                '    flavor: standard.small\n\n  - name: home-router',
+                '    flavor: standard.small\n'
+                '    visible_by_roles: [red-team]\n\n'
+                '  - name: home-router',
+            )
+            .replace(
+                '    cidr: 10.10.20.0/24\n\n  - name: home-switch',
+                '    cidr: 10.10.20.0/24\n'
+                '    visible_by_roles: [red-team]\n\n'
+                '  - name: home-switch',
+            )
+        )
+        td = TopologyDefinition.load(modified)
+
+        home = td.find_host_by_name('home')
+        server_router = td.find_router_by_name('server-router')
+        server_switch = td.find_network_by_name('server-switch')
+        assert home is not None and list(home.visible_by_roles) == ['red-team']
+        assert server_router is not None and list(server_router.visible_by_roles) == ['red-team']
+        assert server_switch is not None and list(server_switch.visible_by_roles) == ['red-team']
+
+    def test_accessible_by_roles_rejected_on_host(self, topology_definition_string: str) -> None:
+        """
+        accessible_by_roles is not a field of Host.
+        """
+        modified = topology_definition_string.replace(
+            '    flavor: standard.small\n    extra:',
+            '    flavor: standard.small\n    accessible_by_roles: [red-team]\n    extra:',
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_accessible_by_roles_rejected_on_router(self, topology_definition_string: str) -> None:
+        """
+        accessible_by_roles is not a field of Router.
+        """
+        modified = topology_definition_string.replace(
+            '    flavor: standard.small\n\n  - name: home-router',
+            '    flavor: standard.small\n'
+            '    accessible_by_roles: [red-team]\n\n'
+            '  - name: home-router',
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_visible_by_roles_rejected_on_container_mapping(self) -> None:
+        """
+        visible_by_roles is not a field of ContainerMapping.
+        """
+        with pytest.raises(YamlizingError):
+            ContainerMapping.load(
+                'container: c1\nhost: h1\nport: 80\nvisible_by_roles: [red-team]\n'
+            )
+
+    def test_accessible_by_roles_rejected_on_container_mapping(self) -> None:
+        """
+        accessible_by_roles is not a field of ContainerMapping.
+        """
+        with pytest.raises(YamlizingError):
+            ContainerMapping.load(
+                'container: c1\nhost: h1\nport: 80\naccessible_by_roles: [red-team]\n'
+            )
+
+    def test_visible_by_roles_rejected_null(self, topology_definition_string: str) -> None:
+        """
+        visible_by_roles: null is rejected.
+        """
+        modified = topology_definition_string.replace(
+            '    flavor: standard.small\n    extra:',
+            '    flavor: standard.small\n    visible_by_roles: null\n    extra:',
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_visible_by_roles_rejected_boolean(self, topology_definition_string: str) -> None:
+        """
+        visible_by_roles: true is rejected.
+        """
+        modified = topology_definition_string.replace(
+            '    flavor: standard.small\n    extra:',
+            '    flavor: standard.small\n    visible_by_roles: true\n    extra:',
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_visible_by_roles_rejected_bare_scalar(self, topology_definition_string: str) -> None:
+        """
+        visible_by_roles: red-team (a bare scalar, not a list) is rejected.
+        """
+        modified = topology_definition_string.replace(
+            '    flavor: standard.small\n    extra:',
+            '    flavor: standard.small\n    visible_by_roles: red-team\n    extra:',
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_visible_by_roles_rejected_non_string_entry(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        visible_by_roles containing a non-string entry is rejected.
+        """
+        modified = topology_definition_string.replace(
+            '    flavor: standard.small\n    extra:',
+            '    flavor: standard.small\n    visible_by_roles: [red-team, 1]\n    extra:',
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_accessible_by_roles_rejected_null(self, topology_definition_string: str) -> None:
+        """
+        accessible_by_roles: null is rejected.
+        """
+        modified = topology_definition_string.replace(
+            '    cidr: 10.10.20.0/24\n\n  - name: home-switch',
+            '    cidr: 10.10.20.0/24\n    accessible_by_roles: null\n\n  - name: home-switch',
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_accessible_by_roles_rejected_boolean(self, topology_definition_string: str) -> None:
+        """
+        accessible_by_roles: true is rejected.
+        """
+        modified = topology_definition_string.replace(
+            '    cidr: 10.10.20.0/24\n\n  - name: home-switch',
+            '    cidr: 10.10.20.0/24\n    accessible_by_roles: true\n\n  - name: home-switch',
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_accessible_by_roles_rejected_bare_scalar(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        accessible_by_roles: red-team (a bare scalar, not a list) is rejected.
+        """
+        modified = topology_definition_string.replace(
+            '    cidr: 10.10.20.0/24\n\n  - name: home-switch',
+            '    cidr: 10.10.20.0/24\n    accessible_by_roles: red-team\n\n  - name: home-switch',
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_accessible_by_roles_rejected_non_string_entry(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        accessible_by_roles containing a non-string entry is rejected.
+        """
+        modified = topology_definition_string.replace(
+            '    cidr: 10.10.20.0/24\n\n  - name: home-switch',
+            '    cidr: 10.10.20.0/24\n'
+            '    accessible_by_roles: [red-team, 1]\n\n'
+            '  - name: home-switch',
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_visible_by_roles_rejected_empty_name(self, topology_definition_string: str) -> None:
+        """
+        An empty role name is rejected.
+        """
+        modified = topology_definition_string.replace(
+            '    flavor: standard.small\n    extra:',
+            "    flavor: standard.small\n    visible_by_roles: ['']\n    extra:",
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_visible_by_roles_rejected_uppercase_name(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        A role name holding an uppercase letter is rejected.
+        """
+        modified = topology_definition_string.replace(
+            '    flavor: standard.small\n    extra:',
+            '    flavor: standard.small\n    visible_by_roles: [Red-Team]\n    extra:',
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_visible_by_roles_rejected_whitespace_name(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        A role name holding whitespace is rejected.
+        """
+        modified = topology_definition_string.replace(
+            '    flavor: standard.small\n    extra:',
+            "    flavor: standard.small\n    visible_by_roles: ['red team']\n    extra:",
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_visible_by_roles_rejected_overlong_name(self, topology_definition_string: str) -> None:
+        """
+        A role name longer than 128 characters is rejected.
+        """
+        modified = topology_definition_string.replace(
+            '    flavor: standard.small\n    extra:',
+            f"    flavor: standard.small\n    visible_by_roles: ['{'a' * 129}']\n    extra:",
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_accessible_by_roles_rejected_uppercase_name(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        The same role-name shape is enforced for accessible_by_roles.
+        """
+        modified = topology_definition_string.replace(
+            '    cidr: 10.10.20.0/24\n\n  - name: home-switch',
+            '    cidr: 10.10.20.0/24\n    accessible_by_roles: [Red-Team]\n\n  - name: home-switch',
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_hidden_visible_by_roles_exclusivity(self, topology_definition_string: str) -> None:
+        """
+        Declaring both hidden and visible_by_roles on one entity is rejected.
+        """
+        modified = topology_definition_string.replace(
+            '    flavor: standard.small\n    extra:',
+            '    flavor: standard.small\n'
+            '    hidden: false\n'
+            '    visible_by_roles: [red-team]\n'
+            '    extra:',
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_hidden_visible_by_roles_exclusivity_with_null(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        The hidden/visible_by_roles exclusivity fires even when one side is null.
+        """
+        modified = topology_definition_string.replace(
+            '    flavor: standard.small\n    extra:',
+            '    flavor: standard.small\n'
+            '    hidden: null\n'
+            '    visible_by_roles: [red-team]\n'
+            '    extra:',
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_accessible_by_user_accessible_by_roles_exclusivity(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        Declaring both accessible_by_user and accessible_by_roles on one network is
+        rejected.
+        """
+        modified = topology_definition_string.replace(
+            '    cidr: 10.10.20.0/24\n\n  - name: home-switch',
+            '    cidr: 10.10.20.0/24\n'
+            '    accessible_by_user: true\n'
+            '    accessible_by_roles: [red-team]\n\n'
+            '  - name: home-switch',
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_accessible_by_user_accessible_by_roles_exclusivity_with_null(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        The accessible_by_user/accessible_by_roles exclusivity fires even when one side
+        is null.
+        """
+        modified = topology_definition_string.replace(
+            '    cidr: 10.10.20.0/24\n\n  - name: home-switch',
+            '    cidr: 10.10.20.0/24\n'
+            '    accessible_by_user: null\n'
+            '    accessible_by_roles: [red-team]\n\n'
+            '  - name: home-switch',
+        )
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(modified)
+
+    def test_get_declared_roles_union(self, topology_definition_string: str) -> None:
+        """
+        get_declared_roles returns the union of every role named across hosts, routers
+        and networks, spanning both concepts, each name once.
+        """
+        modified = (
+            topology_definition_string
+            .replace(
+                '    flavor: standard.small\n    extra:',
+                '    flavor: standard.small\n    visible_by_roles: [red-team]\n    extra:',
+            )
+            .replace(
+                '    flavor: standard.small\n\n  - name: home-router',
+                '    flavor: standard.small\n'
+                '    visible_by_roles: [blue_team, red-team]\n\n'
+                '  - name: home-router',
+            )
+            .replace(
+                '    cidr: 10.10.20.0/24\n\n  - name: home-switch',
+                '    cidr: 10.10.20.0/24\n'
+                '    accessible_by_roles: [red-team, green-team]\n\n'
+                '  - name: home-switch',
+            )
+        )
+        td = TopologyDefinition.load(modified)
+
+        assert td.get_declared_roles() == {'red-team', 'blue_team', 'green-team'}
+
+    def test_get_declared_roles_empty(self, topology_definition: TopologyDefinition) -> None:
+        """
+        A definition naming no role declares an empty role vocabulary.
+        """
+        assert topology_definition.get_declared_roles() == set()
 
     def test_forwarding_absent(self, topology_definition: TopologyDefinition) -> None:
         """

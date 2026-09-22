@@ -72,3 +72,11 @@ class LocalSandboxVariablesSerializer(serializers.Serializer[Any]):
 
     user_id = serializers.IntegerField()
     access_token = serializers.CharField()
+
+
+class DefinitionRolesSerializer(serializers.Serializer[Any]):
+    """Serializer for the role names a definition declares, at a revision."""
+
+    rev = serializers.CharField(help_text='The revision asked for, or the default that was used.')
+    rev_sha = serializers.CharField(help_text='The commit that revision resolved to.')
+    roles = serializers.ListField(child=serializers.CharField())
