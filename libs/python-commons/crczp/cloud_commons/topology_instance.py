@@ -239,6 +239,26 @@ class TopologyInstance:
             network.accessible_by_roles, network.accessible_by_user, users_roles
         )
 
+    def get_accessible_by_roles_for_node(self, node: Node) -> list[str] | None:
+        """
+        Union the accessible_by_roles of every author-declared network a node is attached to.
+
+        None when none of its attached networks declare accessible_by_roles at all -
+        the node carries no role-scoped access secret and installs/serves the sandbox's
+        flat, role-free one instead.
+        """
+        declared_sets = [
+            link.network.accessible_by_roles
+            for link in self.get_node_links(node, self.get_hosts_networks())
+            if link.network.accessible_by_roles is not None
+        ]
+        if not declared_sets:
+            return None
+        union: set[str] = set()
+        for declared in declared_sets:
+            union.update(declared)
+        return sorted(union)
+
     def get_network(self, name: str) -> Network | None:
         """
         Return a TI virtual network, or None if there is no network of that name.

@@ -97,17 +97,6 @@ def _attached_author_declared_networks(
     return [link.network for link in topology.get_node_links(node, topology.get_hosts_networks())]
 
 
-def _accessible_by_roles_for_node(
-    topology: TopologyInstance, node: DefinitionHost | DefinitionRouter
-) -> list[str] | None:
-    """Union the accessible_by_roles of every attached network that declares it."""
-    return _declared_role_union([
-        network.accessible_by_roles
-        for network in _attached_author_declared_networks(topology, node)
-        if network.accessible_by_roles is not None
-    ])
-
-
 def _visible_by_roles_for_node(
     topology: TopologyInstance, node: DefinitionHost | DefinitionRouter
 ) -> list[str] | None:
@@ -130,7 +119,7 @@ def _add_user_accessible_nodes_group(inventory: 'Inventory', topology: TopologyI
         node = topology.get_node(host.name)
         if not isinstance(node, (DefinitionHost, DefinitionRouter)):
             continue
-        roles = _accessible_by_roles_for_node(topology, node)
+        roles = topology.get_accessible_by_roles_for_node(node)
         if roles is not None:
             hosts_vars[host.name] = {'accessible_by_roles': roles}
     inventory.add_group(

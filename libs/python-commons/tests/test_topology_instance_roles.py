@@ -288,3 +288,29 @@ def test_universal_roles_admits_every_non_empty_role_declaration(
     target_lan = ti.get_network('target-lan')
     assert target_lan is not None
     assert ti.network_has_reach(target_lan, UNIVERSAL_ROLES) is True
+
+
+# --- get_accessible_by_roles_for_node -------------------------------------------------
+
+
+def test_get_accessible_by_roles_for_node_unions_attached_networks(
+    reach_topology_instance: TopologyInstance,
+) -> None:
+    """A node's accessible_by_roles is the union of its attached networks' declarations."""
+    ti = reach_topology_instance
+    victim = ti.get_node('victim')
+    gw = ti.get_node('gw')
+    assert victim is not None
+    assert gw is not None
+    assert ti.get_accessible_by_roles_for_node(victim) == ['blue-team']
+    assert ti.get_accessible_by_roles_for_node(gw) == ['blue-team']
+
+
+def test_get_accessible_by_roles_for_node_none_when_undeclared(
+    visibility_topology_instance: TopologyInstance,
+) -> None:
+    """None when no attached network declares accessible_by_roles at all."""
+    ti = visibility_topology_instance
+    victim = ti.get_node('victim')
+    assert victim is not None
+    assert ti.get_accessible_by_roles_for_node(victim) is None
