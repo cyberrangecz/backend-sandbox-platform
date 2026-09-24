@@ -21,6 +21,7 @@ from crczp.sandbox_ansible_app.models import (
     UserAnsibleCleanupStage,
 )
 from crczp.sandbox_common_lib import exceptions, utils
+from crczp.sandbox_definition_app.lib import definitions
 from crczp.sandbox_instance_app.lib import netbird, pools, requests, sandboxes
 from crczp.sandbox_instance_app.lib.stage_handlers import (
     AllocationAnsibleStageHandler,
@@ -42,6 +43,7 @@ from crczp.sandbox_instance_app.models import (
     SandboxAllocationUnit,
     SandboxRequest,
     SandboxRequestGroup,
+    SandboxRoleKeypair,
     StackAllocationStage,
     StackCleanupStage,
 )
@@ -51,6 +53,16 @@ LOG = structlog.get_logger()
 OPENSTACK_QUEUE = 'openstack'
 ANSIBLE_QUEUE = 'ansible'
 AllocationStage = StackAllocationStage | AnsibleAllocationStage
+
+
+def _generate_role_keypairs(sandbox: Sandbox, pool: Pool) -> None:
+    """Generate one SandboxRoleKeypair per role the pool's definition declares."""
+    top_def = definitions.get_definition(pool.definition.url, pool.rev_sha, settings.CRCZP_CONFIG)
+    for role in top_def.get_declared_roles():
+        pri_key, pub_key = utils.generate_ssh_keypair()
+        SandboxRoleKeypair.objects.create(
+            sandbox=sandbox, role=role, private_key=pri_key, public_key=pub_key
+        )
 
 
 class RequestHandler(abc.ABC):
@@ -255,6 +267,7 @@ class AllocationRequestHandler(RequestHandler):
                 public_user_key=pub_key,
             )
             sandbox.save()
+            _generate_role_keypairs(sandbox, unit.pool)
             stage_handlers = self._create_stage_handlers(sandbox, allocation_group)
             self._enqueue_stages(sandbox, stage_handlers)
 
@@ -283,6 +296,7 @@ class AllocationRequestHandler(RequestHandler):
             public_user_key=pub_key,
         )
         sandbox.save()
+        _generate_role_keypairs(sandbox, unit.pool)
         stage_handlers = self._restart_stage_handlers(sandbox)
         self._enqueue_stages(sandbox, stage_handlers)
 

@@ -138,8 +138,9 @@ class Sandbox(models.Model):
     """Represents an allocated sandbox with user access keys."""
 
     lock: 'SandboxLock'
-    netbird_access: 'SandboxNetbirdAccess'
+    netbird_access: models.Manager['SandboxNetbirdAccess']
     netbird_resources: models.Manager['SandboxNetbirdResources']
+    role_keypairs: models.Manager['SandboxRoleKeypair']
 
     id = models.CharField(
         primary_key=True,
@@ -170,6 +171,38 @@ class Sandbox(models.Model):
             f'ID: {self.id}, ALLOCATION_UNIT: {self.allocation_unit.id}, '
             f'LOCK: {self.lock.id if hasattr(self, "lock") else None}'
         )
+
+
+class SandboxRoleKeypair(models.Model):
+    """
+    Stores one SSH keypair scoped to one declared role of a sandbox, alongside
+    the sandbox's own flat keypair. One row per (sandbox, role).
+    """
+
+    id: int
+
+    # Implicit FK attribute; Sandbox has a CharField primary key.
+    sandbox_id: str
+
+    sandbox = models.ForeignKey(
+        Sandbox,
+        on_delete=models.CASCADE,
+        related_name='role_keypairs',
+        help_text='Sandbox this role keypair belongs to.',
+    )
+    role = models.CharField(max_length=128, help_text='Declared role this keypair is scoped to.')
+    private_key = models.TextField(help_text='Private key for this role.')
+    public_key = models.TextField(help_text='Public key for this role.')
+
+    class Meta:  # pylint: disable=too-few-public-methods
+        """Meta options for SandboxRoleKeypair model."""
+
+        ordering = ['id']
+        unique_together = [('sandbox', 'role')]
+
+    @override
+    def __str__(self) -> str:
+        return f'SANDBOX: {self.sandbox_id}, ROLE: {self.role}'
 
 
 class SandboxLock(models.Model):
@@ -510,40 +543,51 @@ class SystemProcess(ExternalDependency):
 
 class SandboxNetbirdAccess(models.Model):
     """
-    Stores the single shared Netbird "access" group and setup key created for a
-    sandbox. One row per sandbox: every VPN entrypoint's policy and routes use
-    this one access group as their source/access-control group, and the access
-    setup key is the single key exposed to clients via the VPN API endpoint.
+    Stores one Netbird "access" group and setup key created for a sandbox. Every
+    sandbox has exactly one row with role='', the shared access group every VPN
+    entrypoint naming no role sources from and the setup key exposed to a
+    role-free requesting client; a sandbox whose pool declares roles
+    additionally has one further row per declared role.
 
-    All fields are nullable so that a partial-failure state can be persisted:
-    the cleanup path tolerates nulls and issues 404-tolerant deletes.
+    All fields except role are nullable so that a partial-failure state can be
+    persisted: the cleanup path tolerates nulls and issues 404-tolerant deletes.
     """
+
+    id: int
 
     # Implicit FK attribute; Sandbox has a CharField primary key.
     sandbox_id: str
 
-    sandbox = models.OneToOneField(
+    sandbox = models.ForeignKey(
         Sandbox,
         on_delete=models.CASCADE,
         related_name='netbird_access',
         help_text='Sandbox these access resources belong to.',
     )
+    role = models.CharField(
+        max_length=128,
+        default='',
+        blank=True,
+        help_text=(
+            "Declared role this access group is scoped to; '' for the sandbox's shared access."
+        ),
+    )
     access_group_id = models.CharField(
         max_length=255,
         null=True,
         default=None,
-        help_text='Netbird group ID shared by all client peers of the sandbox.',
+        help_text='Netbird group ID shared by all client peers of this role.',
     )
     access_setup_key_id = models.CharField(
         max_length=255,
         null=True,
         default=None,
-        help_text='Netbird setup key ID for the shared access group.',
+        help_text="Netbird setup key ID for this role's access group.",
     )
     access_setup_key_value = models.TextField(
         null=True,
         default=None,
-        help_text='Plaintext setup key for the shared access group.',
+        help_text="Plaintext setup key for this role's access group.",
     )
     dns_nameserver_group_id = models.CharField(
         max_length=255,
@@ -554,6 +598,7 @@ class SandboxNetbirdAccess(models.Model):
 
     class Meta:
         ordering = ['id']
+        unique_together = [('sandbox', 'role')]
         verbose_name_plural = 'sandbox netbird access'
 
 
