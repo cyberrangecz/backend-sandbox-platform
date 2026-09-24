@@ -365,6 +365,7 @@ class Inventory(BaseInventory):
         mgmt_public_key: str,
         user_public_key: str,
         extra_vars: dict[str, Any] | None = None,
+        user_public_keys_by_role: dict[str, str] | None = None,
     ) -> None:
         super().__init__(proxy_jump_user_access_mgmt_name, proxy_jump_user_access_user_name)
         self.docker_hosts = None
@@ -394,6 +395,8 @@ class Inventory(BaseInventory):
             global_ssh_public_user_key=user_public_key,
             global_ssh_public_mgmt_key=mgmt_public_key,
         )
+        if user_public_keys_by_role:
+            self.add_variables(global_ssh_public_user_keys_by_role=user_public_keys_by_role)
         if extra_vars:
             self.add_variables(**extra_vars)
         if topology_instance.containers:

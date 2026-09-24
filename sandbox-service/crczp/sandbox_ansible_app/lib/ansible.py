@@ -57,6 +57,11 @@ DOCKERFILE_TEMPLATE = 'Dockerfile.j2'
 GIT_CREDENTIALS_FILENAME = '.git-credentials'
 
 
+def _role_user_public_key_filename(role: str) -> str:
+    """Filename of a declared role's public-key file alongside USER_PUBLIC_KEY_FILENAME."""
+    return f'user_key_{role}.pub'
+
+
 class AnsibleRunner:  # pylint: disable=too-many-instance-attributes
     """
     Represents Docker container environment for executing Ansible.
@@ -176,6 +181,11 @@ class AllocationAnsibleRunner(AnsibleRunner):
         """
         self._prepare_ssh_dir()
         self.save_file(self.host_ssh_path(USER_PUBLIC_KEY_FILENAME), sandbox.public_user_key)
+        for role_keypair in sandbox.role_keypairs.all():
+            self.save_file(
+                self.host_ssh_path(_role_user_public_key_filename(role_keypair.role)),
+                role_keypair.public_key,
+            )
         self.save_file(self.host_ssh_path(MGMT_PUBLIC_KEY_FILENAME), pool.public_management_key)
         self.save_file(self.host_ssh_path(MGMT_PRIVATE_KEY_FILENAME), pool.private_management_key)
         self.save_file(self.host_ssh_path(MGMT_CERTIFICATE_FILENAME), pool.management_certificate)
@@ -264,6 +274,12 @@ class AllocationAnsibleRunner(AnsibleRunner):
         mgmt_public_certificate = self.container_ssh_path(MGMT_CERTIFICATE_FILENAME)
         mgmt_public_key = self.container_ssh_path(MGMT_PUBLIC_KEY_FILENAME)
         user_public_key = self.container_ssh_path(USER_PUBLIC_KEY_FILENAME)
+        user_public_keys_by_role = {
+            role_keypair.role: self.container_ssh_path(
+                _role_user_public_key_filename(role_keypair.role)
+            )
+            for role_keypair in sandbox.role_keypairs.all()
+        }
         top_ins = sandboxes.get_topology_instance(sandbox)
         sau = sandbox.allocation_unit
         sas = sau.allocation_request.stackallocationstage
@@ -292,6 +308,7 @@ class AllocationAnsibleRunner(AnsibleRunner):
             mgmt_public_key,
             user_public_key,
             extra_vars,
+            user_public_keys_by_role,
         )
 
         # Attach each entrypoint's NetBird setup key as a host variable on the

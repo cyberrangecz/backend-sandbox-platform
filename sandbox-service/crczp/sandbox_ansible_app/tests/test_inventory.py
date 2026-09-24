@@ -342,6 +342,34 @@ class TestRoleAwareInventoryMetadata:
         assert accessible_hosts['victim'] == {'accessible_by_roles': ['blue-team', 'red-team']}
         assert accessible_hosts['gw'] == {'accessible_by_roles': ['blue-team', 'red-team']}
 
+    def test_role_free_sandbox_omits_public_user_keys_by_role(self, top_ins):
+        """A role-free sandbox's variable set carries no global_ssh_public_user_keys_by_role."""
+        result = _build_inventory(top_ins).to_dict()
+        assert 'global_ssh_public_user_keys_by_role' not in result['all']['vars']
+
+    def test_role_declaring_sandbox_carries_public_user_keys_by_role(self, top_ins):
+        """A role-declaring sandbox's variable set names every role's public-key path,
+        alongside the unchanged flat global_ssh_public_user_key."""
+        result = Inventory(
+            'pool-prefix',
+            'stack-name',
+            top_ins,
+            '/root/.ssh/pool_mng_key',
+            '/root/.ssh/pool_mng_cert',
+            '/root/.ssh/pool_mng_key.pub',
+            '/root/.ssh/user_key.pub',
+            None,
+            {
+                'red-team': '/root/.ssh/user_key_red-team.pub',
+                'blue-team': '/root/.ssh/user_key_blue-team.pub',
+            },
+        ).to_dict()
+        assert result['all']['vars']['global_ssh_public_user_key'] == '/root/.ssh/user_key.pub'
+        assert result['all']['vars']['global_ssh_public_user_keys_by_role'] == {
+            'red-team': '/root/.ssh/user_key_red-team.pub',
+            'blue-team': '/root/.ssh/user_key_blue-team.pub',
+        }
+
     def test_user_visible_nodes_absent_when_nothing_declares_it(self):
         """The group is emitted only when it has members."""
         ti = _build_topology_instance(ROLE_FREE_INVENTORY_DEFINITION)
