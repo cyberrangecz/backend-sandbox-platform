@@ -441,6 +441,17 @@ class VpnEntrypoint(Object):
 
     name = Attribute(type=str, validator=TopologyValidation.validate_vpn_entrypoint_name)
     routes = Attribute(type=StrList, validator=TopologyValidation.validate_vpn_routes)
+    accessible_by_roles = Attribute(
+        type=StrList, default=None, validator=TopologyValidation.validate_accessible_by_roles
+    )
+
+    @classmethod
+    def from_yaml(cls, loader: Any, node: Any, _rtd: Any = None) -> 'VpnEntrypoint':
+        """
+        Load VpnEntrypoint from YAML.
+        """
+        reject_null_value(node.value, 'accessible_by_roles')
+        return super().from_yaml(loader, node, _rtd)
 
 
 class VpnEntrypointList(Sequence):

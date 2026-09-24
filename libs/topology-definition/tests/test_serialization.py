@@ -422,11 +422,16 @@ vpn:
         td = TopologyDefinition.from_file(SANDBOX_DEFINITION_VPN_PATH)
         assert td.vpn is not None
         assert td.vpn.entrypoints is not None
-        assert len(td.vpn.entrypoints) == 1
+        assert len(td.vpn.entrypoints) == 2
         ep = td.vpn.entrypoints[0]
         assert ep.name == 'vpn-gw'
         assert '10.10.0.0/16' in list(ep.routes)
         assert '192.168.100.0/24' in list(ep.routes)
+        assert ep.accessible_by_roles is None
+        role_scoped_ep = td.vpn.entrypoints[1]
+        assert role_scoped_ep.name == 'server-router'
+        assert list(role_scoped_ep.routes) == ['172.16.0.0/12']
+        assert list(role_scoped_ep.accessible_by_roles) == ['red-team']
         assert td.vpn.dns is not None
         assert list(td.vpn.dns.servers) == ['10.10.20.5']
         assert list(td.vpn.dns.search_domains) == ['sandbox.local']
@@ -659,6 +664,73 @@ vpn:
       - 10.10.20.5
     search_domains:
       - 'not a domain'
+"""
+            )
+
+    def test_vpn_entrypoint_accessible_by_roles_absent_by_default(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        A VpnEntrypoint declaring no accessible_by_roles resolves it to None.
+        """
+        td = TopologyDefinition.load(
+            topology_definition_string
+            + """
+vpn:
+  entrypoints:
+    - name: server
+      routes:
+        - 10.10.0.0/16
+"""
+        )
+        assert td.vpn is not None
+        assert td.vpn.entrypoints is not None
+        assert td.vpn.entrypoints[0].accessible_by_roles is None
+
+    def test_vpn_entrypoint_accessible_by_roles_round_trip(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        A VpnEntrypoint's accessible_by_roles round-trips: parsed values, a repeated
+        name collapsing to one, alongside its routes unaffected.
+        """
+        td = TopologyDefinition.load(
+            topology_definition_string
+            + """
+vpn:
+  entrypoints:
+    - name: server
+      routes:
+        - 10.10.0.0/16
+      accessible_by_roles: [red-team, red-team]
+"""
+        )
+        ep = td.vpn.entrypoints[0]
+        assert list(ep.accessible_by_roles) == ['red-team']
+        assert list(ep.routes) == ['10.10.0.0/16']
+
+        dumped_stream = io.StringIO()
+        TopologyDefinition.dump(td, dumped_stream)
+        reloaded = dict(YAML(typ='safe', pure=True).load(dumped_stream.getvalue()))
+        entrypoint_dict = reloaded['vpn']['entrypoints'][0]
+        assert entrypoint_dict['accessible_by_roles'] == ['red-team']
+
+    def test_vpn_entrypoint_accessible_by_roles_rejected_null(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        A VpnEntrypoint's accessible_by_roles: null is rejected.
+        """
+        with pytest.raises(YamlizingError):
+            TopologyDefinition.load(
+                topology_definition_string
+                + """
+vpn:
+  entrypoints:
+    - name: server
+      routes:
+        - 10.10.0.0/16
+      accessible_by_roles: null
 """
             )
 
