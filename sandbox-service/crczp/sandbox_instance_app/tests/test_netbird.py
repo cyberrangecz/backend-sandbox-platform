@@ -59,6 +59,9 @@ def netbird_cfg(mocker):
         f'{NETBIRD_MODULE}.settings.CRCZP_CONFIG',
         new=SimpleNamespace(netbird=SimpleNamespace(key_expiry_seconds=1209600)),
     )
+    # A role-free pool's declared role set, so provisioning takes exactly the
+    # branch that exists today; role-declaring scenarios override this.
+    mocker.patch(f'{NETBIRD_MODULE}._get_declared_roles', return_value=set())
 
 
 class TestShortStackName:
@@ -674,6 +677,34 @@ class TestDestroy:
         client.delete_group.assert_has_calls([call('host-grp'), call('access-grp')])
         assert not SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
         assert not SandboxNetbirdAccess.objects.filter(sandbox=sandbox).exists()
+
+    def test_every_roles_access_resources_are_torn_down(self, mocker, sandbox):
+        """Every SandboxNetbirdAccess row for the sandbox is torn down, not just one."""
+        red = SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox,
+            role='red-team',
+            access_group_id='red-grp',
+            access_setup_key_id='red-key-id',
+            access_setup_key_value='red-key-val',
+        )
+        blue = SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox,
+            role='blue-team',
+            access_group_id='blue-grp',
+            access_setup_key_id='blue-key-id',
+            access_setup_key_value='blue-key-val',
+        )
+        client = MagicMock()
+        client.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+
+        netbird.destroy_netbird_for_sandbox(sandbox)
+
+        client.delete_group.assert_has_calls([call('red-grp'), call('blue-grp')], any_order=True)
+        client.delete_setup_key.assert_has_calls(
+            [call('red-key-id'), call('blue-key-id')], any_order=True
+        )
+        assert not SandboxNetbirdAccess.objects.filter(pk__in=[red.pk, blue.pk]).exists()
 
     def test_deletes_all_resources_and_row(self, mocker, sandbox):
         """All resources are deleted in order and the rows removed."""
