@@ -117,12 +117,17 @@ def get_unique_username(sub: str, iss: str) -> str:
 
 
 def get_user_roles(url: str, bearer_token: bytes) -> list[str]:
-    """Get user roles from User-and-group service."""
+    """Get user roles from User-and-group service.
+
+    :raises AuthenticationFailed: When User-and-group rejects the bearer token.
+    """
     err_msg = f"Failed to get User roles from '{url}': "
 
     headers = {'Authorization': f'Bearer {bearer_token.decode("ascii")}'}
     try:
         response = requests.get(url, headers=headers, timeout=30)
+        if response.status_code == requests.codes.unauthorized:
+            raise AuthenticationFailed('Access token rejected by User-and-group.')
         response.raise_for_status()
 
     # All request exceptions inherit from requests.RequestException
