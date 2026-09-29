@@ -50,3 +50,7 @@ vpn:
       routes:
         - 10.10.0.0/16
         - 192.168.100.0/24
+    - name: server-router
+      routes:
+        - 172.16.0.0/12
+      accessible_by_roles: [red-team]

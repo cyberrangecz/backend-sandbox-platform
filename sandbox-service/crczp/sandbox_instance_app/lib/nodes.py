@@ -7,7 +7,7 @@ import django_rq
 from django.conf import settings
 from django.core.cache import cache
 
-from crczp.cloud_commons import Image, TopologyInstance
+from crczp.cloud_commons import Image, TopologyInstance, UsersRoles
 from crczp.cloud_commons.topology_elements import Node
 from crczp.sandbox_common_lib import exceptions, utils
 from crczp.sandbox_common_lib.common_cloud import list_images
@@ -118,7 +118,9 @@ def get_console_url(sandbox: Sandbox, node_name: str) -> str:
     return ''
 
 
-def get_node_access_data(topology_instance: TopologyInstance, node: Node) -> NodeAccessData:
+def get_node_access_data(
+    topology_instance: TopologyInstance, node: Node, users_roles: UsersRoles
+) -> NodeAccessData:
     """Return node access data containing management IP, port, host IP and available protocols."""
     if topology_instance is None:
         raise exceptions.ValidationError('Topology instance is None')
@@ -132,7 +134,7 @@ def get_node_access_data(topology_instance: TopologyInstance, node: Node) -> Nod
         # pre-enrichment state; callers always pass an enriched instance.
         man_ip=topology_instance.ip,  # ty: ignore[invalid-argument-type]
         man_port=settings.CRCZP_CONFIG.man_port,
-        host_ip=_get_node_ip(topology_instance, node),
+        host_ip=_get_node_ip(topology_instance, node, users_roles),
         protocols=get_node_available_protocols(node),
     )
 
@@ -172,20 +174,22 @@ def get_node_image_has_gui_access(image: Image) -> bool:
     return image.owner_specified.get('owner_specified.openstack.gui_access') == 'true'
 
 
-def _get_node_ip(topology_instance: TopologyInstance, node: Node) -> str:
+def _get_node_ip(topology_instance: TopologyInstance, node: Node, users_roles: UsersRoles) -> str:
     """Get the IP address of a node from the topology instance."""
     host_links = topology_instance.get_node_links(node, topology_instance.get_hosts_networks())
     router_links = topology_instance.get_node_links(node, [topology_instance.wan])
 
+    denied = False
     for link in itertools.chain(router_links, host_links):
         network = link.network
-        if (
-            hasattr(network, 'accessible_by_user')
-            and network.accessible_by_user is not None
-            and not network.accessible_by_user
+        if hasattr(network, 'accessible_by_user') and not topology_instance.network_has_reach(
+            network, users_roles
         ):
-            raise exceptions.ValidationError(f'Node {node.name} is not user-accessible')
+            denied = True
+            continue
         if link.ip:
             return link.ip
 
+    if denied:
+        raise exceptions.ValidationError(f'Node {node.name} is not user-accessible')
     raise exceptions.ValidationError(f'No accessible IP found for node {node.name}')

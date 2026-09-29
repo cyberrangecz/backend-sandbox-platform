@@ -146,6 +146,7 @@ Test paths:
 * `crczp/sandbox_definition_app/tests`
 * `crczp/sandbox_instance_app/tests`
 * `crczp/sandbox_service_project/tests`
+* `crczp/sandbox_uag/tests`
 
 ---
 

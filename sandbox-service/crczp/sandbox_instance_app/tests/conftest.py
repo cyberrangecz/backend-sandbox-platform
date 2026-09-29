@@ -14,7 +14,12 @@ from django.core.management import call_command
 from django.utils import timezone
 from ruamel.yaml import YAML
 
-from crczp.cloud_commons import Image, TopologyInstance, TransformationConfiguration
+from crczp.cloud_commons import (
+    UNIVERSAL_ROLES,
+    Image,
+    TopologyInstance,
+    TransformationConfiguration,
+)
 from crczp.sandbox_ansible_app.lib.container import DockerContainer
 from crczp.sandbox_ansible_app.models import (
     Container,
@@ -73,7 +78,7 @@ def mock_topology_cache(top_ins: TopologyInstance) -> Topology:
     ):
         # Simulate cache miss
         mock_cache_get.return_value = None
-        topo = Topology(top_ins)
+        topo = Topology(top_ins, UNIVERSAL_ROLES)
     return topo
 
 

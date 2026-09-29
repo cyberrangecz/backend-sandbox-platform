@@ -8,6 +8,7 @@ GROUP_BUILDERS is the ordered list of all builders applied by Inventory._create_
 """
 
 from collections.abc import Callable
+from itertools import chain
 from typing import TYPE_CHECKING
 
 import structlog
@@ -22,7 +23,9 @@ from crczp.sandbox_ansible_app.lib.inventory import (
     _normalize_address,
 )
 from crczp.sandbox_common_lib.common_cloud import list_images
-from crczp.topology_definition.models import Protocol
+from crczp.topology_definition.models import Host as DefinitionHost
+from crczp.topology_definition.models import Network, Protocol
+from crczp.topology_definition.models import Router as DefinitionRouter
 
 if TYPE_CHECKING:
     from crczp.sandbox_ansible_app.lib.inventory import Inventory
@@ -75,13 +78,71 @@ def _add_ssh_nodes_group(inventory: 'Inventory', topology: TopologyInstance) -> 
     inventory.add_group(Group(DefaultAnsibleHostsGroups.SSH_NODES.value, ssh_nodes))
 
 
-def _add_user_accessible_nodes_group(inventory: 'Inventory', _topology: TopologyInstance) -> None:
-    inventory.add_group(
-        Group(
-            DefaultAnsibleHostsGroups.USER_ACCESSIBLE_NODES.value,
-            inventory.get_user_accessible_nodes(),
-        )
+def _declared_role_union(
+    declared_sets: list[list[str]],
+) -> list[str] | None:
+    """Union several declared role sets, or None if none of them were declared."""
+    if not declared_sets:
+        return None
+    union: set[str] = set()
+    for declared in declared_sets:
+        union.update(declared)
+    return sorted(union)
+
+
+def _attached_author_declared_networks(
+    topology: TopologyInstance, node: DefinitionHost | DefinitionRouter
+) -> list[Network]:
+    """Return the author-declared networks a host or router is attached to."""
+    return [link.network for link in topology.get_node_links(node, topology.get_hosts_networks())]
+
+
+def _visible_by_roles_for_node(
+    topology: TopologyInstance, node: DefinitionHost | DefinitionRouter
+) -> list[str] | None:
+    """Union a node's own visible_by_roles with that of every network declaring it."""
+    declared_sets = []
+    if node.visible_by_roles is not None:
+        declared_sets.append(node.visible_by_roles)
+    declared_sets.extend(
+        network.visible_by_roles
+        for network in _attached_author_declared_networks(topology, node)
+        if network.visible_by_roles is not None
     )
+    return _declared_role_union(declared_sets)
+
+
+def _add_user_accessible_nodes_group(inventory: 'Inventory', topology: TopologyInstance) -> None:
+    hosts = inventory.get_user_accessible_nodes()
+    hosts_vars = {}
+    for host in hosts:
+        node = topology.get_node(host.name)
+        if not isinstance(node, (DefinitionHost, DefinitionRouter)):
+            continue
+        roles = topology.get_accessible_by_roles_for_node(node)
+        if roles is not None:
+            hosts_vars[host.name] = {'accessible_by_roles': roles}
+    inventory.add_group(
+        Group(DefaultAnsibleHostsGroups.USER_ACCESSIBLE_NODES.value, hosts, hosts_vars)
+    )
+
+
+def _add_user_visible_nodes_group(inventory: 'Inventory', topology: TopologyInstance) -> None:
+    hosts = []
+    hosts_vars = {}
+    for node in chain(topology.get_hosts(), topology.get_routers()):
+        roles = _visible_by_roles_for_node(topology, node)
+        if roles is None:
+            continue
+        host = inventory.hosts.get(node.name)
+        if host is None:
+            continue
+        hosts.append(host)
+        hosts_vars[host.name] = {'visible_by_roles': roles}
+    if hosts:
+        inventory.add_group(
+            Group(DefaultAnsibleHostsGroups.USER_VISIBLE_NODES.value, hosts, hosts_vars)
+        )
 
 
 def _add_hidden_hosts_group(inventory: 'Inventory', topology: TopologyInstance) -> None:
@@ -281,6 +342,7 @@ GROUP_BUILDERS: list[_Builder] = [
     _add_winrm_nodes_group,
     _add_ssh_nodes_group,
     _add_user_accessible_nodes_group,
+    _add_user_visible_nodes_group,
     _add_hidden_hosts_group,
     _add_unmanaged_hosts_group,
     _add_docker_hosts_group,

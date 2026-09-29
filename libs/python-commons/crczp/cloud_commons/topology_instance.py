@@ -37,6 +37,37 @@ NAME_SEPARATOR = '-'
 MAN_NET_NAME = MAN_NAME + NAME_SEPARATOR + 'network'
 
 
+class _UniversalRoles:
+    """Sentinel `users_roles` value standing for every role there is."""
+
+    @override
+    def __repr__(self) -> str:
+        return 'UNIVERSAL_ROLES'
+
+
+UNIVERSAL_ROLES = _UniversalRoles()
+"""The `users_roles` value a privileged requesting user resolves to."""
+
+UsersRoles = frozenset[str] | _UniversalRoles
+
+
+def _declaration_result(
+    declared_roles: list[str] | None, boolean_value: bool, users_roles: UsersRoles
+) -> bool:
+    """
+    Evaluate one visibility or reach declaration against a requesting user's roles.
+
+    The single place a role name is matched against a declaration: a role list admits
+    on any overlap with `users_roles` (or, for `UNIVERSAL_ROLES`, whenever it is
+    non-empty), while a boolean decides on its own value without consulting roles.
+    """
+    if declared_roles is None:
+        return boolean_value
+    if isinstance(users_roles, _UniversalRoles):
+        return bool(declared_roles)
+    return bool(set(declared_roles) & users_roles)
+
+
 class TopologyInstance:
     """
     Represents a topology instance.
@@ -131,27 +162,35 @@ class TopologyInstance:
         """
         return [node for node in self.get_nodes() if node is not self.man]
 
-    def get_visible_hosts(self) -> list[Host]:
+    def get_visible_hosts(self, users_roles: UsersRoles) -> list[Host]:
         """
-        Return a list of TI virtual machines that are not hidden directly
+        Return a list of TI virtual machines visible to the given roles, directly
         or through their network.
         """
-        visible_networks = self.get_visible_networks()
+        visible_networks = self.get_visible_networks(users_roles)
         hosts: list[Host] = []
         for mapping in self.topology_definition.net_mappings:
             node = self.get_node(mapping.host)
             network = self.get_network(mapping.network)
-            if isinstance(node, Host) and not node.hidden and network in visible_networks:
+            if (
+                isinstance(node, Host)
+                and _declaration_result(node.visible_by_roles, not node.hidden, users_roles)
+                and network in visible_networks
+            ):
                 hosts.append(node)
 
         # removes duplicates caused by hosts assigned to multiple networks
         return list(set(hosts))
 
-    def get_visible_routers(self) -> list[Router]:
+    def get_visible_routers(self, users_roles: UsersRoles) -> list[Router]:
         """
-        Return a list of TI routers that are not hidden.
+        Return a list of TI routers visible to the given roles.
         """
-        return [router for router in self.topology_definition.routers if not router.hidden]
+        return [
+            router
+            for router in self.topology_definition.routers
+            if _declaration_result(router.visible_by_roles, not router.hidden, users_roles)
+        ]
 
     # get networks
 
@@ -182,15 +221,43 @@ class TopologyInstance:
         mt = self.topology_definition.monitoring_targets
         return mt.http if mt else None
 
-    def get_user_accessible_hosts_networks(self) -> list[Network]:
+    def get_user_accessible_hosts_networks(self, users_roles: UsersRoles) -> list[Network]:
         """
-        Return a list of TI user-defined Networks that are accessible to a user.
+        Return a list of TI user-defined Networks that have reach for the given roles.
         """
         return [
             host_network
             for host_network in self.get_hosts_networks()
-            if host_network.accessible_by_user
+            if self.network_has_reach(host_network, users_roles)
         ]
+
+    def network_has_reach(self, network: Network, users_roles: UsersRoles) -> bool:
+        """
+        Evaluate a single network's reach declaration against the given roles.
+        """
+        return _declaration_result(
+            network.accessible_by_roles, network.accessible_by_user, users_roles
+        )
+
+    def get_accessible_by_roles_for_node(self, node: Node) -> list[str] | None:
+        """
+        Union the accessible_by_roles of every author-declared network a node is attached to.
+
+        None when none of its attached networks declare accessible_by_roles at all -
+        the node carries no role-scoped access secret and installs/serves the sandbox's
+        flat, role-free one instead.
+        """
+        declared_sets = [
+            link.network.accessible_by_roles
+            for link in self.get_node_links(node, self.get_hosts_networks())
+            if link.network.accessible_by_roles is not None
+        ]
+        if not declared_sets:
+            return None
+        union: set[str] = set()
+        for declared in declared_sets:
+            union.update(declared)
+        return sorted(union)
 
     def get_network(self, name: str) -> Network | None:
         """
@@ -206,11 +273,12 @@ class TopologyInstance:
         """
         return self._networks.values()
 
-    def get_visible_networks(self) -> list[Network]:
+    def get_visible_networks(self, users_roles: UsersRoles) -> list[Network]:
         """
-        Retrun a list of TI networks that are not hidden, and their router is not hidden.
+        Return a list of TI networks visible to the given roles, whose mapped router
+        is also visible to them.
         """
-        visible_routers = self.get_visible_routers()
+        visible_routers = self.get_visible_routers(users_roles)
         networks: list[Network] = []
         for mapping in self.topology_definition.router_mappings:
             if self.get_node(mapping.router) not in visible_routers:
@@ -220,7 +288,7 @@ class TopologyInstance:
                 raise InvalidTopologyDefinition(
                     f'router mapping refers to an unknown network: {mapping.network}'
                 )
-            if not network.hidden:
+            if _declaration_result(network.visible_by_roles, not network.hidden, users_roles):
                 networks.append(network)
         return networks + [self.wan]
 
@@ -302,12 +370,12 @@ class TopologyInstance:
                 links.append(link)
         return links
 
-    def get_links_to_user_accessible_nodes(self) -> list[Link]:
+    def get_links_to_user_accessible_nodes(self, users_roles: UsersRoles) -> list[Link]:
         """
-        Return a list of Links between user-accessible networks and its nodes
+        Return a list of Links between networks reachable by the given roles and its nodes
         """
         accessible_links = []
-        for network in self.get_user_accessible_hosts_networks():
+        for network in self.get_user_accessible_hosts_networks(users_roles):
             for link in self.get_network_links(network, self.get_hosts()):
                 accessible_links.append(link)
 
