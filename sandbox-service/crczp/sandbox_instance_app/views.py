@@ -710,6 +710,15 @@ class TerraformCleanupStageDetailView(generics.RetrieveAPIView[Any]):
 
 @extend_schema(
     methods=['GET'],
+    parameters=[
+        OpenApiParameter(
+            name='from_row',
+            type=int,
+            location=OpenApiParameter.QUERY,
+            description='Row index (DB relative), used for incremental fetch',
+            required=False,
+        )
+    ],
     responses={
         200: OpenApiResponse(
             response=serializers.AllocationTerraformOutputSerializer(many=True),
