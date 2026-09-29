@@ -167,6 +167,47 @@ class ProjectImagesView(generics.ListAPIView[Any]):
         return Response({'image_set': serialized_image_set.data})
 
 
+class ProjectFlavorsView(generics.RetrieveAPIView[Any]):
+    """View to retrieve the cloud project's flavors with their flavor mapping aliases."""
+
+    queryset = Pool.objects.none()
+    serializer_class = serializers.FlavorCatalogSerializer
+
+    @extend_schema(
+        tags=['cloud'],
+        parameters=[
+            OpenApiParameter(
+                name='cached',
+                location=OpenApiParameter.QUERY,
+                type=OpenApiTypes.BOOL,
+                description='Serves the cloud flavors from a cache holding them for up to 5 '
+                'minutes; false reads them from the cloud and refreshes the cache.',
+                default=True,
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=serializers.FlavorCatalogSerializer,
+                description='Flavors of the cloud project with their aliases, and the aliases '
+                'mapped to no offered flavor',
+            ),
+            **{k: v for k, v in utils.ERROR_RESPONSES.items() if k in [401, 403, 500]},
+        },
+    )
+    @override
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Get the flavors of the cloud project.
+
+        Each flavor carries the aliases the flavor mapping of the deployment translates to it,
+        and its compute resources. Aliases translated to a flavor the cloud project does not
+        offer are listed apart.
+        """
+        cached_request = request.GET.get('cached', 'true').lower() != 'false'
+        flavor_catalog = projects.get_flavor_catalog(cached=cached_request)
+        return Response(self.serializer_class(flavor_catalog).data)
+
+
 class ProjectLimitsView(generics.RetrieveAPIView[Any]):
     """View to retrieve absolute project limits."""
 
