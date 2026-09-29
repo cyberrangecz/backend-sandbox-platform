@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 from django.conf import settings
 
+from crczp.cloud_commons import UsersRoles
 from crczp.sandbox_common_lib.netbird_client import (
     NetbirdApiError,
     NetbirdClient,
@@ -660,3 +661,66 @@ def destroy_netbird_for_sandbox(sandbox: Sandbox) -> None:
                 role=access.role,
                 error=str(exc),
             )
+
+
+def resolve_vpn_setup_key(sandbox: Sandbox, users_roles: UsersRoles) -> str | None:
+    """Resolve the Netbird setup key a requesting user's roles admit for `sandbox`.
+
+    A role-free pool (or a privileged requester when no role is declared) gets
+    the sandbox's one shared, stored setup key, unchanged. A requester resolving
+    to exactly one role gets that role's own stored key, no new Netbird call. One
+    resolving to several roles at once gets a single, unpersisted setup key
+    minted on the spot naming every one of those roles' access groups. A
+    requester resolving to no role in a role-declaring pool gets none, failing
+    closed.
+    """
+    declared_rows = SandboxNetbirdAccess.objects.filter(sandbox=sandbox).exclude(role='')
+    if isinstance(users_roles, frozenset):
+        resolved_roles = set(users_roles)
+    else:
+        resolved_roles = set(declared_rows.values_list('role', flat=True))
+
+    if not resolved_roles:
+        if declared_rows.exists():
+            return None
+        flat_access = SandboxNetbirdAccess.objects.filter(sandbox=sandbox, role='').first()
+        return flat_access.access_setup_key_value if flat_access else None
+
+    matching_rows = list(
+        SandboxNetbirdAccess.objects.filter(sandbox=sandbox, role__in=resolved_roles)
+    )
+    if not matching_rows:
+        return None
+    if len(matching_rows) == 1:
+        return matching_rows[0].access_setup_key_value
+    return _mint_ephemeral_vpn_setup_key(sandbox, matching_rows)
+
+
+def _mint_ephemeral_vpn_setup_key(
+    sandbox: Sandbox, access_rows: list[SandboxNetbirdAccess]
+) -> str | None:
+    """Mint a fresh, unpersisted setup key spanning every one of ``access_rows``'s groups.
+
+    Specific to one player's one resolved multi-role combination at one moment;
+    it is never written to a row, and Netbird's own ``expires_in_seconds``
+    retires it.
+    """
+    try:
+        client = get_netbird_client()
+    except NetbirdConfigError:
+        return None
+    if client is None:
+        return None
+
+    stack_name = _short_stack_name(sandbox.allocation_unit.get_stack_name())
+    key_expiry_seconds = settings.CRCZP_CONFIG.netbird.key_expiry_seconds
+    try:
+        _key_id, key_value = client.create_setup_key(
+            name=f'{stack_name}-access-ephemeral',
+            auto_group_ids=[row.access_group_id for row in access_rows if row.access_group_id],
+            expires_in_seconds=key_expiry_seconds,
+        )
+    except NetbirdApiError as exc:
+        LOG.warning('netbird_ephemeral_key_failed', sandbox_id=sandbox.id, error=str(exc))
+        return None
+    return key_value

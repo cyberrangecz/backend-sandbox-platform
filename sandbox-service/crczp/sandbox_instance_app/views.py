@@ -27,7 +27,7 @@ from crczp.sandbox_common_lib.utils import get_object_or_404
 from crczp.sandbox_definition_app.lib import definitions
 from crczp.sandbox_definition_app.serializers import DefinitionSerializer
 from crczp.sandbox_instance_app import serializers
-from crczp.sandbox_instance_app.lib import nodes, pools, roles, sandboxes, stage_handlers
+from crczp.sandbox_instance_app.lib import netbird, nodes, pools, roles, sandboxes, stage_handlers
 from crczp.sandbox_instance_app.lib import requests as sandbox_requests
 from crczp.sandbox_instance_app.models import (
     AllocationRequest,
@@ -38,7 +38,6 @@ from crczp.sandbox_instance_app.models import (
     Sandbox,
     SandboxAllocationUnit,
     SandboxLock,
-    SandboxNetbirdAccess,
 )
 from crczp.sandbox_uag.permissions import AdminPermission, OrganizerPermission
 
@@ -1248,10 +1247,14 @@ class SandboxVpnView(APIView):
     """
     Returns the Netbird VPN client configuration for this sandbox.
 
-    A single shared access setup key grants a client access to every VPN
-    entrypoint of the sandbox; ``routes`` is the union of the CIDRs reachable
-    through those entrypoints. ``setup_key`` is null while the access resources
-    are still being provisioned (or when the sandbox has no VPN entrypoints).
+    The setup key granted is scoped to the requesting user's own roles in the
+    pool: a role-free pool grants its one shared access setup key to everyone;
+    a role-declaring pool grants a role's own key to a single-role holder, a
+    freshly minted key spanning every held role's access group to a multi-role
+    holder, and no key to a roleless requester. ``routes`` is the union of the
+    CIDRs reachable through the sandbox's VPN entrypoints. ``setup_key`` is null
+    while the relevant access resources are still being provisioned (or when
+    the sandbox has no VPN entrypoints).
 
     ``command`` is the ready-to-run NetBird CLI line a client pastes to connect
     (it embeds ``management_url`` and ``setup_key``); it is null whenever
@@ -1272,8 +1275,8 @@ class SandboxVpnView(APIView):
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Returns the Netbird VPN client configuration for this sandbox."""
         sandbox = sandboxes.get_sandbox(self.kwargs['sandbox_uuid'])
-        access = SandboxNetbirdAccess.objects.filter(sandbox=sandbox).first()
-        setup_key = access.access_setup_key_value if access else None
+        users_roles = roles.resolve_users_roles(request, sandbox.allocation_unit.pool)
+        setup_key = netbird.resolve_vpn_setup_key(sandbox, users_roles)
         management_url = get_client_management_url()
 
         routes: list[str] = []

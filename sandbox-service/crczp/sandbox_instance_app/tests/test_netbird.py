@@ -14,6 +14,7 @@ from django.contrib.auth.models import AnonymousUser
 from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory
 
+from crczp.cloud_commons import UNIVERSAL_ROLES
 from crczp.sandbox_common_lib.netbird_client import NetbirdApiError, NetbirdConfigError
 from crczp.sandbox_instance_app.lib import netbird
 from crczp.sandbox_instance_app.models import (
@@ -810,6 +811,109 @@ class TestDestroy:
         assert ap1_idx < access_grp_idx
 
 
+class TestResolveVpnSetupKey:
+    """Tests for resolving the Netbird setup key a requesting user's roles admit."""
+
+    def test_role_free_pool_returns_the_flat_stored_key(self, sandbox):
+        """A role-free pool's requester gets the role='' row's stored key, unchanged."""
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_setup_key_value='flat-key')
+
+        assert netbird.resolve_vpn_setup_key(sandbox, frozenset()) == 'flat-key'
+
+    def test_roleless_requester_in_role_declaring_pool_gets_none(self, sandbox):
+        """A requester resolving to no role in a role-declaring pool is fail-closed."""
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_setup_key_value='flat-key')
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_setup_key_value='red-team-key'
+        )
+
+        assert netbird.resolve_vpn_setup_key(sandbox, frozenset()) is None
+
+    def test_single_role_holder_gets_that_roles_stored_key(self, mocker, sandbox):
+        """A single-role holder gets that role's own stored key; no Netbird call is made."""
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_setup_key_value='flat-key')
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_setup_key_value='red-team-key'
+        )
+        client_factory = mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client')
+
+        result = netbird.resolve_vpn_setup_key(sandbox, frozenset({'red-team'}))
+
+        assert result == 'red-team-key'
+        client_factory.assert_not_called()
+
+    def test_multi_role_holder_gets_a_fresh_unpersisted_key(self, mocker, sandbox, netbird_cfg):
+        """A multi-role holder gets one freshly minted key naming every held role's group."""
+        red = SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox,
+            role='red-team',
+            access_group_id='red-grp',
+            access_setup_key_value='red-team-key',
+        )
+        blue = SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox,
+            role='blue-team',
+            access_group_id='blue-grp',
+            access_setup_key_value='blue-team-key',
+        )
+        client = MagicMock()
+        client.create_setup_key.return_value = ('ephemeral-id', 'ephemeral-key')
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+
+        result = netbird.resolve_vpn_setup_key(sandbox, frozenset({'red-team', 'blue-team'}))
+
+        assert result == 'ephemeral-key'
+        _name, kwargs = client.create_setup_key.call_args
+        assert set(kwargs['auto_group_ids']) == {'red-grp', 'blue-grp'}
+        # Never persisted onto either row.
+        red.refresh_from_db()
+        blue.refresh_from_db()
+        assert red.access_setup_key_value == 'red-team-key'
+        assert blue.access_setup_key_value == 'blue-team-key'
+
+    def test_multi_role_holder_gets_none_when_netbird_unreachable(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """A minting failure yields None rather than raising."""
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_group_id='red-grp'
+        )
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='blue-team', access_group_id='blue-grp'
+        )
+        client = MagicMock()
+        client.create_setup_key.side_effect = NetbirdApiError('POST', 'url', 500, 'fail')
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+
+        assert netbird.resolve_vpn_setup_key(sandbox, frozenset({'red-team', 'blue-team'})) is None
+
+    def test_privileged_requester_role_free_pool_gets_the_flat_key(self, sandbox):
+        """UNIVERSAL_ROLES in a role-free pool gets the role='' row's stored key."""
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_setup_key_value='flat-key')
+
+        assert netbird.resolve_vpn_setup_key(sandbox, UNIVERSAL_ROLES) == 'flat-key'
+
+    def test_privileged_requester_gets_a_key_spanning_every_declared_role(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """UNIVERSAL_ROLES with several declared roles mints a key spanning all of them."""
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_group_id='red-grp'
+        )
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='blue-team', access_group_id='blue-grp'
+        )
+        client = MagicMock()
+        client.create_setup_key.return_value = ('ephemeral-id', 'ephemeral-key')
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+
+        result = netbird.resolve_vpn_setup_key(sandbox, UNIVERSAL_ROLES)
+
+        assert result == 'ephemeral-key'
+        _name, kwargs = client.create_setup_key.call_args
+        assert set(kwargs['auto_group_ids']) == {'red-grp', 'blue-grp'}
+
+
 class TestSandboxVpnView:
     """Tests for the sandbox VPN API view."""
 
@@ -896,6 +1000,43 @@ class TestSandboxVpnView:
     def test_returns_empty_when_no_resources(self, sandbox):
         """With no resources the view returns a null key, empty routes and no command."""
         response = self._call(sandbox)
+        assert response.status_code == 200
+        assert response.data == {
+            'management_url': 'https://client.example.com',
+            'setup_key': None,
+            'routes': [],
+            'command': None,
+        }
+
+    def test_single_role_holder_receives_their_own_teams_key(self, mocker, sandbox):
+        """A requester resolving to one role receives that role's own stored key."""
+        mocker.patch(
+            'crczp.sandbox_instance_app.views.roles.resolve_users_roles',
+            return_value=frozenset({'red-team'}),
+        )
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_setup_key_value='flat-key')
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_setup_key_value='red-team-key'
+        )
+
+        response = self._call(sandbox)
+
+        assert response.status_code == 200
+        assert response.data['setup_key'] == 'red-team-key'
+
+    def test_roleless_requester_in_role_declaring_pool_receives_nothing(self, mocker, sandbox):
+        """A requester resolving to no role in a role-declaring pool receives no key."""
+        mocker.patch(
+            'crczp.sandbox_instance_app.views.roles.resolve_users_roles',
+            return_value=frozenset(),
+        )
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_setup_key_value='flat-key')
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_setup_key_value='red-team-key'
+        )
+
+        response = self._call(sandbox)
+
         assert response.status_code == 200
         assert response.data == {
             'management_url': 'https://client.example.com',
