@@ -29,6 +29,13 @@ class QuotaSetSerializer(serializers.Serializer[Any]):
     port = QuotaSerializer()
 
 
+class ProjectInfoSerializer(serializers.Serializer[Any]):
+    """Serializer for a project's name and its quota set."""
+
+    project_name = serializers.CharField()
+    quotas = QuotaSetSerializer()
+
+
 class ImageSerializer(serializers.Serializer[Any]):
     """Serializer for an OpenStack image."""
 

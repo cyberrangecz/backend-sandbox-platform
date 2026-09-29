@@ -569,9 +569,18 @@ class SandboxCleanupRequestView(generics.RetrieveDestroyAPIView[Any], generics.C
         return Response(serializer.data)
 
     @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name='force',
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                description='Force the deletion of the sandbox',
+                required=False,
+            )
+        ],
         responses={
             201: serializers.CleanupRequestSerializer,
-        }
+        },
     )
     @override
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -826,7 +835,7 @@ class SandboxDetailView(generics.RetrieveAPIView[Any]):
     serializer_class = serializers.SandboxSerializer
     lookup_url_kwarg = 'sandbox_uuid'
     queryset = Sandbox.objects.filter(ready=True)
-    permissions_classes = [OrganizerPermission | AdminPermission]
+    permission_classes = [OrganizerPermission | AdminPermission]
 
 
 @extend_schema(
