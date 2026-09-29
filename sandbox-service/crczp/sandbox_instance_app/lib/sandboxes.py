@@ -15,9 +15,10 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db import transaction
+from django.db.models import QuerySet
 from rest_framework.generics import get_object_or_404
 
-from crczp.cloud_commons import TopologyInstance, UsersRoles
+from crczp.cloud_commons import UNIVERSAL_ROLES, TopologyInstance, UsersRoles
 from crczp.sandbox_common_lib import exceptions, utils
 from crczp.sandbox_definition_app.lib import definitions
 from crczp.sandbox_instance_app.lib.sshconfig import (
@@ -26,7 +27,7 @@ from crczp.sandbox_instance_app.lib.sshconfig import (
     CrczpUserSSHConfig,
 )
 from crczp.sandbox_instance_app.lib.topology import Topology
-from crczp.sandbox_instance_app.models import Sandbox, SandboxLock
+from crczp.sandbox_instance_app.models import Sandbox, SandboxLock, SandboxRoleKeypair
 from crczp.topology_definition.models import DockerContainers, Host, Router, TopologyDefinition
 
 SANDBOX_CACHE_TIMEOUT = None  # Cache indefinitely
@@ -114,6 +115,7 @@ def get_user_sshconfig(
     sandbox: Sandbox,
     users_roles: UsersRoles,
     sandbox_private_key_path: str = '<path_to_sandbox_private_key>',
+    role_private_key_paths: dict[str, str] | None = None,
 ) -> CrczpUserSSHConfig:
     """Get user SSH config."""
     ti = get_topology_instance(sandbox)
@@ -127,7 +129,22 @@ def get_user_sshconfig(
         stack_name,
         sandbox_private_key_path,
         proxy_port=proxy_jump.Port,
+        role_private_key_paths=role_private_key_paths,
     )
+
+
+def _role_keypairs_for(
+    sandbox: Sandbox, users_roles: UsersRoles
+) -> QuerySet[SandboxRoleKeypair, SandboxRoleKeypair]:
+    """Return the sandbox's SandboxRoleKeypair rows a requesting user's roles admit.
+
+    A privileged requester (UNIVERSAL_ROLES) admits every declared role's keypair,
+    mirroring how a declared role list is matched against UNIVERSAL_ROLES everywhere
+    else (any non-empty declaration admits).
+    """
+    if users_roles is UNIVERSAL_ROLES:
+        return sandbox.role_keypairs.all()
+    return sandbox.role_keypairs.filter(role__in=users_roles)
 
 
 def get_user_ssh_access(sandbox: Sandbox, users_roles: UsersRoles) -> io.BytesIO:
@@ -137,13 +154,26 @@ def get_user_ssh_access(sandbox: Sandbox, users_roles: UsersRoles) -> io.BytesIO
     private_key_name = f'{ssh_access_name}-key'
     public_key_name = f'{private_key_name}.pub'
 
-    ssh_config = get_user_sshconfig(sandbox, users_roles, f'~/.ssh/{private_key_name}')
+    role_keypairs = list(_role_keypairs_for(sandbox, users_roles))
+    role_private_key_names = {
+        role_keypair.role: f'{private_key_name}-{role_keypair.role}'
+        for role_keypair in role_keypairs
+    }
+    role_private_key_paths = {
+        role: f'~/.ssh/{name}' for role, name in role_private_key_names.items()
+    }
+
+    ssh_config = get_user_sshconfig(
+        sandbox, users_roles, f'~/.ssh/{private_key_name}', role_private_key_paths
+    )
 
     in_memory_zip_file = io.BytesIO()
     with zipfile.ZipFile(in_memory_zip_file, 'w', zipfile.ZIP_DEFLATED) as zip_file:
         zip_file.writestr(ssh_config_name, ssh_config.serialize())
         zip_file.writestr(private_key_name, sandbox.private_user_key)
         zip_file.writestr(public_key_name, sandbox.public_user_key)
+        for role_keypair in role_keypairs:
+            zip_file.writestr(role_private_key_names[role_keypair.role], role_keypair.private_key)
 
     in_memory_zip_file.seek(0)
     return in_memory_zip_file

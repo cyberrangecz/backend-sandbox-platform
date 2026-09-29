@@ -993,14 +993,20 @@ class SandboxVMConsoleView(APIView):
 
 @extend_schema(responses={200: OpenApiResponse(description='SSH Config File'), **SANDBOX_RESPONSES})
 class SandboxUserSSHAccessView(APIView):
-    """API view to generate SSH config for user access to a sandbox."""
+    """API view to generate SSH config and per-role keys for user access to a sandbox."""
 
     queryset = Sandbox.objects.none()
 
     # noinspection PyMethodMayBeStatic
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response | HttpResponse:
-        """Generate SSH config for User access to this sandbox.
-        Some values are user specific, the config contains placeholders for them."""
+        """Return a zip with the SSH config and private keys for this sandbox.
+
+        The zip always carries the sandbox's flat private key, plus one further
+        private-key file per role the requesting user holds; each host entry in
+        the config points at whichever of those keys that host's declared role
+        admits, or the flat key when the host declares no role. A privileged
+        requester (organizer/admin) receives every declared role's key.
+        """
         sandbox = sandboxes.get_sandbox(kwargs['sandbox_uuid'])
         users_roles = roles.resolve_users_roles(request, sandbox.allocation_unit.pool)
         in_memory_zip_file = sandboxes.get_user_ssh_access(sandbox, users_roles)

@@ -153,8 +153,10 @@ class CrczpUserSSHConfig(CrczpSSHConfig):
         proxy_user: str,
         sandbox_private_key_path: str = '<path_to_sandbox_private_key>',
         proxy_port: int = 22,
+        role_private_key_paths: dict[str, str] | None = None,
     ) -> None:
         super().__init__()
+        role_private_key_paths = role_private_key_paths or {}
         # Create an entry for PROXY JUMP host.
         self.add_host(proxy_host, proxy_user, sandbox_private_key_path, port=proxy_port)
         proxy_jump = (
@@ -174,12 +176,24 @@ class CrczpUserSSHConfig(CrczpSSHConfig):
         )
         man_proxy_jump = f'{SSH_PROXY_USERNAME}@{top_ins.man.name}'
 
-        # Create an entry for user-accessible nodes of a sandbox.
+        # Create an entry for user-accessible nodes of a sandbox. A node carrying no
+        # accessible_by_roles metadata is unlocked by the flat key; one that does is
+        # unlocked by any one role's key among the roles it admits (the deterministic,
+        # lexicographically smallest one) — every role in that intersection already
+        # names a key installed on the node (§3.1), so the choice carries no security
+        # weight, and the intersection is never empty here since a node is only ever
+        # reached below once `users_roles` already has reach to it.
         for link in top_ins.get_links_to_user_accessible_nodes(users_roles):
+            node_roles = top_ins.get_accessible_by_roles_for_node(link.node)
+            if node_roles is None:
+                identity_file = sandbox_private_key_path
+            else:
+                matching_role = min(set(node_roles) & role_private_key_paths.keys())
+                identity_file = role_private_key_paths[matching_role]
             self.add_host(
                 link.ip,  # ty: ignore[invalid-argument-type]
                 SSH_PROXY_USERNAME,
-                sandbox_private_key_path,
+                identity_file,
                 proxy_jump=man_proxy_jump,
                 alias=link.node.name,
             )

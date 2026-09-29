@@ -14,6 +14,10 @@ hosts:
     flavor: standard.small
     visible_by_roles: []
 
+  - name: plain
+    base_box: { image: debian-12-x86_64, mgmt_user: debian }
+    flavor: standard.small
+
 routers:
   - name: gw
     base_box: { image: debian-12-x86_64, mgmt_user: debian }
@@ -24,10 +28,17 @@ networks:
     cidr: 10.10.10.0/24
     accessible_by_roles: [red-team]
 
+  - name: office-lan
+    cidr: 10.10.11.0/24
+
 net_mappings:
   - host: victim
     network: target-lan
     ip: 10.10.10.5
+
+  - host: plain
+    network: office-lan
+    ip: 10.10.11.5
 
 router_mappings:
   - router: gw
@@ -108,8 +119,10 @@ class TestRoleAwareUserSshConfig:
         ti = TopologyInstance(topology_definition, trc_config)
         ti.ip = '10.10.10.10'
         for link in ti.get_links():
-            if link.network.name == 'target-lan':
+            if link.network.name == 'target-lan' and link.node.name == 'victim':
                 link.ip = '10.10.10.5'
+            elif link.network.name == 'office-lan' and link.node.name == 'plain':
+                link.ip = '10.10.11.5'
         return ti
 
     def test_concealed_but_reachable_node_still_gets_an_entry(self):
@@ -117,7 +130,11 @@ class TestRoleAwareUserSshConfig:
         top_ins = self._build_topology_instance()
         proxy_jump = settings.CRCZP_CONFIG.proxy_jump_to_man
         result = sshconfig.CrczpUserSSHConfig(
-            top_ins, frozenset({'red-team'}), proxy_jump.Host, 'stack-name'
+            top_ins,
+            frozenset({'red-team'}),
+            proxy_jump.Host,
+            'stack-name',
+            role_private_key_paths={'red-team': '~/.ssh/red-team-key'},
         )
         assert any('victim' in host.name.split() for host in result.hosts)
 
@@ -127,3 +144,62 @@ class TestRoleAwareUserSshConfig:
         proxy_jump = settings.CRCZP_CONFIG.proxy_jump_to_man
         result = sshconfig.CrczpUserSSHConfig(top_ins, frozenset(), proxy_jump.Host, 'stack-name')
         assert not any('victim' in host.name.split() for host in result.hosts)
+
+    def test_role_gated_node_points_at_its_role_key(self):
+        """A node whose reach is role-gated uses that role's private-key path."""
+        top_ins = self._build_topology_instance()
+        proxy_jump = settings.CRCZP_CONFIG.proxy_jump_to_man
+        result = sshconfig.CrczpUserSSHConfig(
+            top_ins,
+            frozenset({'red-team'}),
+            proxy_jump.Host,
+            'stack-name',
+            sandbox_private_key_path='~/.ssh/flat-key',
+            role_private_key_paths={'red-team': '~/.ssh/red-team-key'},
+        )
+        victim = next(host for host in result.hosts if 'victim' in host.name.split())
+        assert victim.attributes()['IdentityFile'] == '~/.ssh/red-team-key'
+
+    def test_role_free_node_points_at_the_flat_key(self):
+        """A node carrying no accessible_by_roles metadata uses the flat key unconditionally."""
+        proxy_jump = settings.CRCZP_CONFIG.proxy_jump_to_man
+        top_ins = self._build_topology_instance()
+        result = sshconfig.CrczpUserSSHConfig(
+            top_ins,
+            UNIVERSAL_ROLES,
+            proxy_jump.Host,
+            'stack-name',
+            sandbox_private_key_path='~/.ssh/flat-key',
+            role_private_key_paths={'red-team': '~/.ssh/red-team-key'},
+        )
+        plain = next(host for host in result.hosts if 'plain' in host.name.split())
+        assert plain.attributes()['IdentityFile'] == '~/.ssh/flat-key'
+
+    def test_multi_role_holder_picks_lexicographically_smallest_matching_role(self):
+        """A node admitting several of the requester's held roles picks the smallest name."""
+        definition = ROLE_GATED_SSH_DEFINITION.replace(
+            'accessible_by_roles: [red-team]', 'accessible_by_roles: [red-team, observer]'
+        )
+        topology_definition = TopologyDefinition.load(definition)
+        trc_config = TransformationConfiguration(
+            man_image='debian-12-x86_64', man_flavor='standard.small', man_user='debian'
+        )
+        top_ins = TopologyInstance(topology_definition, trc_config)
+        top_ins.ip = '10.10.10.10'
+        for link in top_ins.get_links():
+            if link.network.name == 'target-lan':
+                link.ip = '10.10.10.5'
+
+        proxy_jump = settings.CRCZP_CONFIG.proxy_jump_to_man
+        result = sshconfig.CrczpUserSSHConfig(
+            top_ins,
+            frozenset({'red-team', 'observer'}),
+            proxy_jump.Host,
+            'stack-name',
+            role_private_key_paths={
+                'red-team': '~/.ssh/red-team-key',
+                'observer': '~/.ssh/observer-key',
+            },
+        )
+        victim = next(host for host in result.hosts if 'victim' in host.name.split())
+        assert victim.attributes()['IdentityFile'] == '~/.ssh/observer-key'
