@@ -75,6 +75,43 @@ class ImageSerializer(serializers.Serializer[Any]):
         }
 
 
+class FlavorResourcesSerializer(serializers.Serializer[Any]):
+    """Serializer for the compute resources of a cloud flavor."""
+
+    vcpu = serializers.IntegerField(help_text='Number of virtual CPUs the flavor provides.')
+    ram_gb = serializers.FloatField(help_text='RAM the flavor provides, in GB.')
+
+
+class FlavorSerializer(serializers.Serializer[Any]):
+    """Serializer for a cloud flavor with its flavor mapping aliases."""
+
+    flavor = serializers.CharField(
+        help_text='Name of the flavor in the cloud project, usable as the flavor of a host or '
+        'router in a topology definition.'
+    )
+    aliases = serializers.ListField(
+        child=serializers.CharField(),
+        help_text='Names the flavor mapping of the deployment translates to this flavor, each '
+        'usable in a topology definition in place of the flavor name; sorted ascending, empty '
+        'when none maps to it.',
+    )
+    resources = FlavorResourcesSerializer(help_text='Compute resources the flavor provides.')
+
+
+class FlavorCatalogSerializer(serializers.Serializer[Any]):
+    """Serializer for the cloud flavors and the flavor mapping aliases mapped to none of them."""
+
+    flavors = FlavorSerializer(
+        many=True, help_text='Flavors the cloud project offers, sorted by flavor name ascending.'
+    )
+    unmapped_aliases = serializers.ListField(
+        child=serializers.CharField(),
+        help_text='Names the flavor mapping of the deployment translates to a flavor the cloud '
+        'project does not offer; a topology definition giving one fails validation. Sorted '
+        'ascending, empty when every alias maps to an offered flavor.',
+    )
+
+
 class ProjectLimitsSerializer(serializers.Serializer[Any]):
     """Serializer for OpenStack project absolute limits."""
 
