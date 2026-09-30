@@ -299,19 +299,6 @@ class TerraformCleanupStageSerializer(serializers.ModelSerializer[models.StackCl
         read_only_fields = fields
 
 
-class AllocationTerraformOutputSerializer(
-    serializers.ModelSerializer[models.AllocationTerraformOutput]
-):
-    """Serializer for AllocationTerraformOutput model."""
-
-    class Meta:  # pylint: disable=too-few-public-methods
-        """Meta options for AllocationTerraformOutputSerializer."""
-
-        model = models.AllocationTerraformOutput
-        fields = ('content',)
-        read_only_fields = fields
-
-
 class SandboxSerializer(serializers.ModelSerializer[models.Sandbox]):
     """Serializer for Sandbox model."""
 

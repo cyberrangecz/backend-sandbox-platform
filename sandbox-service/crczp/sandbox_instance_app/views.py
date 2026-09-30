@@ -15,7 +15,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from crczp.sandbox_common_lib import exceptions, log_output_mixin, utils
+from crczp.sandbox_common_lib import exceptions, stage_outputs, utils
 from crczp.sandbox_common_lib.netbird_client import get_client_management_url
 from crczp.sandbox_common_lib.swagger_typing import (
     PoolRequestSerializer,
@@ -662,8 +662,8 @@ class CleanupRequestCancelView(generics.GenericAPIView[Any]):
     methods=['GET'],
     responses={
         200: OpenApiResponse(
-            response=serializers.AllocationTerraformOutputSerializer(many=True),
-            description='List of Terraform Outputs',
+            response=serializers.TerraformAllocationStageSerializer,
+            description='Retrieve Terraform Allocation Stage',
         ),
         **SANDBOX_RESPONSES,
     },
@@ -708,42 +708,12 @@ class TerraformCleanupStageDetailView(generics.RetrieveAPIView[Any]):
         return request.stackcleanupstage
 
 
-@extend_schema(
-    methods=['GET'],
-    parameters=[
-        OpenApiParameter(
-            name='from_row',
-            type=int,
-            location=OpenApiParameter.QUERY,
-            description='Row index (DB relative), used for incremental fetch',
-            required=False,
-        )
-    ],
-    responses={
-        200: OpenApiResponse(
-            response=serializers.AllocationTerraformOutputSerializer(many=True),
-            description='List of Terraform Outputs',
-        ),
-        **SANDBOX_RESPONSES,
-    },
-)
-class TerraformAllocationStageOutputListView(log_output_mixin.CompressedOutputMixin, APIView):
-    """API view to list terraform allocation stage log output."""
+class TerraformAllocationStageOutputListView(stage_outputs.StageOutputView):
+    """get: Retrieve the output rows of a `Terraform` allocation stage."""
 
     queryset = AllocationRequest.objects.all()
-
-    def get(self, request: Request, request_id: int) -> Response:
-        """List terraform allocation stage log output."""
-        from_row = request.query_params.get('from_row', 0)
-        try:
-            from_row = int(from_row)
-        except (ValueError, TypeError):
-            from_row = 0
-
-        allocation_request = get_object_or_404(AllocationRequest, pk=request_id)
-        outputs_queryset = allocation_request.stackallocationstage.terraform_outputs
-
-        return self.create_outputs_response(outputs_queryset, from_row)
+    stage_attribute = 'stackallocationstage'
+    outputs_attribute = 'terraform_outputs'
 
 
 #########################################

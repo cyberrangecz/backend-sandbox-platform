@@ -85,16 +85,3 @@ class UserAnsibleCleanupStageSerializer(
             'error_message',
         )
         read_only_fields = fields
-
-
-class AllocationAnsibleOutputSerializer(
-    serializers.ModelSerializer[models.AllocationAnsibleOutput]
-):
-    """Serializer for AllocationAnsibleOutput."""
-
-    class Meta:  # pylint: disable=too-few-public-methods
-        """Meta options for AllocationAnsibleOutputSerializer."""
-
-        model = models.AllocationAnsibleOutput
-        fields = ('content',)
-        read_only_fields = fields

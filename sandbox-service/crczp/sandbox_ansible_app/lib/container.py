@@ -1,11 +1,14 @@
 """Docker and Kubernetes container wrappers for executing Ansible playbooks."""
 
 import abc
+import codecs
+import time
 from dataclasses import dataclass
 from typing import Any, override
 
 import docker
 import structlog
+import urllib3
 from django.conf import settings
 from docker.models.containers import Container
 from kubernetes import client, config, watch
@@ -71,6 +74,10 @@ class BaseContainer(abc.ABC):  # pylint: disable=too-many-instance-attributes
         self.stage_info = (
             {'cleanup_stage': self.stage} if self.cleanup else {'allocation_stage': self.stage}
         )
+
+    def _store_line(self, line: str) -> None:
+        """Store one line of the container output as the stage's next output row."""
+        self.output_class.objects.create(**self.stage_info, content=line.removesuffix('\r'))
 
     @abc.abstractmethod
     def _run_container(self) -> Any:
@@ -167,11 +174,16 @@ class DockerContainer(BaseContainer):
 
     @override
     def get_container_outputs(self) -> None:
-        """Get the container outputs."""
-        for output in self.container.logs(stream=True):
-            output = output.decode('utf-8')
-            output = output[:-1] if output[-1] == '\n' else output
-            self.output_class.objects.create(**self.stage_info, content=output)
+        """Store the container output as it is written, one row per line."""
+        decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+        pending = ''
+        for chunk in self.container.logs(stream=True, follow=True):
+            *lines, pending = (pending + decoder.decode(chunk)).split('\n')
+            for line in lines:
+                self._store_line(line)
+        pending += decoder.decode(b'', final=True)
+        if pending:
+            self._store_line(pending)
 
     @override
     def check_container_status(self) -> None:
@@ -210,6 +222,9 @@ class KubernetesContainer(BaseContainer):
     KUBERNETES_NAMESPACE = settings.CRCZP_CONFIG.ansible_runner_settings.namespace
     CORE_API = client.CoreV1Api()
     BATCH_API = client.BatchV1Api()
+    FINISHED_POD_PHASES = ('Succeeded', 'Failed')
+    POD_LOG_REOPEN_DELAY_SECONDS = 1
+    POD_LOG_READ_TIMEOUT_SECONDS = 300
 
     @override
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -369,7 +384,7 @@ class KubernetesContainer(BaseContainer):
             label_selector=f'job-name={self.job_name}',
         ):
             pod_phase = event['object'].status.phase
-            if pod_phase in ('Running', 'Failed'):
+            if pod_phase in ('Running', *self.FINISHED_POD_PHASES):
                 w.stop()
                 return str(event['object'].metadata.name)
             if event['type'] == 'DELETED':
@@ -393,45 +408,62 @@ class KubernetesContainer(BaseContainer):
                 return job_status
         return None
 
-    def _save_pod_outputs(self, pod_name: str) -> None:
+    def _pod_finished(self, pod_name: str) -> bool:
+        """Whether the pod's container has exited."""
+        pod = self.CORE_API.read_namespaced_pod(name=pod_name, namespace=self.KUBERNETES_NAMESPACE)
+        return pod.status.phase in self.FINISHED_POD_PHASES
+
+    def _follow_pod_log(self, pod_name: str, stored: int) -> int:
         """
-        Replace live outputs of the pod with the ones from the storage.
+        Follow the pod log from its first line until the stream closes, breaks or stays
+        silent past the read timeout, storing each complete line past the ones already stored.
+
+        :param pod_name: Name of the pod whose log is followed.
+        :param stored: Count of leading log lines already stored.
+        :return: Count of leading log lines stored once the stream ends.
         """
-        temporary_outputs = self.output_class.objects.filter(**self.stage_info)
-        temporary_outputs.delete()
-        pod_outputs = self.CORE_API.read_namespaced_pod_log(
+        seen = 0
+        try:
+            for line in watch.Watch().stream(
+                self.CORE_API.read_namespaced_pod_log,
+                name=pod_name,
+                namespace=self.KUBERNETES_NAMESPACE,
+                _request_timeout=(None, self.POD_LOG_READ_TIMEOUT_SECONDS),
+            ):
+                seen += 1
+                if seen > stored:
+                    self._store_line(line)
+        except urllib3.exceptions.HTTPError as exc:
+            LOG.warning('Pod log stream ended early', pod_name=pod_name, error=str(exc))
+        return max(seen, stored)
+
+    def _store_remaining_pod_log(self, pod_name: str, stored: int) -> None:
+        """
+        Store the lines of the finished pod's whole log past the ones already stored,
+        its last line included when no line break ends it.
+        """
+        pod_log = self.CORE_API.read_namespaced_pod_log(
             name=pod_name, namespace=self.KUBERNETES_NAMESPACE, _preload_content=False
-        ).data.decode('utf-8')
-        for output in pod_outputs.split('\n'):
-            self.output_class.objects.create(**self.stage_info, content=output)
+        ).data.decode('utf-8', errors='replace')
+        lines = pod_log.split('\n')
+        if lines[-1] == '':
+            lines.pop()
+        for line in lines[stored:]:
+            self._store_line(line)
 
     @override
     def get_container_outputs(self) -> None:
         """
-        Return the container outputs.
+        Store the pod output as it is written, one row per line, each line once.
         """
-        w = watch.Watch()
-
         pod_name = self._wait_for_pod_start()
         if pod_name is None:
             raise exceptions.AnsibleError('Pod did not start in time.')
-        job_done = False
-        while not job_done:
-            for log in w.stream(
-                self.CORE_API.read_namespaced_pod_log,
-                name=pod_name,
-                namespace=self.KUBERNETES_NAMESPACE,
-                _preload_content=False,
-            ):
-                self.output_class.objects.create(**self.stage_info, content=log)
-                job = self.BATCH_API.read_namespaced_job_status(
-                    name=self.job_name, namespace=self.KUBERNETES_NAMESPACE
-                )
-                if job.status.succeeded or job.status.failed:
-                    job_done = True
-                    w.stop()
-                    break
-        self._save_pod_outputs(pod_name)
+        stored = self._follow_pod_log(pod_name, 0)
+        while not self._pod_finished(pod_name):
+            time.sleep(self.POD_LOG_REOPEN_DELAY_SECONDS)
+            stored = self._follow_pod_log(pod_name, stored)
+        self._store_remaining_pod_log(pod_name, stored)
 
     @override
     def check_container_status(self) -> None:
