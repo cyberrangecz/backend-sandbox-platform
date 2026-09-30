@@ -3,12 +3,8 @@
 from typing import override
 
 import structlog
-from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import generics
-from rest_framework.request import Request
-from rest_framework.response import Response
-from rest_framework.views import APIView
 
 from crczp.sandbox_ansible_app import serializers
 from crczp.sandbox_ansible_app.models import (
@@ -17,7 +13,7 @@ from crczp.sandbox_ansible_app.models import (
     UserAnsibleAllocationStage,
     UserAnsibleCleanupStage,
 )
-from crczp.sandbox_common_lib import log_output_mixin
+from crczp.sandbox_common_lib import stage_outputs
 from crczp.sandbox_instance_app.models import AllocationRequest, CleanupRequest
 
 LOG = structlog.get_logger()
@@ -122,77 +118,17 @@ class UserAnsibleCleanupStageDetailView(generics.RetrieveAPIView[UserAnsibleClea
         return request.useransiblecleanupstage
 
 
-@extend_schema(
-    methods=['GET'],
-    parameters=[
-        OpenApiParameter(
-            name='from_row',
-            type=int,
-            location=OpenApiParameter.QUERY,
-            description='Row index (DB relative), used for incremental fetch',
-            required=False,
-        )
-    ],
-    responses={
-        200: OpenApiResponse(
-            description='Networking Ansible Outputs with trimmed content and row count'
-        ),
-        **COMMON_RESPONSE_PATTERNS,
-    },
-)
-class NetworkingAnsibleOutputListView(log_output_mixin.CompressedOutputMixin, APIView):
-    """
-    get: Retrieve Ansible Outputs with trimmed content.
-    """
+class NetworkingAnsibleOutputListView(stage_outputs.StageOutputView):
+    """get: Retrieve the output rows of a `Networking Ansible` allocation stage."""
 
     queryset = AllocationRequest.objects.all()
-
-    def get(self, request: Request, request_id: int) -> Response:
-        """Return networking Ansible outputs for the given allocation request."""
-        from_row = request.query_params.get('from_row', 0)
-        try:
-            from_row = int(from_row)
-        except (ValueError, TypeError):
-            from_row = 0
-
-        allocation_request = get_object_or_404(AllocationRequest, pk=request_id)
-        outputs_queryset = allocation_request.networkingansibleallocationstage.outputs.all()
-
-        return self.create_outputs_response(outputs_queryset, from_row)
+    stage_attribute = 'networkingansibleallocationstage'
+    outputs_attribute = 'outputs'
 
 
-@extend_schema(
-    methods=['GET'],
-    parameters=[
-        OpenApiParameter(
-            name='from_row',
-            type=int,
-            location=OpenApiParameter.QUERY,
-            description='Row index (DB relative), used for incremental fetch',
-            required=False,
-        )
-    ],
-    responses={
-        200: OpenApiResponse(description='User Ansible Outputs with trimmed content and row count'),
-        **COMMON_RESPONSE_PATTERNS,
-    },
-)
-class UserAnsibleOutputListView(log_output_mixin.CompressedOutputMixin, APIView):
-    """
-    get: Retrieve Ansible Outputs with trimmed content.
-    """
+class UserAnsibleOutputListView(stage_outputs.StageOutputView):
+    """get: Retrieve the output rows of a `User Ansible` allocation stage."""
 
     queryset = AllocationRequest.objects.all()
-
-    def get(self, request: Request, request_id: int) -> Response:
-        """Return user Ansible outputs for the given allocation request."""
-        from_row = request.query_params.get('from_row', 0)
-        try:
-            from_row = int(from_row)
-        except (ValueError, TypeError):
-            from_row = 0
-
-        allocation_request = get_object_or_404(AllocationRequest, pk=request_id)
-        outputs_queryset = allocation_request.useransibleallocationstage.outputs.all()
-
-        return self.create_outputs_response(outputs_queryset, from_row)
+    stage_attribute = 'useransibleallocationstage'
+    outputs_attribute = 'outputs'
