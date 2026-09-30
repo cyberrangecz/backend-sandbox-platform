@@ -132,3 +132,19 @@ class UserAnsibleOutputListView(stage_outputs.StageOutputView):
     queryset = AllocationRequest.objects.all()
     stage_attribute = 'useransibleallocationstage'
     outputs_attribute = 'outputs'
+
+
+class NetworkingAnsibleCleanupOutputListView(stage_outputs.StageOutputView):
+    """get: Retrieve the output rows of a `Networking Ansible` cleanup stage."""
+
+    queryset = CleanupRequest.objects.all()
+    stage_attribute = 'networkingansiblecleanupstage'
+    outputs_attribute = 'outputs'
+
+
+class UserAnsibleCleanupOutputListView(stage_outputs.StageOutputView):
+    """get: Retrieve the output rows of a `User Ansible` cleanup stage."""
+
+    queryset = CleanupRequest.objects.all()
+    stage_attribute = 'useransiblecleanupstage'
+    outputs_attribute = 'outputs'
