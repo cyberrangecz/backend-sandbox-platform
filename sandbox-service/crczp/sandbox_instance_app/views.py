@@ -716,6 +716,14 @@ class TerraformAllocationStageOutputListView(stage_outputs.StageOutputView):
     outputs_attribute = 'terraform_outputs'
 
 
+class TerraformCleanupStageOutputListView(stage_outputs.StageOutputView):
+    """get: Retrieve the output rows of a `Terraform` cleanup stage."""
+
+    queryset = CleanupRequest.objects.all()
+    stage_attribute = 'stackcleanupstage'
+    outputs_attribute = 'terraform_outputs'
+
+
 #########################################
 # POOLS OF SANDBOXES MANIPULATION VIEWS #
 #########################################
