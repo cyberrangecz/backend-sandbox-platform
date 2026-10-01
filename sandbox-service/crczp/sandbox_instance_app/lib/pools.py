@@ -18,7 +18,6 @@ from django.shortcuts import get_object_or_404
 from crczp.cloud_commons import (
     CrczpException,
     HardwareUsage,
-    InvalidTopologyDefinition,
     StackCreationFailed,
 )
 from crczp.sandbox_common_lib import exceptions, utils
@@ -86,7 +85,7 @@ def create_pool(data: dict[str, Any], created_by: User | None) -> Pool:
                 definition.url, pool.rev_sha, settings.CRCZP_CONFIG
             )
         client.validate_topology_definition(top_def)
-    except (exceptions.GitError, exceptions.ValidationError, InvalidTopologyDefinition):
+    except (exceptions.GitError, exceptions.ValidationError, CrczpException):
         pool.delete()
         raise
 

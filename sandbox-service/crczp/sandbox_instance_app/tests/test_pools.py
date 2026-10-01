@@ -13,7 +13,7 @@ from rest_framework.test import APIRequestFactory
 from crczp.cloud_commons import HardwareUsage, exceptions
 from crczp.sandbox_common_lib.exceptions import ApiException, StackError
 from crczp.sandbox_instance_app.lib import pools, sshconfig
-from crczp.sandbox_instance_app.models import Sandbox, SandboxAllocationUnit
+from crczp.sandbox_instance_app.models import Pool, Sandbox, SandboxAllocationUnit
 from crczp.sandbox_instance_app.views import PoolListCreateView, SandboxGetAndLockView
 
 pytestmark = pytest.mark.django_db
@@ -57,6 +57,21 @@ class TestCreatePool:
             pools.create_pool(
                 {'definition_id': -1, 'max_size': self.MAX_SIZE}, created_by=created_by
             )
+
+    @pytest.mark.usefixtures('definition')
+    def test_create_pool_rolls_back_on_crczp_exception(self, created_by, get_terraform_client):
+        """Test that a driver-side validation failure leaves no Pool row behind."""
+        get_terraform_client.validate_topology_definition.side_effect = exceptions.CrczpException(
+            'bad topology'
+        )
+        pool_count = Pool.objects.count()
+
+        with pytest.raises(exceptions.CrczpException, match='bad topology'):
+            pools.create_pool(
+                {'definition_id': DEFINITION_ID, 'max_size': self.MAX_SIZE}, created_by=created_by
+            )
+
+        assert Pool.objects.count() == pool_count
 
     def test_create_pool_invalid_size(self, created_by):
         """Test that pool creation raises ValidationError for an invalid pool size."""
