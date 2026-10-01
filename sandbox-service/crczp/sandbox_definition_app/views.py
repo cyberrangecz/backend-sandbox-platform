@@ -93,7 +93,7 @@ class DefinitionDetailDeleteView(generics.RetrieveDestroyAPIView[Definition]):
     responses={
         200: OpenApiResponse(
             description='List of Definition Refs',
-            response=serializers.DefinitionSerializer(many=True),
+            response=serializers.DefinitionRevSerializer(many=True),
         ),
         **COMMON_RESPONSE_PATTERNS,
     },
@@ -103,16 +103,21 @@ class DefinitionRefsListView(generics.ListAPIView[Any]):
     get: Retrieve a list of definition refs (branches and tags).
     """
 
+    queryset = Definition.objects.none()
     serializer_class = serializers.DefinitionRevSerializer
 
     @override
-    def get_queryset(self) -> Any:
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         def_id = self.kwargs.get('definition_id')
         definition = utils.get_object_or_404(Definition, pk=def_id)
         provider: DefinitionProvider = definitions.get_def_provider(
             definition.url, settings.CRCZP_CONFIG
         )
-        return provider.get_refs()
+        refs = self.get_serializer(provider.get_refs(), many=True).data
+        page = self.paginate_queryset(refs)  # ty: ignore[invalid-argument-type]
+        if page is not None:
+            return self.get_paginated_response(page)
+        return Response(refs)
 
 
 @extend_schema(
