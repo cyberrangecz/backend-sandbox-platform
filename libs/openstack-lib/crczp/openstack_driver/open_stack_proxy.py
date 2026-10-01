@@ -27,6 +27,7 @@ from crczp.cloud_commons import (
     StackException,
     TopologyInstance,
     TransformationConfiguration,
+    hcl_string,
 )
 from crczp.topology_definition.models import Protocol
 
@@ -86,6 +87,7 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
             autoescape=select_autoescape(),
         )
         self.template_environment.filters['regex_replace'] = regex_replace
+        self.template_environment.filters['hcl_string'] = hcl_string
         self.trc = trc
 
     @staticmethod

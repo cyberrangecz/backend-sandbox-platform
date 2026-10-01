@@ -31,8 +31,8 @@ resource "aws_network_interface" "{{ name }}" {
 
 {%- macro tf_instance(name, ami_id, instance_type, key_pair, link_names, default_ip) %}
 resource "aws_instance" "{{ name }}" {
-    ami = "{{ ami_id }}"
-    instance_type = "{{ instance_type }}"
+    ami = {{ ami_id | hcl_string }}
+    instance_type = {{ instance_type | hcl_string }}
     tags = {
         Name = "{{ name }}"
     }

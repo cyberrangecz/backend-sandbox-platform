@@ -18,6 +18,7 @@ from crczp.cloud_commons import (
     QuotaSet,
     TopologyInstance,
     TransformationConfiguration,
+    hcl_string,
 )
 from crczp.cloud_commons.topology_elements import Host
 from jinja2 import Environment, FileSystemLoader
@@ -118,6 +119,7 @@ class CrczpAwsClient(CrczpCloudClientBase):
         # Renders Terraform templates, not HTML.
         self.jinja2_env = Environment(loader=FileSystemLoader(TEMPLATE_DIR_PATH))  # noqa: S701
         self.jinja2_env.filters['regex_replace'] = regex_replace
+        self.jinja2_env.filters['hcl_string'] = hcl_string
         self.trc = trc
 
     @staticmethod

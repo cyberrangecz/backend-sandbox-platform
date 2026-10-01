@@ -76,13 +76,13 @@ resource "{{ tf_resource_port }}" "{{ name }}" {
 
 {%- macro tf_instance(name, image_name, flavor_name, key_pair, link_names, volumes=[]) %}
 data "openstack_images_image_ids_v2" "image_data_source-{{ name }}" {
-  name = "{{ image_name }}"
+  name = {{ image_name | hcl_string }}
 }
 
 resource "{{ tf_resource_instance }}" "{{ name }}" {
     name = "{{ name }}"
-    image_name = "{{ image_name }}"
-    flavor_name = "{{ flavor_name }}"
+    image_name = {{ image_name | hcl_string }}
+    flavor_name = {{ flavor_name | hcl_string }}
     key_pair = "{{ key_pair }}"
     config_drive = "true"
 {% if volumes %}
