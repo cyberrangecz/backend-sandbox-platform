@@ -114,7 +114,7 @@ class DefinitionRefsListView(generics.ListAPIView[Any]):
             definition.url, settings.CRCZP_CONFIG
         )
         refs = self.get_serializer(provider.get_refs(), many=True).data
-        page = self.paginate_queryset(refs)  # ty: ignore[invalid-argument-type]
+        page = self.paginate_queryset(refs)
         if page is not None:
             return self.get_paginated_response(page)
         return Response(refs)
