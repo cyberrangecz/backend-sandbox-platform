@@ -5,7 +5,7 @@ Module for topology definition validators.
 from __future__ import annotations
 
 import re
-from ipaddress import ip_address, ip_network
+from ipaddress import IPv4Address, IPv4Network, ip_address, ip_network
 from itertools import combinations
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -40,6 +40,8 @@ DNS_DOMAIN_REGEX = (
     r'^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)'
     r'(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$'
 )
+# python-commons adds the management node and network under these names.
+RESERVED_NAMES = ('man', 'man-network')
 _UNIQ_MSG = (
     'Uniqueness violation. The following name identifiers are not unique '
     'within the [{}] definition: {}.'
@@ -61,6 +63,31 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
             raise ValueError(_msg.format(obj.__class__.__name__, name, VALID_NAMES_REGEX))
 
     @staticmethod
+    def is_ipv4_cidr(obj: object, cidr: str) -> None:
+        """
+        Validate that cidr is an IPv4 network.
+        """
+        # Templates render the value raw, and ip_network accepts IPv6 scope ids with any text.
+        try:
+            IPv4Network(cidr, strict=False)
+        except ValueError as exc:
+            raise ValueError(
+                f'{obj.__class__.__name__}.cidr "{cidr}" is not a valid IPv4 CIDR.'
+            ) from exc
+
+    @staticmethod
+    def is_ipv4_address(obj: object, ip: str) -> None:
+        """
+        Validate that ip is an IPv4 address.
+        """
+        try:
+            IPv4Address(ip)
+        except ValueError as exc:
+            raise ValueError(
+                f'{obj.__class__.__name__}.ip "{ip}" is not a valid IPv4 address.'
+            ) from exc
+
+    @staticmethod
     def validate_net_mappings(obj: TopologyDefinition, net_mappings: NetworkMappingList) -> bool:
         """
         Validate network mappings.
@@ -71,6 +98,7 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
                 raise ValueError(_msg.format(net_mapping.ip, 'host', net_mapping.host))
             if not obj.find_network_by_name(net_mapping.network):
                 raise ValueError(_msg.format(net_mapping.ip, 'network', net_mapping.network))
+        TopologyValidation.raise_if_not_in_network(net_mappings, obj.networks)
         return True
 
     @staticmethod
@@ -78,11 +106,11 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         obj: TopologyDefinition, router_mappings: RouterMappingList
     ) -> bool:
         """
-        Validate router mappings.
+        Validate router mappings and the uniqueness of all mapping IPs.
         """
         TopologyValidation.validate_name_mappings(obj, router_mappings)
-        TopologyValidation.validate_cidrs_and_ips(obj, router_mappings)
-
+        TopologyValidation.raise_if_not_in_network(router_mappings, obj.networks)
+        TopologyValidation.raise_if_ip_not_unique(list(obj.net_mappings) + list(router_mappings))
         return True
 
     @staticmethod
@@ -98,20 +126,11 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
                 raise ValueError(_msg.format(router_mapping.ip, 'network', router_mapping.network))
 
     @staticmethod
-    def validate_cidrs_and_ips(obj: TopologyDefinition, router_mappings: RouterMappingList) -> None:
+    def validate_network_cidrs(obj: TopologyDefinition, networks: NetworkList) -> None:
         """
-        Validate CIDRs and IP addresses.
+        Validate that the networks and the WAN do not overlap.
         """
-        networks = list(obj.networks) + [obj.wan]
-        net_mappings = list(obj.net_mappings)
-        router_mappings_list = list(router_mappings)
-
-        TopologyValidation.raise_if_overlaps(networks)
-
-        TopologyValidation.raise_if_not_in_network(obj.net_mappings, obj.networks)
-        TopologyValidation.raise_if_not_in_network(router_mappings, obj.networks)
-
-        TopologyValidation.raise_if_ip_not_unique(net_mappings + router_mappings_list)
+        TopologyValidation.raise_if_overlaps(list(networks) + [obj.wan])
 
     @staticmethod
     def raise_if_overlaps(networks: list[Network | WAN]) -> None:
@@ -132,12 +151,12 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         """
         Raise error if IP is not in network.
         """
-        mappings_dict = {mapp.network: ip_address(mapp.ip) for mapp in mappings}
         networks_dict = {net.name: ip_network(net.cidr) for net in networks}
-        for network, ip in mappings_dict.items():
-            if ip not in networks_dict[network]:
+        for mapping in mappings:
+            ip = ip_address(mapping.ip)
+            if ip not in networks_dict[mapping.network]:
                 _msg = 'IP address "{}" is not valid host address of "{}" defined in network "{}".'
-                raise ValueError(_msg.format(ip, networks_dict[network], network))
+                raise ValueError(_msg.format(ip, networks_dict[mapping.network], mapping.network))
 
     @staticmethod
     def raise_if_ip_not_unique(
@@ -198,6 +217,12 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         TopologyValidation.raise_if_not_unique(
             'name, hosts, routers, networks, wan', a + b + c + d + e
         )
+        for name in b + c + d + e:
+            if name in RESERVED_NAMES:
+                raise ValueError(
+                    f'The name "{name}" is reserved for the sandbox management node and network. '
+                    'Rename the host, router or network.'
+                )
 
         return True
 

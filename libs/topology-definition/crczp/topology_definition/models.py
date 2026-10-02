@@ -6,7 +6,8 @@ from enum import Enum
 from typing import Any, Self
 
 from ruamel.yaml.loader import RoundTripLoader as _RoundTripLoader
-from yamlize import Attribute, Dynamic, Map, Object, Sequence, StrList, Typed
+from ruamel.yaml.nodes import MappingNode, Node
+from yamlize import Attribute, Dynamic, Map, Object, Sequence, StrList, Typed, YamlizingError
 
 from crczp.topology_definition.utils import rename_deprecated_attribute
 
@@ -18,6 +19,13 @@ from crczp.topology_definition.utils import rename_deprecated_attribute
 if not hasattr(_RoundTripLoader, 'max_depth'):
     _RoundTripLoader.max_depth = None  # ty: ignore[unresolved-attribute]
 from crczp.topology_definition.validators import TopologyValidation
+
+
+def _value_node(mapping: MappingNode, key: str) -> Node:
+    """
+    Return the value node of key in a YAML mapping, or the mapping itself if key is absent.
+    """
+    return next((value for key_node, value in mapping.value if key_node.value == key), mapping)
 
 
 class Protocol(Enum):
@@ -163,7 +171,7 @@ class Network(Object):
     """
 
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
-    cidr = Attribute(type=str)
+    cidr = Attribute(type=str, validator=TopologyValidation.is_ipv4_cidr)
     accessible_by_user = Attribute(type=bool, default=True)
     hidden = Attribute(type=bool, default=False)
 
@@ -180,7 +188,7 @@ class WAN(Object):
     """
 
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
-    cidr = Attribute(type=str)
+    cidr = Attribute(type=str, validator=TopologyValidation.is_ipv4_cidr)
 
     def __init__(self, name: str, cidr: str) -> None:
         self.name = name
@@ -202,7 +210,7 @@ class NetworkMapping(Object):
 
     host = Attribute(type=str)
     network = Attribute(type=str)
-    ip = Attribute(type=str)
+    ip = Attribute(type=str, validator=TopologyValidation.is_ipv4_address)
 
     def __init__(self, host: str, network: str, ip: str) -> None:
         self.host = host
@@ -225,7 +233,7 @@ class RouterMapping(Object):
 
     router = Attribute(type=str)
     network = Attribute(type=str)
-    ip = Attribute(type=str)
+    ip = Attribute(type=str, validator=TopologyValidation.is_ipv4_address)
 
     def __init__(self, router: str, network: str, ip: str) -> None:
         self.router = router
@@ -436,26 +444,12 @@ class TopologyDefinition(Object):  # pylint: disable=too-many-instance-attribute
     hosts = Attribute(type=HostList)
     routers = Attribute(type=RouterList)
     wan = Attribute(type=WAN, default=WAN('wan', '100.100.100.0/24'))
-    networks = Attribute(type=NetworkList, validator=TopologyValidation.validate_name_uniqueness)
-    # the validation of networks ABOVE is also used to validate the names of the upper four elements
-    net_mappings = Attribute(
-        type=NetworkMappingList, validator=TopologyValidation.validate_net_mappings
-    )
-    router_mappings = Attribute(
-        type=RouterMappingList, validator=TopologyValidation.validate_router_mappings
-    )
-    # the validation of router_mappings is also used to validate CIDRs and IP addresses
-    groups = Attribute(type=GroupList, validator=TopologyValidation.validate_groups)
-    monitoring_targets = Attribute(
-        type=MonitoringTargets,
-        validator=TopologyValidation.validate_monitoring_targets,
-        default=None,
-    )
-    vpn = Attribute(
-        type=Vpn,
-        validator=TopologyValidation.validate_vpn,
-        default=None,
-    )
+    networks = Attribute(type=NetworkList)
+    net_mappings = Attribute(type=NetworkMappingList)
+    router_mappings = Attribute(type=RouterMappingList)
+    groups = Attribute(type=GroupList)
+    monitoring_targets = Attribute(type=MonitoringTargets, default=None)
+    vpn = Attribute(type=Vpn, default=None)
 
     # Class-level defaults so yamlize (which bypasses __init__) finds these attributes
     _indexed: bool = False
@@ -478,6 +472,32 @@ class TopologyDefinition(Object):  # pylint: disable=too-many-instance-attribute
         self._hosts_index: dict[str, Host] = {}
         self._routers_index: dict[str, Router] = {}
         self._networks_index: dict[str, Network] = {}
+
+    @classmethod
+    def from_yaml(cls, loader: Any, node: Any, _rtd: Any = None) -> 'TopologyDefinition':
+        """
+        Load TopologyDefinition from YAML, then run the checks that span several attributes.
+
+        yamlize runs Attribute validators in document key order, so a validator reading other
+        attributes would see only what is loaded so far. Each error points at the checked key.
+        """
+        td = super().from_yaml(loader, node, _rtd)
+        # Names first: the later checks look nodes and networks up by name.
+        cross_attribute_checks = (
+            ('networks', TopologyValidation.validate_name_uniqueness),
+            ('networks', TopologyValidation.validate_network_cidrs),
+            ('net_mappings', TopologyValidation.validate_net_mappings),
+            ('router_mappings', TopologyValidation.validate_router_mappings),
+            ('groups', TopologyValidation.validate_groups),
+            ('monitoring_targets', TopologyValidation.validate_monitoring_targets),
+            ('vpn', TopologyValidation.validate_vpn),
+        )
+        for key, validate in cross_attribute_checks:
+            try:
+                validate(td, getattr(td, key))
+            except ValueError as exc:
+                raise YamlizingError(str(exc), _value_node(node, key)) from exc
+        return td
 
     @staticmethod
     def from_file(file: str) -> 'TopologyDefinition':

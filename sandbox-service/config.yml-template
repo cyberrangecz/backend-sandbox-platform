@@ -202,7 +202,7 @@ application_configuration:
         # The name of the flavor in OpenStack that will be used for MAN.
         man_flavor: ""
 
-        # The cidr notation of network between MAN and every other node in sandbox.
+        # The IPv4 cidr notation of network between MAN and every other node in sandbox.
         #sb_man_cidr: 192.168.128.0/17
 
         # The list of IP addresses to custom DNS servers.
