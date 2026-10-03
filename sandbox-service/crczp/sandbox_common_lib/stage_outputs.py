@@ -14,8 +14,9 @@ from rest_framework.views import APIView
 
 from crczp.sandbox_common_lib import utils
 
-LEADING_BLANK_LINES = re.compile(r'\A(?:[ \t\r]*\n)+')
-"""Lines holding only whitespace at the start of a text, with their line breaks."""
+LEADING_BLANK_LINES = re.compile(r'\A(?:[ \t\r]*(?:\n|\Z))+')
+"""Lines holding only whitespace at the start of a text, with their line breaks; the whole
+text when every line is blank."""
 
 
 class StageOutputSerializer(serializers.Serializer[dict[str, Any]]):
