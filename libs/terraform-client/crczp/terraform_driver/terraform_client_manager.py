@@ -76,7 +76,7 @@ class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
         """
         full_command = command if '-no-color' in command else command + ['-no-color']
         return subprocess.Popen(  # nosec B603
-            full_command, cwd=cwd, stdout=stdout, stderr=stderr, text=True
+            full_command, cwd=cwd, stdout=stdout, stderr=stderr, text=True, errors='replace'
         )
 
     def _create_terraform_backend_file(self, stack_dir: str) -> None:
@@ -218,7 +218,6 @@ class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
         :return: Tuple of stdout, stderr and return code
         """
         stdout, stderr = process.communicate(timeout=timeout)
-        stderr = ''.join(stderr.split('\n'))
         return_code = process.returncode
         if process.stdout:
             process.stdout.close()
@@ -227,7 +226,7 @@ class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
         if process.stdin:
             process.stdin.close()
 
-        return stdout, stderr, return_code
+        return stdout, stderr or '', return_code
 
     @staticmethod
     def get_process_output(process: subprocess.Popen[str]) -> Iterator[str]:
@@ -354,14 +353,14 @@ class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
 
         if dry_run:
             return self._execute_command(
-                ['tofu', 'plan'], cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                ['tofu', 'plan'], cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
             )
 
         return self._execute_command(
             ['tofu', 'apply', '-auto-approve', '-no-color'],
             cwd=stack_dir,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
         )
 
     def delete_stack(self, stack_name: str) -> subprocess.Popen[str] | None:
@@ -382,7 +381,7 @@ class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
             ['tofu', 'destroy', '-auto-approve', '-no-color'],
             cwd=stack_dir,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
         )
 
     def delete_stack_directory(self, stack_name: str) -> None:

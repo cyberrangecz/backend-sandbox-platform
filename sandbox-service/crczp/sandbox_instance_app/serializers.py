@@ -199,7 +199,7 @@ class SandboxAllocationUnitSerializer(serializers.ModelSerializer[models.Sandbox
     """Serializer for SandboxAllocationUnit model."""
 
     allocation_request = AllocationRequestSerializer(read_only=True)
-    cleanup_request = CleanupRequestSerializer()
+    cleanup_request = CleanupRequestSerializer(read_only=True, allow_null=True)
     pool_id = serializers.PrimaryKeyRelatedField(source='pool', read_only=True)
     created_by = serializers.SerializerMethodField()
     locked = serializers.SerializerMethodField()
@@ -296,19 +296,6 @@ class TerraformCleanupStageSerializer(serializers.ModelSerializer[models.StackCl
             'error_message',
             # 'allocation_stage_id',
         )
-        read_only_fields = fields
-
-
-class AllocationTerraformOutputSerializer(
-    serializers.ModelSerializer[models.AllocationTerraformOutput]
-):
-    """Serializer for AllocationTerraformOutput model."""
-
-    class Meta:  # pylint: disable=too-few-public-methods
-        """Meta options for AllocationTerraformOutputSerializer."""
-
-        model = models.AllocationTerraformOutput
-        fields = ('content',)
         read_only_fields = fields
 
 
