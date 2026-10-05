@@ -16,8 +16,8 @@ from crczp.sandbox_cloud_app.lib import projects
 from crczp.sandbox_common_lib import utils
 from crczp.sandbox_common_lib.common_cloud import list_images
 from crczp.sandbox_common_lib.pagination import PageNumberWithPageSizePagination
-from crczp.sandbox_definition_app.models import Definition
 from crczp.sandbox_instance_app.models import Pool
+from crczp.sandbox_uag.permissions import AdminPermission, DesignerPermission, OrganizerPermission
 
 LOG = structlog.get_logger()
 
@@ -171,8 +171,8 @@ class ProjectImagesView(generics.ListAPIView[Any]):
 class ProjectFlavorsView(generics.RetrieveAPIView[Any]):
     """View to retrieve the cloud project's flavors with their flavor mapping aliases."""
 
-    queryset = Definition.objects.none()
     serializer_class = serializers.FlavorCatalogSerializer
+    permission_classes = [DesignerPermission | OrganizerPermission | AdminPermission]
 
     @extend_schema(
         tags=['cloud'],

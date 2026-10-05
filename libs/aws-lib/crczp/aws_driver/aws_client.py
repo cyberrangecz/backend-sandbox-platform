@@ -406,7 +406,7 @@ class CrczpAwsClient(CrczpCloudClientBase):
         )
         return {
             flavor['InstanceType']: {
-                'vcpu': flavor['VCpuInfo']['DefaultCores'],
+                'vcpu': flavor['VCpuInfo']['DefaultVCpus'],
                 'ram': int(flavor['MemoryInfo']['SizeInMiB']) / 1024,
             }
             for flavor_list in flavors_pages
