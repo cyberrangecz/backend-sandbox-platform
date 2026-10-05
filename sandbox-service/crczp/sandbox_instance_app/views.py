@@ -569,9 +569,18 @@ class SandboxCleanupRequestView(generics.RetrieveDestroyAPIView[Any], generics.C
         return Response(serializer.data)
 
     @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name='force',
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                description='Force the deletion of the sandbox',
+                required=False,
+            )
+        ],
         responses={
             201: serializers.CleanupRequestSerializer,
-        }
+        },
     )
     @override
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -826,7 +835,7 @@ class SandboxDetailView(generics.RetrieveAPIView[Any]):
     serializer_class = serializers.SandboxSerializer
     lookup_url_kwarg = 'sandbox_uuid'
     queryset = Sandbox.objects.filter(ready=True)
-    permissions_classes = [OrganizerPermission | AdminPermission]
+    permission_classes = [OrganizerPermission | AdminPermission]
 
 
 @extend_schema(
@@ -947,7 +956,7 @@ class SandboxVMDetailView(generics.GenericAPIView[Any]):
         - SUSPENDED (vm suspended)
         - ... https://developer.openstack.org/api-guide/compute/server_concepts.html#server-status
         """
-        sandbox = self.get_object()
+        sandbox = self._get_sandbox_holding(kwargs['vm_name'])
         node = nodes.get_node(sandbox, kwargs['vm_name'])
         return Response(serializers.NodeSerializer(node).data)
 
@@ -958,13 +967,20 @@ class SandboxVMDetailView(generics.GenericAPIView[Any]):
         - resume
         - reboot
         """
-        sandbox = self.get_object()
+        sandbox = self._get_sandbox_holding(kwargs['vm_name'])
         try:
             action = request.data['action']
         except KeyError:
             raise exceptions.ValidationError('No action specified!') from None
         nodes.node_action(sandbox, kwargs['vm_name'], action)
         return Response()
+
+    def _get_sandbox_holding(self, vm_name: str) -> Sandbox:
+        """Return the requested sandbox, raising Http404 when its topology has no such node."""
+        sandbox = self.get_object()
+        if sandboxes.get_topology_instance(sandbox).get_node(vm_name) is None:
+            raise Http404(f"Sandbox {sandbox.id} has no node '{vm_name}'.")
+        return sandbox
 
 
 class SandboxVMConsoleView(APIView):

@@ -26,14 +26,14 @@ class ProjectInfoView(generics.RetrieveAPIView[Any]):
 
     # Exploitation of the Pool model permissions, Since the Cloud App does not have any models.
     queryset = Pool.objects.none()  # Required for DjangoModelPermissions
-    serializer_class = serializers.QuotaSetSerializer
+    serializer_class = serializers.ProjectInfoSerializer
 
     # noinspection PyMethodMayBeStatic
     @extend_schema(
         tags=['cloud'],
         responses={
             200: OpenApiResponse(
-                response=serializers.QuotaSetSerializer, description='Project name and quotas'
+                response=serializers.ProjectInfoSerializer, description='Project name and quotas'
             ),
             **{k: v for k, v in utils.ERROR_RESPONSES.items() if k in [401, 403, 500]},
         },
@@ -45,8 +45,11 @@ class ProjectInfoView(generics.RetrieveAPIView[Any]):
         """
         project_name = projects.get_project_name()
         quota_set = projects.get_quota_set()
-        serialized_quota = serializers.QuotaSetSerializer(quota_set)
-        return Response({'project_name': project_name, 'quotas': serialized_quota.data})
+        serialized_project_info = serializers.ProjectInfoSerializer({
+            'project_name': project_name,
+            'quotas': quota_set,
+        })
+        return Response(serialized_project_info.data)
 
 
 class ProjectImagesView(generics.ListAPIView[Any]):

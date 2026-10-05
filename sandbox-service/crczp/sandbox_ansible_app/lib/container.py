@@ -400,8 +400,8 @@ class KubernetesContainer(BaseContainer):
         temporary_outputs = self.output_class.objects.filter(**self.stage_info)
         temporary_outputs.delete()
         pod_outputs = self.CORE_API.read_namespaced_pod_log(
-            name=pod_name, namespace=self.KUBERNETES_NAMESPACE
-        )
+            name=pod_name, namespace=self.KUBERNETES_NAMESPACE, _preload_content=False
+        ).data.decode('utf-8')
         for output in pod_outputs.split('\n'):
             self.output_class.objects.create(**self.stage_info, content=output)
 
