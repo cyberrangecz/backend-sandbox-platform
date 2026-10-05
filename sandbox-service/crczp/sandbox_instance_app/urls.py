@@ -108,6 +108,11 @@ urlpatterns = [
         views.TerraformAllocationStageOutputListView.as_view(),
         name='terraform-outputs',
     ),
+    path(
+        'cleanup-requests/<int:request_id>/stages/terraform/outputs',
+        views.TerraformCleanupStageOutputListView.as_view(),
+        name='terraform-cleanup-outputs',
+    ),
     # Pool manipulation
     path(
         'pools/<int:pool_id>/sandboxes',

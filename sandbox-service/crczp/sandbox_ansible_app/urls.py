@@ -35,4 +35,14 @@ urlpatterns = [
         views.UserAnsibleOutputListView.as_view(),
         name='user-ansible-output',
     ),
+    path(
+        'cleanup-requests/<int:request_id>/stages/networking-ansible/outputs',
+        views.NetworkingAnsibleCleanupOutputListView.as_view(),
+        name='networking-ansible-cleanup-output',
+    ),
+    path(
+        'cleanup-requests/<int:request_id>/stages/user-ansible/outputs',
+        views.UserAnsibleCleanupOutputListView.as_view(),
+        name='user-ansible-cleanup-output',
+    ),
 ]

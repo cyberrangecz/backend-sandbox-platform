@@ -180,17 +180,14 @@ class StackStageHandler(StageHandler):
     def _wait_for_process(
         self,
         process: Popen[str],
-        terraform_output: Any,
         timeout: int = settings.CRCZP_CONFIG.sandbox_build_timeout,
-        **kwargs: Any,
     ) -> None:
         """
         Wait for process to finish.
         """
-        _stdout, stderr, return_code = self._client.wait_for_process(process, timeout)
+        _stdout, _stderr, return_code = self._client.wait_for_process(process, timeout)
         if return_code:
-            LOG.error('Terraform execution failed', stderr=stderr, **kwargs)
-            terraform_output.objects.create(**kwargs, content=stderr)
+            LOG.error('Terraform execution failed', return_code=return_code)
             raise CrczpException('Terraform execution failed. See logs for details.')
 
     def _delete_stack(
@@ -214,7 +211,7 @@ class StackStageHandler(StageHandler):
                     self._log_process_output(
                         process, CleanupTerraformOutput, cleanup_stage=self.stage
                     )
-                self._wait_for_process(process, CleanupTerraformOutput, cleanup_stage=self.stage)
+                self._wait_for_process(process)
             else:
                 # process is None when delete_stack is not able to initialize stack directory,
                 # but it is not a problem because creation failed to initialize as well
@@ -272,13 +269,14 @@ class AllocationStackStageHandler(StackStageHandler):
             self._log_process_output(
                 self.process, AllocationTerraformOutput, allocation_stage=self.stage
             )
-            self._wait_for_process(
-                self.process, AllocationTerraformOutput, allocation_stage=self.stage
-            )
+            self._wait_for_process(self.process)
         except CrczpException as exc:
             if self.process:
                 self.process.terminate()
-            super()._delete_stack(allocation_unit, log_output=False)
+            try:
+                super()._delete_stack(allocation_unit, log_output=False)
+            except (CrczpException, exceptions.StackError) as cleanup_exc:
+                LOG.warning('Stack removal after failed build failed', error=str(cleanup_exc))
             raise StackCreationFailed(f'Sandbox build failed: {exc}') from exc
 
     @override
