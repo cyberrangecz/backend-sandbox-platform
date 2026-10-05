@@ -129,7 +129,7 @@ def test_view_admits_designer_organizer_and_admin_only(mocker, roles, expected_s
     mocker.patch.object(
         settings,
         'CRCZP_SERVICE_CONFIG',
-        mock.Mock(**{'authentication.authenticated_rest_api': True}),
+        mock.Mock(authentication=mock.Mock(authenticated_rest_api=True)),
     )
     mocker.patch(
         'crczp.sandbox_uag.permissions.authenticator_class.get_bearer_token',
