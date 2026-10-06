@@ -15,7 +15,7 @@ def delete_jump_ssh_key(allocation_unit: SandboxAllocationUnit) -> None:
     name = allocation_unit.get_stack_name()
     ssh = connect_to_jump()
     try:
-        _stdin, stdout, stderr = ssh.exec_command(f'sudo rm -rf /home/{name}')  # nosec B601
+        _stdin, stdout, stderr = ssh.exec_command(f'sudo rm -rf /home/{name}')
 
         # Wait for the command to finish
         stdout.channel.recv_exit_status()
@@ -41,7 +41,7 @@ def ssh_connect(hostname: str, port: int, username: str, key_file_path: str) -> 
     try:
         ssh = paramiko.SSHClient()
         ssh.load_system_host_keys()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())  # nosec B507
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())  # noqa: S507
         private_key = load_private_key(key_file_path)
 
         ssh.connect(hostname, port=port, username=username, pkey=private_key)

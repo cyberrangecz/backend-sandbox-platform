@@ -1,0 +1,145 @@
+# Scheduled security scans of what is already on master and already released.
+#
+# github-actions.yml fails a branch only on what that branch introduces. Everything that
+# turns bad without anyone pushing - a CVE published against the lock, a fix landing for
+# the released image's base, a leaked key in old history that turns out to be live - is
+# caught here instead, and kept visible as an open issue until someone fixes it.
+#
+# Kept out of github-actions.yml so no scheduled run can reach the build, docs or tag jobs.
+
+name: Scheduled security scans
+
+on:
+  schedule:
+    # Nightly: dependency audit and the latest released image.
+    - cron: "23 3 * * *"
+    # Weekly (Monday): full-history secret scan.
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Same tox env as the PR audit, without a BASE: every known vulnerability fails.
+  audit:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 3 * * *'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.11.24"
+          python-version: "3.12"
+      - run: uv tool install tox --with tox-uv-bare==1.36.0
+      - working-directory: sandbox-service
+        run: tox -q -e audit
+
+  # The newest release, as users run it. Its base image and apt packages gain known
+  # vulnerabilities after release, which no build-time scan can see.
+  image:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 3 * * *'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Release tags exist both as `v3.0.0` and bare `3.0.0`; the image tag is always
+      # bare. Same selection as the check-version-bump hook in .pre-commit-config.yaml.
+      - name: Find the latest release
+        id: release
+        run: |
+          version=$(git tag --sort=-version:refname | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -1 | sed 's/^v//')
+          if [ -z "$version" ]; then
+            echo '::error::No release tag found'
+            exit 1
+          fi
+          echo "image=ghcr.io/${GITHUB_REPOSITORY}/sandbox-service:${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Scan image (grype)
+        id: grype
+        uses: anchore/scan-action@v7.4.2
+        with:
+          image: ${{ steps.release.outputs.image }}
+          severity-cutoff: high
+          only-fixed: true
+          output-format: table
+          output-file: ${{ runner.temp }}/grype.txt
+
+      - name: Image scan summary
+        if: ${{ !cancelled() && steps.grype.conclusion != 'skipped' }}
+        run: |
+          {
+            echo "### ${{ steps.release.outputs.image }}: high and above, with a fix available"
+            echo '```'
+            cat "$RUNNER_TEMP/grype.txt" 2>/dev/null || echo 'grype produced no report'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Every branch, every commit. Only credentials that still work fail the job, so old
+  # test keys and long-revoked tokens stay quiet, and a hit always means rotate now.
+  secrets-history:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 4 * * 1'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # checkout leaves the other branches as origin/* only; make them local branches so
+      # the scan walks them too. --update-head-ok allows refreshing the checked-out one.
+      - name: Fetch all branches
+        run: git fetch --update-head-ok origin '+refs/heads/*:refs/heads/*'
+
+      - name: TruffleHog (full history)
+        run: >-
+          docker run --rm -v "$PWD:/repo" ghcr.io/trufflesecurity/trufflehog:3.98.0
+          git file:///repo --results=verified --fail --no-update --github-actions
+
+  # One issue per failing scan, reused across runs, so a standing problem is one issue
+  # with a comment per failed night rather than a new issue every day.
+  report:
+    needs: [audit, image, secrets-history]
+    if: failure()
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      RESULTS: ${{ toJSON(needs) }}
+    steps:
+      - name: Open or update issues
+        run: |
+          for job in $(jq -r 'to_entries[] | select(.value.result == "failure") | .key' <<<"$RESULTS"); do
+            case "$job" in
+              audit)
+                advice='A dependency in uv.lock has a known vulnerability. Fix it in its own PR to master: bump the package, or, if there is no fix or it is unreachable, add it to sandbox-service/audit-ignore.txt with the reason and a review date. Feature branches are not blocked by this; the master release run is.' ;;
+              image)
+                advice='The latest released image has high or critical vulnerabilities that have a fix. Most come from the Debian base: a new release picks up the patched python:3.12-slim. Otherwise bump the affected package.' ;;
+              secrets-history)
+                advice='TruffleHog found a credential in the repository history that still works. The repository is public: rotate the credential now. Rewriting history does not un-publish it.' ;;
+            esac
+            title="Scheduled security scan failing: $job"
+            number=$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
+              --jq ".[] | select(.title == \"$title\") | .number" | head -1)
+            if [ -n "$number" ]; then
+              gh issue comment "$number" --body "Still failing: $RUN_URL"
+            else
+              gh issue create --title "$title" --body "$advice
+
+          First failing run: $RUN_URL"
+            fi
+          done

@@ -51,9 +51,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends gnupg curl unzi
 RUN mkdir -p /var/log/supervisor
 
 ## Install OpenTofu from script
+# Pinned: unpinned, the installer fetched whatever was latest at build time, so two
+# builds of the same commit could ship different binaries and the SBOM said nothing
+# stable about a release.
+ARG OPENTOFU_VERSION=1.13.0
 RUN curl --proto '=https' --tlsv1.2 -fsSL https://get.opentofu.org/install-opentofu.sh -o install-opentofu.sh && \
 chmod +x install-opentofu.sh && \
-./install-opentofu.sh --install-method standalone && \
+./install-opentofu.sh --install-method standalone --opentofu-version "${OPENTOFU_VERSION}" && \
 rm -rf install-opentofu.sh /tmp/*
 
 # Setup provider mirror

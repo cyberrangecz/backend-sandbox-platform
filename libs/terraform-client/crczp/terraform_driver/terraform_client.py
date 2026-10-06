@@ -2,7 +2,7 @@
 Module containing CyberRangeCZ Platform Terraform client.
 """
 
-import subprocess  # nosec B404
+import subprocess  # noqa: S404
 from collections.abc import Iterator
 from enum import Enum
 from typing import Any

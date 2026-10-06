@@ -58,7 +58,7 @@ else:
         database = _DatabaseConfig()
 
     class _ServiceConfig:  # pylint: disable=too-few-public-methods
-        django_secret_key = 'pylint-only-secret-key'  # noqa: S105  # nosec B105
+        django_secret_key = 'pylint-only-secret-key'  # noqa: S105
         debug = False
         allowed_hosts: list[str] = []
         cors_origin_allow_all = False

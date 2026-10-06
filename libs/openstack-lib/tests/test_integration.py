@@ -1,7 +1,7 @@
 """Tests for CrczpOpenStackClient keypair lifecycle (mocked Nova API)."""
 
 import pytest
-from Crypto.PublicKey import RSA
+from Crypto.PublicKey import RSA  # noqa: S413  # pycryptodome, not the abandoned pycrypto
 
 from crczp.cloud_commons import TransformationConfiguration
 from crczp.openstack_driver import CrczpOpenStackClient

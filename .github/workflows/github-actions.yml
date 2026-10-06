@@ -4,6 +4,12 @@
 #
 # The six libraries are no longer published to PyPI, so there is no package
 # build/publish job for them and only sandbox-service is tag-controlled.
+#
+# Security gating follows one rule: a run fails on what it introduces, and only reports
+# what it inherits. A CVE published against a dependency set the branch did not touch is
+# not the branch's problem - it is fixed in its own PR to master, and the nightly run in
+# security-schedule.yml keeps an issue open until it is. The master run (workflow_dispatch,
+# which builds the versioned image and tags) is the hard gate and fails on everything.
 
 name: Sandbox Workspace CI
 
@@ -115,6 +121,10 @@ jobs:
       # The ty hook wraps `uv check` and takes no ty flags, so its output format
       # is set here rather than in .pre-commit-config.yaml.
       TY_OUTPUT_FORMAT: github
+      # The gitleaks hook scans staged changes only, and nothing is staged in CI, so it
+      # would compile itself with Go to check nothing. The `secrets` job runs gitleaks
+      # over this run's commits instead.
+      SKIP: gitleaks
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -136,6 +146,38 @@ jobs:
       - name: Run pre-commit
         run: pre-commit run --all-files --show-diff-on-failure
 
+  # Commits this run brings in, scanned for secrets by two tools that fail on different
+  # things. Any failure here is a leak already published to a public repository: rotate
+  # the credential, rewriting history does not un-publish it. The full history is
+  # rescanned weekly by security-schedule.yml.
+  secrets:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          # Both scans walk a commit range, so both ends must be present.
+          fetch-depth: 0
+
+      # Pattern match, no verification: catches passwords and keys no issuer can confirm.
+      # Same rules and allowlist (.gitleaks.toml) as the pre-commit hook, run here for
+      # anyone who has not installed the hook. Scans the PR's commits, or on a push the
+      # branch's commits not yet on master (empty, so a no-op, for the master run).
+      # --redact matters: this repository's Actions logs are public.
+      - name: gitleaks
+        env:
+          RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || 'origin/master..HEAD' }}
+        run: >-
+          docker run --rm -v "$PWD:/repo:ro" ghcr.io/gitleaks/gitleaks:v8.30.1
+          git /repo --log-opts="$RANGE" --redact --no-banner --verbose
+
+      # Only verified results fail: TruffleHog proves a hit is live against its issuer.
+      - name: TruffleHog
+        uses: trufflesecurity/trufflehog@v3.98.0
+        with:
+          version: 3.98.0
+          extra_args: --results=verified
+
   # One job per (changed package x tox env), replacing the seven near-identical
   # reusable-workflow call sites.
   quality:
@@ -151,7 +193,9 @@ jobs:
       fail-fast: false
       matrix:
         package: ${{ fromJSON(needs.changes.outputs.packages) }}
-        env: [pylint, bandit, audit, pytest]
+        # Security lint is ruff's `S` rules in pre-commit; the dependency audit is the
+        # `audit` job below, since one run over sandbox-service covers every library.
+        env: [pylint, pytest]
     name: ${{ matrix.package }} (${{ matrix.env }})
     steps:
       - uses: actions/checkout@v4
@@ -170,15 +214,48 @@ jobs:
       - working-directory: ${{ matrix.package }}
         run: tox -q -e ${{ matrix.env }}
 
+  # Dependency audit of the locked set the image ships (sandbox-service/audit.sh). Fails
+  # only on vulnerabilities this change introduces, compared with BASE; inherited ones go
+  # to the job summary and are tracked by the nightly issue from security-schedule.yml.
+  # The master run sets no BASE, so there every known vulnerability blocks the release.
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The base revision is checked out as a worktree and audited too.
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.11.24"
+          python-version: "3.12"
+      - run: uv tool install tox --with tox-uv-bare==1.36.0
+
+      - name: pip-audit
+        working-directory: sandbox-service
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+        run: |
+          # A branch push compares with where the branch left master.
+          if [ -z "$BASE" ] && [ "$GITHUB_REF" != refs/heads/master ]; then
+            BASE=$(git merge-base origin/master HEAD)
+          fi
+          tox -q -e audit
+
   get_current_version:
     uses: cyberrangecz/actions-templates/.github/workflows/get_version.yml@master
     with:
       file_path: "sandbox-service/pyproject.toml"
 
   build:
-    if: needs.changes.outputs.sandbox-service == 'true' && github.event_name != 'pull_request'
+    # Dependabot's pushes get a read-only GITHUB_TOKEN, so the image push could only fail;
+    # its PRs still run every check above.
+    if: >-
+      needs.changes.outputs.sandbox-service == 'true'
+      && github.event_name != 'pull_request'
+      && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-24.04
-    needs: [changes, get_current_version, quality, pre-commit]
+    needs: [changes, get_current_version, quality, pre-commit, audit, secrets]
     permissions:
       contents: read
       packages: write
@@ -198,8 +275,45 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Scan before anything is pushed, so a failing release scan leaves no image behind.
+      # pip-audit (the `audit` job) sees only the Python set; this also covers the Debian
+      # base, the apt packages and the OpenTofu/provider binaries. Blocks on the master run
+      # only, and only for high/critical findings that have a fix to move to.
       # Build context is the repository root so the uv workspace can resolve
       # libs/* as path dependencies; see sandbox-service/Dockerfile.
+      - name: Build image for scanning
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./sandbox-service/Dockerfile
+          load: true
+          tags: sandbox-service:scan
+
+      - name: Scan image (grype)
+        id: grype
+        uses: anchore/scan-action@v7.4.2
+        with:
+          image: sandbox-service:scan
+          fail-build: ${{ github.ref == 'refs/heads/master' }}
+          severity-cutoff: high
+          only-fixed: true
+          output-format: table
+          output-file: ${{ runner.temp }}/grype.txt
+
+      - name: Image scan summary
+        if: ${{ !cancelled() && steps.grype.conclusion != 'skipped' }}
+        run: |
+          {
+            echo '### Image vulnerabilities (high and above, with a fix available)'
+            echo '```'
+            cat "$RUNNER_TEMP/grype.txt" 2>/dev/null || echo 'grype produced no report'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Same build again, from the builder's cache. The SBOM and provenance are attached
+      # to the pushed image as attestations: a record of exactly what each released
+      # version ships and how it was built, readable with `docker buildx imagetools
+      # inspect <image> --format '{{ json .SBOM }}'`.
       - name: Build and push Docker image
         env:
           TAG: ${{ github.ref == 'refs/heads/master' && format('{0}', env.VERSION ) || format('{0}-dev', env.VERSION) }}
@@ -209,6 +323,8 @@ jobs:
           file: ./sandbox-service/Dockerfile
           push: true
           tags: ghcr.io/${{ github.repository }}/sandbox-service:${{ env.TAG }}
+          sbom: true
+          provenance: mode=max
 
   generate_docs:
     permissions:

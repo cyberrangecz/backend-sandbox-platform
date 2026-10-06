@@ -5,7 +5,7 @@ Module containing CyberRangeCZ Platform Terraform client manager.
 import json
 import os
 import shutil
-import subprocess  # nosec B404
+import subprocess  # noqa: S404
 from collections.abc import Iterator
 from typing import IO, Any
 
@@ -29,7 +29,7 @@ from crczp.terraform_driver.terraform_exceptions import (
     TerraformWorkspaceFailed,
 )
 
-STACKS_DIR = '/var/tmp/crczp/terraform-stacks/'  # nosec B108
+STACKS_DIR = '/var/tmp/crczp/terraform-stacks/'  # noqa: S108
 TEMPLATE_FILE_NAME = 'deploy.tf'
 TERRAFORM_BACKEND_FILE_NAME = 'backend.tf'
 TERRAFORM_PROVIDER_FILE_NAME = 'provider.tf'
@@ -75,7 +75,7 @@ class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
         :return: subprocess.Popen object
         """
         full_command = command if '-no-color' in command else command + ['-no-color']
-        return subprocess.Popen(  # nosec B603
+        return subprocess.Popen(  # noqa: S603
             full_command, cwd=cwd, stdout=stdout, stderr=stderr, text=True, errors='replace'
         )
 

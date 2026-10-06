@@ -189,21 +189,6 @@ wheels = [
 ]
 
 [[package]]
-name = "bandit"
-version = "1.9.4"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32'" },
-    { name = "pyyaml" },
-    { name = "rich" },
-    { name = "stevedore" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/aa/c3/0cb80dfe0f3076e5da7e4c5ad8e57bac6ac357ff4a6406205501cade4965/bandit-1.9.4.tar.gz", hash = "sha256:b589e5de2afe70bd4d53fa0c1da6199f4085af666fde00e8a034f152a52cd628", size = 4242677, upload-time = "2026-02-25T06:44:15.503Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/05/a4/a26d5b25671d27e03afb5401a0be5899d94ff8fab6a698b1ac5be3ec29ef/bandit-1.9.4-py3-none-any.whl", hash = "sha256:f89ffa663767f5a0585ea075f01020207e966a9c0f2b9ef56a57c7963a3f6f8e", size = 134741, upload-time = "2026-02-25T06:44:13.694Z" },
-]
-
-[[package]]
 name = "bcrypt"
 version = "5.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -729,10 +714,6 @@ lint = [
     { name = "pytest-mock" },
     { name = "pytest-structlog" },
 ]
-security = [
-    { name = "bandit" },
-    { name = "pip-audit" },
-]
 test = [
     { name = "pytest" },
     { name = "pytest-mock" },
@@ -752,10 +733,6 @@ lint = [
     { name = "pytest" },
     { name = "pytest-mock" },
     { name = "pytest-structlog" },
-]
-security = [
-    { name = "bandit" },
-    { name = "pip-audit" },
 ]
 test = [
     { name = "pytest" },
@@ -781,10 +758,6 @@ lint = [
     { name = "pytest-mock" },
     { name = "pytest-structlog" },
 ]
-security = [
-    { name = "bandit" },
-    { name = "pip-audit" },
-]
 test = [
     { name = "pytest" },
     { name = "pytest-mock" },
@@ -805,10 +778,6 @@ lint = [
     { name = "pytest" },
     { name = "pytest-mock" },
     { name = "pytest-structlog" },
-]
-security = [
-    { name = "bandit" },
-    { name = "pip-audit" },
 ]
 test = [
     { name = "pytest" },
@@ -843,10 +812,6 @@ lint = [
     { name = "pytest-mock" },
     { name = "pytest-structlog" },
 ]
-security = [
-    { name = "bandit" },
-    { name = "pip-audit" },
-]
 test = [
     { name = "pycryptodome" },
     { name = "pytest" },
@@ -877,10 +842,6 @@ lint = [
     { name = "pytest" },
     { name = "pytest-mock" },
     { name = "pytest-structlog" },
-]
-security = [
-    { name = "bandit" },
-    { name = "pip-audit" },
 ]
 test = [
     { name = "pycryptodome" },
@@ -913,10 +874,6 @@ lint = [
     { name = "pytest-mock" },
     { name = "pytest-structlog" },
 ]
-security = [
-    { name = "bandit" },
-    { name = "pip-audit" },
-]
 test = [
     { name = "pytest" },
     { name = "pytest-mock" },
@@ -941,10 +898,6 @@ lint = [
     { name = "pytest-mock" },
     { name = "pytest-structlog" },
 ]
-security = [
-    { name = "bandit" },
-    { name = "pip-audit" },
-]
 test = [
     { name = "pytest" },
     { name = "pytest-mock" },
@@ -953,7 +906,7 @@ test = [
 
 [[package]]
 name = "crczp-sandbox-service"
-version = "3.2.0"
+version = "3.3.0"
 source = { editable = "sandbox-service" }
 dependencies = [
     { name = "better-profanity" },
@@ -1014,7 +967,6 @@ lint = [
     { name = "pytest-structlog" },
 ]
 security = [
-    { name = "bandit" },
     { name = "pip-audit" },
 ]
 test = [
@@ -1084,10 +1036,7 @@ lint = [
     { name = "pytest-mock" },
     { name = "pytest-structlog" },
 ]
-security = [
-    { name = "bandit" },
-    { name = "pip-audit" },
-]
+security = [{ name = "pip-audit" }]
 test = [
     { name = "fakeredis", extras = ["lua"] },
     { name = "pytest" },
@@ -1115,10 +1064,6 @@ lint = [
     { name = "pytest-mock" },
     { name = "pytest-structlog" },
 ]
-security = [
-    { name = "bandit" },
-    { name = "pip-audit" },
-]
 test = [
     { name = "pytest" },
     { name = "pytest-mock" },
@@ -1140,10 +1085,6 @@ lint = [
     { name = "pytest" },
     { name = "pytest-mock" },
     { name = "pytest-structlog" },
-]
-security = [
-    { name = "bandit" },
-    { name = "pip-audit" },
 ]
 test = [
     { name = "pytest" },
@@ -1168,10 +1109,6 @@ lint = [
     { name = "pytest-mock" },
     { name = "pytest-structlog" },
 ]
-security = [
-    { name = "bandit" },
-    { name = "pip-audit" },
-]
 test = [
     { name = "pytest" },
     { name = "pytest-mock" },
@@ -1191,10 +1128,6 @@ lint = [
     { name = "pytest" },
     { name = "pytest-mock" },
     { name = "pytest-structlog" },
-]
-security = [
-    { name = "bandit" },
-    { name = "pip-audit" },
 ]
 test = [
     { name = "pytest" },

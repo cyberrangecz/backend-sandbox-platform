@@ -29,11 +29,6 @@ lint = [
     { include-group = "test" },
 ]
 
-security = [
-    "bandit",
-    "pip-audit",
-]
-
 [project.urls]
 GitHub = "https://github.com/cyberrangecz/backend-sandbox-platform"
 
@@ -69,7 +64,15 @@ select = [
     "SIM",
     # isort
     "I",
+    # flake8-bandit: the security lint that the bandit tox env used to run
+    "S",
 ]
+# Carried over from the former [tool.bandit] skips: asserts are allowed (B101).
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+# Fixture credentials and scratch paths are expected in tests.
+"tests/**" = ["S105", "S106", "S108"]
 
 [tool.ruff.format]
 quote-style = "single"
@@ -78,9 +81,6 @@ docstring-code-format = true
 
 [tool.pylint]
 # You can add pylint configs here or in .pylintrc
-
-[tool.bandit]
-skips = ["B101"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"

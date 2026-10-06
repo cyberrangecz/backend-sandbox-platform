@@ -25,11 +25,6 @@ lint = [
     { include-group = "test" },
 ]
 
-security = [
-    "bandit",
-    "pip-audit",
-]
-
 [build-system]
 # TODO: Replace this with uv_build when it is it released for GA.
 #   https://github.com/astral-sh/uv/issues/3957
@@ -57,7 +52,16 @@ select = [
     "SIM",
     # isort
     "I",
+    # flake8-bandit: the security lint that the bandit tox env used to run
+    "S",
 ]
+# Carried over from the former [tool.bandit] skips: asserts are allowed (B101), and
+# `random` is used for non-cryptographic values only (B311).
+ignore = ["S101", "S311"]
+
+[tool.ruff.lint.per-file-ignores]
+# Fixture credentials and scratch paths are expected in tests.
+"tests/**" = ["S105", "S106", "S108"]
 
 [tool.ruff.format]
 quote-style = "single"
@@ -66,9 +70,6 @@ docstring-code-format = true
 
 [tool.pylint]
 # You can add pylint configs here or in .pylintrc
-
-[tool.bandit]
-skips = ["B101", "B311"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"

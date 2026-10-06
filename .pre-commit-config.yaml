@@ -41,6 +41,15 @@ repos:
     hooks:
       - id: ty
 
+  # The only secret check that runs before a commit exists - once pushed to this public
+  # repository a secret is leaked, whatever CI says. Scans staged changes, so it is a
+  # no-op in CI (skipped there); the `secrets` CI job runs the same config over each
+  # PR's commits. Rules and allowlist: .gitleaks.toml.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
   - repo: local
     hooks:
       # Only sandbox-service is versioned and tagged in this repository; the six
