@@ -3,14 +3,15 @@ Django Apps configuration file
 """
 
 import os
+from collections.abc import Callable
 from enum import Enum
-from typing import Any, cast
+from typing import Any
 
+from ruamel.yaml import MappingNode
 from yamlize import Attribute, Map, Object, Typed, YamlizingError
 
 from crczp.cloud_commons import TransformationConfiguration
 from crczp.sandbox_common_lib import crczp_config_validation
-from crczp.sandbox_common_lib.exceptions import ImproperlyConfigured
 
 HEAD_IP = '0.0.0.0'  # noqa: S104  # default head host address, not a socket bind
 LOG_FILE = 'sandbox-service.log'
@@ -28,7 +29,7 @@ SANDBOX_DELETE_TIMEOUT = 3600
 SANDBOX_ANSIBLE_TIMEOUT = 3600 * 2
 VOLUMES_PATH = '/tmp/crczp'  # noqa: S108  # default for volumes_path in config.yml, not a temp file
 PERSISTENT_VOLUME_CLAIM_NAME = 'sandbox-service'
-ANSIBLE_DOCKER_IMAGE = 'ghcr.io/cyberrangecz/crczp-ansible-runner:1.4.1'
+ANSIBLE_DOCKER_IMAGE = 'ghcr.io/cyberrangecz/crczp-ansible-runner:1.2.0'
 ANSIBLE_DOCKER_NETWORK = 'bridge'
 ANSWERS_STORAGE_API = 'http://answers-storage:8087/answers-storage/api/v1'
 SSL_CA_CERTIFICATE_VERIFY = '/etc/ssl/certs'
@@ -43,6 +44,26 @@ REDIS_HOST = 'localhost'
 REDIS_PORT = 6379
 REDIS_DB = 0
 REDIS_TIMEOUT = 86400 * 30
+
+LEGACY_OPENSTACK_KEYS = {
+    f'os_{name}': name
+    for name in (
+        'auth_url',
+        'application_credential_id',
+        'application_credential_secret',
+        'console_type',
+    )
+}
+
+
+def _enum_from_yaml(create: Callable[[str], Enum]) -> Callable[[Any, Any, Any], Enum]:
+    def from_yaml(loader: Any, node: Any, _rtd: Any) -> Enum:
+        try:
+            return create(str(loader.construct_object(node)))
+        except ValueError as exc:
+            raise YamlizingError(str(exc), node) from exc
+
+    return from_yaml
 
 
 class ProxyJump(Object):
@@ -126,7 +147,10 @@ class OpenStackConsoleType(Enum):
         try:
             return cls[value.upper().replace('-', '_')]
         except KeyError:
-            raise ValueError(f'Invalid value for OpenStackConsoleType: {value}') from None
+            valid = ', '.join(console.value for console in cls)
+            raise ValueError(
+                f'Invalid value for console_type: {value}. Expected one of: {valid}.'
+            ) from None
 
 
 class AwsConfiguration(Object):
@@ -138,6 +162,25 @@ class AwsConfiguration(Object):
     availability_zone = Attribute(type=str, default='')
     base_vpc = Attribute(type=str, default='Base VPC')
     base_subnet = Attribute(type=str, default='Base Subnet')
+
+
+class OpenStackConfiguration(Object):
+    """OpenStack cloud provider configuration."""
+
+    auth_url = Attribute(type=str, default=None)
+    application_credential_id = Attribute(type=str, default=None)
+    application_credential_secret = Attribute(type=str, default=None)
+    # yamlize's Typed is a metaclass whose __new__ builds and returns a separate class,
+    # so type.__init__ is never reached; ty still checks the call against its overloads.
+    # The same applies to every other Typed(...) call in this file.
+    console_type = Attribute(
+        type=Typed(  # ty: ignore[no-matching-overload]
+            OpenStackConsoleType,
+            from_yaml=_enum_from_yaml(OpenStackConsoleType.create),
+            to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.name)),
+        ),
+        default=OpenStackConsoleType.SPICE_HTML5,
+    )
 
 
 class NamingStrategy(Object):
@@ -214,23 +257,7 @@ class CrczpConfiguration(Object):
     head_host = Attribute(type=str, default=HEAD_IP)
     syslog_destination_port = Attribute(type=int, default=515)
 
-    os_auth_url = Attribute(type=str, default=None)
-    os_application_credential_id = Attribute(type=str, default=None)
-    os_application_credential_secret = Attribute(type=str, default=None)
-    # yamlize's Typed is a metaclass whose __new__ builds and returns a separate class,
-    # so type.__init__ is never reached; ty still checks the call against its overloads.
-    # The same applies to every other Typed(...) call in this file.
-    os_console_type = Attribute(
-        type=Typed(  # ty: ignore[no-matching-overload]
-            OpenStackConsoleType,
-            from_yaml=(
-                lambda loader, node, _: OpenStackConsoleType.create(loader.construct_object(node))
-            ),
-            to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.name)),
-        ),
-        default=OpenStackConsoleType.SPICE_HTML5,
-    )
-
+    openstack = Attribute(type=OpenStackConfiguration, default=None)
     aws = Attribute(type=AwsConfiguration, default=None)
 
     log_file = Attribute(type=str, default=LOG_FILE)
@@ -264,9 +291,7 @@ class CrczpConfiguration(Object):
     topology_cache_mode = Attribute(
         type=Typed(  # ty: ignore[no-matching-overload]
             TopologyCacheMode,
-            from_yaml=(
-                lambda loader, node, rtd: TopologyCacheMode.create(loader.construct_object(node))
-            ),
+            from_yaml=_enum_from_yaml(TopologyCacheMode.create),
             to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.name)),
         ),
         default=TopologyCacheMode.AGGRESSIVE,
@@ -296,6 +321,9 @@ class CrczpConfiguration(Object):
 
     ssl_ca_certificate_verify = Attribute(type=str, default=SSL_CA_CERTIFICATE_VERIFY)
 
+    # When False, definitions declaring `network_forwarding` are rejected before Terraform apply.
+    network_forwarding_enabled = Attribute(type=bool, default=False)
+
     trc = Attribute(type=TransformationConfiguration, key='sandbox_configuration')
 
     # Email allocation notifications
@@ -320,28 +348,26 @@ class CrczpConfiguration(Object):
         for key, val in kwargs.items():
             setattr(self, key, val)
 
-    # Note: overrides yamlize Object.load to add error handling
-    # Override
+    # Nested under CrczpServiceConfig, so yamlize builds this through from_yaml, never load.
     @classmethod
-    def load(cls, *args: Any, **kwargs: Any) -> 'CrczpConfiguration':
-        """Factory method. Use it to create a new object of this class."""
-        try:
-            obj = super().load(*args, **kwargs)
-        except YamlizingError as ex:
-            raise ImproperlyConfigured(ex) from ex
-
-        # Note: absolute paths required for ProxyJump IdentityFile
-        # Key-paths need to be absolute
-        obj.proxy_jump_to_man.IdentityFile = os.path.abspath(
-            os.path.expanduser(obj.proxy_jump_to_man.IdentityFile)
-        )
-
-        # Note: set REQUESTS_CA_BUNDLE for SSL verification
-        os.environ['REQUESTS_CA_BUNDLE'] = obj.ssl_ca_certificate_verify
-        return cast('CrczpConfiguration', obj)
-
-    @classmethod
-    def from_file(cls, path: str) -> 'CrczpConfiguration':
-        """Load configuration from a YAML file at the given path."""
-        with open(path, encoding='utf-8') as f:
-            return cls.load(f)
+    def from_yaml(cls, loader: Any, node: Any, _rtd: Any = None) -> 'CrczpConfiguration':
+        """Load CrczpConfiguration from YAML, rejecting the legacy flat OpenStack keys."""
+        legacy = [
+            key_node
+            for key_node, _ in (node.value if isinstance(node, MappingNode) else [])
+            if key_node.value in LEGACY_OPENSTACK_KEYS
+        ]
+        if legacy:
+            moves = ', '.join(
+                f'{key.value} -> openstack.{LEGACY_OPENSTACK_KEYS[key.value]}' for key in legacy
+            )
+            raise YamlizingError(f'OpenStack settings moved under `openstack:`: {moves}', legacy[0])
+        obj = super().from_yaml(loader, node, _rtd)
+        if obj.openstack is None:
+            obj.openstack = OpenStackConfiguration()
+        # ProxyJump IdentityFile must be an absolute path. abspath('') would give the cwd.
+        if obj.proxy_jump_to_man.IdentityFile:
+            obj.proxy_jump_to_man.IdentityFile = os.path.abspath(
+                os.path.expanduser(obj.proxy_jump_to_man.IdentityFile)
+            )
+        return obj

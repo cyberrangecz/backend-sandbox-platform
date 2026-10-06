@@ -26,10 +26,13 @@ SANDBOX_DEFINITION_MONITORING_PATH = os.path.join(
 SANDBOX_DEFINITION_VPN_PATH = os.path.join(
     os.path.dirname(__file__), 'assets/topology-with-vpn.yml'
 )
+SANDBOX_DEFINITION_VOLUMES_PATH = os.path.join(
+    os.path.dirname(__file__), 'assets/topology-with-volumes.yml'
+)
 
 
-@pytest.fixture
-def topology_definition_string() -> str:
+@pytest.fixture(name='topology_definition_string')
+def fixture_topology_definition_string() -> str:
     """
     Fixture for topology definition string.
     """
@@ -37,8 +40,8 @@ def topology_definition_string() -> str:
         return f.read()
 
 
-@pytest.fixture
-def topology_definition_dict() -> dict[str, Any]:
+@pytest.fixture(name='topology_definition_dict')
+def fixture_topology_definition_dict() -> dict[str, Any]:
     """
     Fixture for topology definition dict.
     """
@@ -46,20 +49,28 @@ def topology_definition_dict() -> dict[str, Any]:
         return dict(YAML(typ='safe', pure=True).load(f))
 
 
-@pytest.fixture
-def topology_definition() -> TopologyDefinition:
+@pytest.fixture(name='topology_definition')
+def fixture_topology_definition() -> TopologyDefinition:
     """
     Fixture for topology definition.
     """
     return TopologyDefinition.from_file(SANDBOX_DEFINITION_PATH)
 
 
-@pytest.fixture
-def topology_definition_monitoring() -> TopologyDefinition:
+@pytest.fixture(name='topology_definition_monitoring')
+def fixture_topology_definition_monitoring() -> TopologyDefinition:
     """
     Fixture for topology definition with monitoring.
     """
     return TopologyDefinition.from_file(SANDBOX_DEFINITION_MONITORING_PATH)
+
+
+@pytest.fixture(name='topology_definition_volumes')
+def fixture_topology_definition_volumes() -> TopologyDefinition:
+    """
+    Fixture for topology definition whose 'server' host declares extra volumes.
+    """
+    return TopologyDefinition.from_file(SANDBOX_DEFINITION_VOLUMES_PATH)
 
 
 @pytest.mark.integration
@@ -588,3 +599,297 @@ vpn:
         server_router: Router | None = td.find_router_by_name('server-router')
         assert server_router is not None
         assert server_router.base_box.image == 'debian-12-x86_64'
+
+
+class TestVolumeRules:
+    """
+    Tests for the volume schema rules.
+    """
+
+    @staticmethod
+    def _load(topology_definition_string: str, volumes: str) -> TopologyDefinition:
+        host_line = '  - name: home\n'
+        assert host_line in topology_definition_string
+        return TopologyDefinition.load(
+            topology_definition_string.replace(host_line, host_line + '    volumes:\n' + volumes, 1)
+        )
+
+    @pytest.mark.parametrize(
+        ('volumes', 'message'),
+        [
+            ('      - image: snap-0123\n', r"attributes without default: \['size'\]"),
+            ('      - size: 0\n', r'volumes\[0\]\.size must be a whole number of at least 1'),
+            (
+                '      - size: 10\n      - size: -5\n',
+                r'volumes\[1\]\.size must be a whole number of at least 1',
+            ),
+            ('      - size: true\n', r'volumes\[0\]\.size must be a whole number of at least 1'),
+            ('      - size: 10\n        image: crczp/disk\n', r'volumes\[0\] is the system disk'),
+            ('      - size: 10\n' * 13, 'more than 12 entries'),
+        ],
+        ids=[
+            'no-size',
+            'size-0',
+            'size-negative',
+            'size-bool',
+            'image-on-system-disk',
+            '13-volumes',
+        ],
+    )
+    def test_invalid_volumes_rejected(
+        self, topology_definition_string: str, volumes: str, message: str
+    ) -> None:
+        """
+        Volumes without size, below 1 GB, with an image on the system disk or over 12 entries fail.
+        """
+        with pytest.raises(YamlizingError, match=message):
+            self._load(topology_definition_string, volumes)
+
+    def test_twelve_volumes_accepted(self, topology_definition_string: str) -> None:
+        """
+        Exactly 12 volumes are allowed.
+        """
+        td = self._load(topology_definition_string, '      - size: 10\n' * 12)
+        host = td.find_host_by_name('home')
+        assert host is not None
+        assert host.volumes is not None
+        assert len(host.volumes) == 12
+
+    def test_image_on_extra_volumes_accepted(self, topology_definition_string: str) -> None:
+        """
+        Only the extra volumes may be created from an image.
+        """
+        td = self._load(
+            topology_definition_string,
+            '      - size: 10\n      - size: 20\n        image: crczp/disk\n',
+        )
+        host = td.find_host_by_name('home')
+        assert host is not None
+        assert host.volumes is not None
+        assert [volume.image for volume in host.volumes] == [None, 'crczp/disk']
+
+    def test_volume_image_loaded(self, topology_definition_volumes: TopologyDefinition) -> None:
+        """
+        A volume may optionally declare its own base image; volumes without one keep image=None.
+        """
+        server: Host | None = topology_definition_volumes.find_host_by_name('server')
+        assert server is not None
+        assert server.volumes is not None
+        assert [volume.size for volume in server.volumes] == [20, 30, 40]
+        assert [volume.image for volume in server.volumes] == [
+            None,
+            'crczp/data-disk-x86_64',
+            None,
+        ]
+
+    def test_image_name_replace_rewrites_volume_images(
+        self, topology_definition_volumes: TopologyDefinition
+    ) -> None:
+        """
+        The image-naming strategy rewrites per-volume images like it does base_box images,
+        while leaving volumes without an image untouched.
+        """
+        td = image_name_replace(r'.*/', 'crczp-', topology_definition_volumes)
+
+        server: Host | None = td.find_host_by_name('server')
+        assert server is not None
+        assert server.base_box.image == 'crczp-debian-12-x86_64'
+        assert server.volumes is not None
+        assert [volume.image for volume in server.volumes] == [
+            None,
+            'crczp-data-disk-x86_64',
+            None,
+        ]
+
+
+class TestManagementAccess:
+    """
+    Tests for the BaseBox management access settings.
+    """
+
+    def test_mgmt_password_and_managed_defaults(
+        self, topology_definition: TopologyDefinition
+    ) -> None:
+        """
+        mgmt_password is optional and defaults to None; managed defaults to True.
+        """
+        server = topology_definition.find_host_by_name('server')
+        assert server is not None
+        assert server.base_box.mgmt_password is None
+        assert server.managed is True
+
+    def test_mgmt_password_and_unmanaged_load(self) -> None:
+        """
+        A host may declare an SSH password and opt out of the platform's networking stage.
+        """
+        host = Host.load(
+            'name: appliance\n'
+            'base_box:\n'
+            '  image: appliance-image\n'
+            '  mgmt_user: admin\n'
+            '  mgmt_password: test-password\n'
+            'flavor: standard.large\n'
+            'managed: false\n'
+        )
+        assert host.managed is False
+        assert host.base_box.mgmt_user == 'admin'
+        assert host.base_box.mgmt_password == 'test-password'
+
+    @pytest.mark.parametrize(('raw', 'expected'), [('1234', '1234'), ('0123', '0123')])
+    def test_mgmt_password_unquoted_number_loads_as_string(self, raw: str, expected: str) -> None:
+        """
+        An unquoted numeric mgmt_password loads as the literal string.
+        """
+        base_box = BaseBox.load(f'image: image\nmgmt_password: {raw}\n')
+        assert base_box.mgmt_password == expected
+
+    @pytest.mark.parametrize('raw', ['', '~', 'null'])
+    def test_mgmt_password_null_spellings_mean_no_password(self, raw: str) -> None:
+        """
+        Empty, ~ and null mgmt_password stay None and are accepted with a non-SSH protocol.
+        """
+        base_box = BaseBox.load(f'image: image\nmgmt_protocol: winrm\nmgmt_password: {raw}\n')
+        assert base_box.mgmt_password is None
+
+    @pytest.mark.parametrize(
+        'base_box_yaml',
+        [
+            'image: image\nmgmt_protocol: winrm\nmgmt_password: test-password\n',
+            'image: image\nmgmt_password: test-password\nmgmt_protocol: winrm\n',
+        ],
+    )
+    def test_mgmt_password_rejected_without_ssh(self, base_box_yaml: str) -> None:
+        """
+        mgmt_password is rejected with a non-SSH protocol regardless of key order.
+        """
+        with pytest.raises(YamlizingError, match='mgmt_password is supported only with'):
+            BaseBox.load(base_box_yaml)
+
+    def test_router_mgmt_password_rejected_without_ssh(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        Routers share BaseBox, so a router with winrm and a password is rejected too.
+        """
+        home_router_base_box = 'base_box: { image: debian/debian-12-x86_64 }'
+        assert home_router_base_box in topology_definition_string
+        sb_def = topology_definition_string.replace(
+            home_router_base_box,
+            'base_box: { image: debian/debian-12-x86_64, mgmt_protocol: winrm,'
+            ' mgmt_password: test-password }',
+        )
+
+        with pytest.raises(YamlizingError, match='mgmt_password is supported only with'):
+            TopologyDefinition.load(sb_def)
+
+    def test_empty_mgmt_password_rejected(self) -> None:
+        """
+        An empty mgmt_password is rejected at its key rather than ignored by the inventory.
+        """
+        with pytest.raises(YamlizingError, match='mgmt_password must not be empty') as exc_info:
+            BaseBox.load("image: image\nmgmt_password: ''\n")
+        assert 'line 2, column' in str(exc_info.value)
+
+    def test_mgmt_password_anchor_keeps_type_elsewhere(self) -> None:
+        """
+        Loading a numeric mgmt_password as a string leaves other uses of its anchor untouched.
+        """
+        host = Host.load(
+            'name: appliance\n'
+            'base_box:\n'
+            '  image: appliance-image\n'
+            '  mgmt_password: &size 20\n'
+            'flavor: standard.large\n'
+            'volumes:\n'
+            '  - size: *size\n'
+        )
+        assert host.base_box.mgmt_password == '20'
+        assert host.volumes is not None
+        assert isinstance(host.volumes[0].size, int)
+        assert host.volumes[0].size == 20
+
+
+class TestUnmanagedHosts:
+    """
+    Tests for hosts with managed: false.
+    """
+
+    @pytest.mark.parametrize(
+        ('block', 'error'),
+        [
+            (
+                'monitoring_targets:\n  tcp:\n    - node: server\n      targets:\n'
+                '        - port: 22\n          interface: ens3\n',
+                'never gathers its facts.*TCP',
+            ),
+            (
+                'monitoring_targets:\n  icmp:\n    - node: server\n      targets:\n'
+                '        - interface: ens3\n',
+                'never gathers its facts.*ICMP',
+            ),
+            (
+                'vpn:\n  entrypoints:\n    - name: server\n      routes:\n        - 10.10.0.0/16\n',
+                'never installs the NetBird agent',
+            ),
+        ],
+        ids=['tcp', 'icmp', 'vpn'],
+    )
+    def test_unmanaged_host_rejected_where_stage_one_is_needed(
+        self, topology_definition_string: str, block: str, error: str
+    ) -> None:
+        """
+        An unmanaged host cannot be a monitoring target or a VPN entrypoint; a managed one can.
+        """
+        TopologyDefinition.load(topology_definition_string + '\n' + block)
+
+        server_flavor = '    flavor: standard.small\n    block_internet: True\n'
+        assert server_flavor in topology_definition_string
+        unmanaged = topology_definition_string.replace(
+            server_flavor, server_flavor + '    managed: false\n', 1
+        )
+        with pytest.raises(YamlizingError, match=error):
+            TopologyDefinition.load(unmanaged + '\n' + block)
+
+    def test_router_managed_rejected(self, topology_definition_string: str) -> None:
+        """
+        managed is Host-only; a router carrying it is a schema error.
+        """
+        router_flavor = '    flavor: standard.small\n\n  - name: home-router'
+        assert router_flavor in topology_definition_string
+        sb_def = topology_definition_string.replace(
+            router_flavor, '    flavor: standard.small\n    managed: false\n\n  - name: home-router'
+        )
+        with pytest.raises(YamlizingError, match='found key `managed`'):
+            TopologyDefinition.load(sb_def)
+
+
+class TestVpnRules:
+    """
+    Tests for the VPN schema rules.
+    """
+
+    @pytest.mark.parametrize('domain', ['local', 'sandbox.local', 'a-1.example.com'])
+    def test_search_domain_accepted(self, topology_definition_string: str, domain: str) -> None:
+        """
+        Single- and multi-label domains are valid search domains.
+        """
+        td = TopologyDefinition.load(
+            topology_definition_string
+            + f'\nvpn:\n  dns:\n    servers: [10.10.20.5]\n    search_domains: [{domain}]\n'
+        )
+        assert td.vpn is not None
+        assert td.vpn.dns is not None
+        assert list(td.vpn.dns.search_domains) == [domain]
+
+    def test_search_domain_with_trailing_newline_rejected(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        A search domain must match the domain pattern in full, trailing newline included.
+        """
+        with pytest.raises(YamlizingError, match='contains invalid domain'):
+            TopologyDefinition.load(
+                topology_definition_string
+                + '\nvpn:\n  dns:\n    servers: [10.10.20.5]\n'
+                + '    search_domains: ["sandbox.local\\n"]\n'
+            )

@@ -37,7 +37,9 @@ class TestAllocationStackStageHandler:
     def terraform_client(self, mocker, process):
         """Patch stage handler internals and return the mocked Terraform client."""
         mocker.patch('crczp.sandbox_instance_app.lib.stage_handlers.LOG')
-        mocker.patch('crczp.sandbox_instance_app.lib.stage_handlers.definitions.get_definition')
+        mocker.patch(
+            'crczp.sandbox_instance_app.lib.stage_handlers.definitions.get_definition'
+        ).return_value.network_forwarding = None
         mocker.patch('crczp.sandbox_instance_app.lib.stage_handlers.utils.get_terraform_client')
         client = mocker.Mock()
         stage_handlers.AllocationStackStageHandler._client = client
@@ -67,6 +69,36 @@ class TestAllocationStackStageHandler:
 
         with pytest.raises(ObjectDoesNotExist):
             assert allocation_stage_stack.terraformstack
+        assert_db_stage(allocation_stage_stack, now, failed=True)
+
+    def test_execute_forwarding_disabled(
+        self, mocker, now, allocation_stage_stack, terraform_client, forwarding_flag
+    ):
+        """Test that a forwarding definition fails before create_stack when the flag is off."""
+        mocker.patch(
+            'crczp.sandbox_instance_app.lib.stage_handlers.definitions.get_definition'
+        ).return_value.network_forwarding = mocker.Mock()
+        forwarding_flag(enabled=False)
+        handler = stage_handlers.AllocationStackStageHandler(allocation_stage_stack)
+
+        with pytest.raises(api_exceptions.ValidationError, match='network_forwarding_enabled'):
+            handler.execute()
+
+        terraform_client.create_stack.assert_not_called()
+        assert_db_stage(allocation_stage_stack, now, failed=True)
+
+    def test_execute_volumes_invalid(self, mocker, now, allocation_stage_stack, terraform_client):
+        """Test that a definition failing the volume checks fails before create_stack."""
+        mocker.patch(
+            'crczp.sandbox_definition_app.lib.definitions.validate_volumes',
+            side_effect=api_exceptions.ValidationError('volume 0 is too small'),
+        )
+        handler = stage_handlers.AllocationStackStageHandler(allocation_stage_stack)
+
+        with pytest.raises(api_exceptions.ValidationError, match='volume 0 is too small'):
+            handler.execute()
+
+        terraform_client.create_stack.assert_not_called()
         assert_db_stage(allocation_stage_stack, now, failed=True)
 
     @pytest.mark.xfail(reason="cancellation should set error_message to 'canceled'")

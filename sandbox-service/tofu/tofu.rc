@@ -2,7 +2,8 @@ provider_installation {
   filesystem_mirror {
     path = "/opt/tofu/provider_mirror"
   }
+  # The AWS provider is not mirrored in the image.
   direct {
-    exclude = ["*"]
+    include = ["registry.opentofu.org/hashicorp/aws"]
   }
 }

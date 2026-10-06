@@ -1,0 +1,177 @@
+"""Tests for TopologyInstance link resolution."""
+
+import yaml
+from crczp.topology_definition.models import TopologyDefinition
+
+from crczp.cloud_commons.topology_instance import TopologyInstance
+from crczp.cloud_commons.transformation_configuration import TransformationConfiguration
+
+_BASE_TOPOLOGY = """
+name: small-sandbox
+hosts:
+  - name: server
+    base_box: { image: crczp/debian-12-x86_64, mgmt_user: debian }
+    flavor: standard.small
+  - name: monitoring
+    base_box: { image: crczp/debian-12-x86_64, mgmt_user: debian }
+    flavor: standard.small
+routers:
+  - name: server-router
+    base_box: { image: crczp/debian-12-x86_64, mgmt_user: debian }
+    flavor: standard.small
+wan:
+  name: internet-connection
+  cidr: 100.100.100.0/29
+networks:
+  - name: server-switch
+    cidr: 10.10.20.0/24
+  - name: monitoring-switch
+    cidr: 10.10.40.0/24
+net_mappings:
+  - host: server
+    network: server-switch
+    ip: 10.10.20.5
+  - host: monitoring
+    network: server-switch
+    ip: 10.10.20.6
+  - host: monitoring
+    network: monitoring-switch
+    ip: 10.10.40.5
+router_mappings:
+  - router: server-router
+    network: server-switch
+    ip: 10.10.20.1
+  - router: server-router
+    network: monitoring-switch
+    ip: 10.10.40.1
+groups: []
+"""
+
+_FORWARDING = """
+network_forwarding:
+  sources:
+    - { node: server, network: server-switch }
+    - { node: server-router, network: server-switch }
+  destination: { node: monitoring, network: monitoring-switch }
+  direction: both
+"""
+
+
+def _trc() -> TransformationConfiguration:
+    return TransformationConfiguration(
+        man_image='man-image', man_flavor='man-flavor', man_user='debian'
+    )
+
+
+def test_get_network_forwarding_resolves_links() -> None:
+    """A network_forwarding rule is resolved into concrete source/destination Links."""
+    topology = TopologyDefinition.load(_BASE_TOPOLOGY + _FORWARDING)
+    instance = TopologyInstance(topology, _trc())
+
+    rule = instance.get_network_forwarding()
+
+    assert rule is not None
+    assert rule.direction == 'both'
+    assert len(rule.sources) == 2
+    assert [(link.node.name, link.network.name) for link in rule.sources] == [
+        ('server', 'server-switch'),
+        ('server-router', 'server-switch'),
+    ]
+    assert rule.destination.node.name == 'monitoring'
+    assert rule.destination.network.name == 'monitoring-switch'
+
+
+def test_get_network_forwarding_none_when_absent() -> None:
+    """A topology without network_forwarding resolves to None."""
+    topology = TopologyDefinition.load(_BASE_TOPOLOGY)
+    instance = TopologyInstance(topology, _trc())
+
+    assert instance.get_network_forwarding() is None
+
+
+def test_str_contains_network_forwarding() -> None:
+    """The text dump of a topology instance includes its network_forwarding rule."""
+    topology = TopologyDefinition.load(_BASE_TOPOLOGY + _FORWARDING)
+    instance = TopologyInstance(topology, _trc())
+
+    dumped = yaml.safe_load(str(instance))['TopologyInstance']
+    assert dumped['network_forwarding'] == (
+        "NetworkForwarding({'sources': ['link-5', 'link-10'], "
+        "'destination': 'link-7', 'direction': 'both'})"
+    )
+
+
+def test_str_omits_network_forwarding_when_absent() -> None:
+    """Topologies without forwarding keep their text dump unchanged."""
+    instance = TopologyInstance(TopologyDefinition.load(_BASE_TOPOLOGY), _trc())
+
+    assert 'network_forwarding' not in yaml.safe_load(str(instance))['TopologyInstance']
+
+
+def _main_link(instance: TopologyInstance, node_name: str) -> tuple[str, str | None] | None:
+    node = instance.get_node(node_name)
+    assert node is not None
+    link = instance.get_node_main_link(node)
+    return None if link is None else (link.network.name, link.ip)
+
+
+def test_get_node_main_link_is_first_net_mapping() -> None:
+    """A multi-homed host's main link is its first net_mapping, not its first network."""
+    reversed_networks = _BASE_TOPOLOGY.replace(
+        """  - name: server-switch
+    cidr: 10.10.20.0/24
+  - name: monitoring-switch
+    cidr: 10.10.40.0/24
+""",
+        """  - name: monitoring-switch
+    cidr: 10.10.40.0/24
+  - name: server-switch
+    cidr: 10.10.20.0/24
+""",
+    )
+    instance = TopologyInstance(TopologyDefinition.load(reversed_networks), _trc())
+
+    assert [network.name for network in instance.get_hosts_networks()] == [
+        'monitoring-switch',
+        'server-switch',
+    ]
+    assert _main_link(instance, 'monitoring') == ('server-switch', '10.10.20.6')
+
+
+def test_get_node_main_link_single_homed_host() -> None:
+    """A single-homed host's main link is its only user-network link."""
+    instance = TopologyInstance(TopologyDefinition.load(_BASE_TOPOLOGY), _trc())
+
+    assert _main_link(instance, 'server') == ('server-switch', '10.10.20.5')
+
+
+def test_get_node_main_link_router_is_first_router_mapping() -> None:
+    """A router's main link is its first router_mapping, never its WAN link."""
+    reversed_mappings = _BASE_TOPOLOGY.replace(
+        """  - router: server-router
+    network: server-switch
+    ip: 10.10.20.1
+  - router: server-router
+    network: monitoring-switch
+    ip: 10.10.40.1
+""",
+        """  - router: server-router
+    network: monitoring-switch
+    ip: 10.10.40.1
+  - router: server-router
+    network: server-switch
+    ip: 10.10.20.1
+""",
+    )
+    instance = TopologyInstance(TopologyDefinition.load(_BASE_TOPOLOGY), _trc())
+    reversed_instance = TopologyInstance(TopologyDefinition.load(reversed_mappings), _trc())
+
+    assert _main_link(instance, 'server-router') == ('server-switch', '10.10.20.1')
+    assert _main_link(reversed_instance, 'server-router') == ('monitoring-switch', '10.10.40.1')
+
+
+def test_get_node_main_link_none_for_man() -> None:
+    """MAN has only management and WAN links, so it has no main link."""
+    instance = TopologyInstance(TopologyDefinition.load(_BASE_TOPOLOGY), _trc())
+
+    assert _main_link(instance, 'man') is None

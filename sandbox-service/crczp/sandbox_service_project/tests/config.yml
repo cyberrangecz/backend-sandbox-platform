@@ -39,17 +39,18 @@ application_configuration:
     # The IP address of the head server.
     #head_host: 0.0.0.0
 
-    # The URL of OpenStack Identity service API.
-    os_auth_url: ""
+    openstack:
+        # The URL of OpenStack Identity service API.
+        auth_url: ""
 
-    # The ID of application credentials to authenticate at OpenStack cloud platform.
-    os_application_credential_id: ""
+        # The ID of application credentials to authenticate at OpenStack cloud platform.
+        application_credential_id: ""
 
-    # The secret string of APPLICATION_CREDENTIAL_ID.
-    os_application_credential_secret: ""
+        # The secret string of application_credential_id.
+        application_credential_secret: ""
 
-    # The OpenStack console type. One of: novnc, xvpvnc, spice-html5, rdp-html5, serial, webmks.
-    #os_console_type: spice-html5
+        # The OpenStack console type. One of: novnc, xvpvnc, spice-html5, rdp-html5, serial, webmks.
+        #console_type: spice-html5
 
     # The path to project log file.
     log_file: /dev/null
@@ -97,7 +98,7 @@ application_configuration:
     sandbox_ansible_timeout: 1800
 
     # The name of the Docker image that is able to run Ansible playbook.
-    ansible_docker_image: ghcr.io/cyberrangecz/crczp-ansible-runner:1.4.1
+    ansible_docker_image: ghcr.io/cyberrangecz/crczp-ansible-runner:1.2.0
 
     # The name of the Docker network that the Runner will use.
     ansible_docker_network: platform-net-it

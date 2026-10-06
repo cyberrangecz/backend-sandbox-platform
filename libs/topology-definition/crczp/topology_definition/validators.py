@@ -5,7 +5,7 @@ Module for topology definition validators.
 from __future__ import annotations
 
 import re
-from ipaddress import ip_address, ip_network
+from ipaddress import IPv4Address, IPv4Network, ip_address, ip_network
 from itertools import combinations
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -20,6 +20,7 @@ if TYPE_CHECKING:
         MonitoringTargets,
         MonitoringTargetTCPList,
         Network,
+        NetworkForwardingRule,
         NetworkList,
         NetworkMapping,
         NetworkMappingList,
@@ -34,12 +35,15 @@ if TYPE_CHECKING:
     )
 
 VALID_NAMES_REGEX = r'^[a-z]([a-z0-9A-Z-])*$'
+MAX_VOLUMES = 12
 # A DNS domain: dot-separated labels, each 1-63 chars, starting and ending with
 # an alphanumeric. Accepts single-label domains (e.g. "local") as valid search domains.
 DNS_DOMAIN_REGEX = (
     r'^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)'
     r'(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$'
 )
+# python-commons adds the management node and network under these names.
+RESERVED_NAMES = ('man', 'man-network')
 _UNIQ_MSG = (
     'Uniqueness violation. The following name identifiers are not unique '
     'within the [{}] definition: {}.'
@@ -56,9 +60,34 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         """
         Validate OpenStack name.
         """
-        if not re.match(VALID_NAMES_REGEX, name):
+        if not re.fullmatch(VALID_NAMES_REGEX, name):
             _msg = 'Cannot set {}.name to "{}". It does not match regex "{}".'
             raise ValueError(_msg.format(obj.__class__.__name__, name, VALID_NAMES_REGEX))
+
+    @staticmethod
+    def is_ipv4_cidr(obj: object, cidr: str) -> None:
+        """
+        Validate that cidr is an IPv4 network.
+        """
+        # Templates render the value raw, and ip_network accepts IPv6 scope ids with any text.
+        try:
+            IPv4Network(cidr, strict=False)
+        except ValueError as exc:
+            raise ValueError(
+                f'{obj.__class__.__name__}.cidr "{cidr}" is not a valid IPv4 CIDR.'
+            ) from exc
+
+    @staticmethod
+    def is_ipv4_address(obj: object, ip: str) -> None:
+        """
+        Validate that ip is an IPv4 address.
+        """
+        try:
+            IPv4Address(ip)
+        except ValueError as exc:
+            raise ValueError(
+                f'{obj.__class__.__name__}.ip "{ip}" is not a valid IPv4 address.'
+            ) from exc
 
     @staticmethod
     def validate_net_mappings(obj: TopologyDefinition, net_mappings: NetworkMappingList) -> bool:
@@ -71,18 +100,79 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
                 raise ValueError(_msg.format(net_mapping.ip, 'host', net_mapping.host))
             if not obj.find_network_by_name(net_mapping.network):
                 raise ValueError(_msg.format(net_mapping.ip, 'network', net_mapping.network))
+        TopologyValidation.raise_if_not_in_network(net_mappings, obj.networks)
         return True
+
+    @staticmethod
+    def validate_network_forwarding(
+        obj: TopologyDefinition, rule: NetworkForwardingRule | None
+    ) -> None:
+        """
+        Validate that the network forwarding rule is well-formed and references existing
+        interfaces of the topology.
+        """
+        if rule is None:
+            return
+        if not rule.sources:
+            raise ValueError('network_forwarding must have at least one source.')
+
+        sources = [(src.node, src.network) for src in rule.sources]
+        seen: set[tuple[str, str]] = set()
+        for node, network in sources:
+            if (node, network) in seen:
+                raise ValueError(
+                    f'network_forwarding lists source {node}:{network} more than once.'
+                )
+            seen.add((node, network))
+
+        destination = (rule.destination.node, rule.destination.network)
+        interfaces = [('destination', destination)] + [('source', src) for src in sources]
+        for role, (node, network) in interfaces:
+            if not obj.find_host_by_name(node) and not obj.find_router_by_name(node):
+                raise ValueError(
+                    f'network_forwarding {role} {node}:{network} references unknown node "{node}".'
+                )
+            mapped_networks = TopologyValidation._node_interface_networks(obj, node)
+            if network not in mapped_networks:
+                raise ValueError(
+                    f'network_forwarding {role} {node}:{network} is invalid: '
+                    f'"{node}" has no mapping to network "{network}".'
+                )
+            if mapped_networks.count(network) > 1:
+                raise ValueError(
+                    f'network_forwarding {role} {node}:{network} is ambiguous: '
+                    f'"{node}" has several interfaces on network "{network}".'
+                )
+
+        if destination in seen:
+            raise ValueError(
+                f'network_forwarding mirrors interface {destination[0]}:{destination[1]} to itself.'
+            )
+
+    @staticmethod
+    def _node_interface_networks(obj: TopologyDefinition, node: str) -> list[str]:
+        """
+        Return the user-defined networks a host or router is mapped to.
+        """
+        # Host and router names share one namespace, so at most one of the lists matches.
+        return [
+            net_mapping.network for net_mapping in obj.net_mappings if net_mapping.host == node
+        ] + [
+            router_mapping.network
+            for router_mapping in obj.router_mappings
+            if router_mapping.router == node
+        ]
 
     @staticmethod
     def validate_router_mappings(
         obj: TopologyDefinition, router_mappings: RouterMappingList
     ) -> bool:
         """
-        Validate router mappings.
+        Validate router mappings and the uniqueness of all mapping IPs.
         """
         TopologyValidation.validate_name_mappings(obj, router_mappings)
-        TopologyValidation.validate_cidrs_and_ips(obj, router_mappings)
-
+        TopologyValidation.raise_if_not_in_network(router_mappings, obj.networks)
+        TopologyValidation.raise_if_ip_not_unique(list(obj.net_mappings) + list(router_mappings))
         return True
 
     @staticmethod
@@ -98,20 +188,11 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
                 raise ValueError(_msg.format(router_mapping.ip, 'network', router_mapping.network))
 
     @staticmethod
-    def validate_cidrs_and_ips(obj: TopologyDefinition, router_mappings: RouterMappingList) -> None:
+    def validate_network_cidrs(obj: TopologyDefinition, networks: NetworkList) -> None:
         """
-        Validate CIDRs and IP addresses.
+        Validate that the networks and the WAN do not overlap.
         """
-        networks = list(obj.networks) + [obj.wan]
-        net_mappings = list(obj.net_mappings)
-        router_mappings_list = list(router_mappings)
-
-        TopologyValidation.raise_if_overlaps(networks)
-
-        TopologyValidation.raise_if_not_in_network(obj.net_mappings, obj.networks)
-        TopologyValidation.raise_if_not_in_network(router_mappings, obj.networks)
-
-        TopologyValidation.raise_if_ip_not_unique(net_mappings + router_mappings_list)
+        TopologyValidation.raise_if_overlaps(list(networks) + [obj.wan])
 
     @staticmethod
     def raise_if_overlaps(networks: list[Network | WAN]) -> None:
@@ -132,12 +213,12 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         """
         Raise error if IP is not in network.
         """
-        mappings_dict = {mapp.network: ip_address(mapp.ip) for mapp in mappings}
         networks_dict = {net.name: ip_network(net.cidr) for net in networks}
-        for network, ip in mappings_dict.items():
-            if ip not in networks_dict[network]:
+        for mapping in mappings:
+            ip = ip_address(mapping.ip)
+            if ip not in networks_dict[mapping.network]:
                 _msg = 'IP address "{}" is not valid host address of "{}" defined in network "{}".'
-                raise ValueError(_msg.format(ip, networks_dict[network], network))
+                raise ValueError(_msg.format(ip, networks_dict[mapping.network], mapping.network))
 
     @staticmethod
     def raise_if_ip_not_unique(
@@ -176,7 +257,7 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         Validate group nodes.
         """
         for node in nodes:
-            if not re.match(VALID_NAMES_REGEX, node):
+            if not re.fullmatch(VALID_NAMES_REGEX, node):
                 _msg = 'Invalid name "{}" in Group.nodes. It does not match regex "{}".'
                 raise ValueError(_msg.format(node, VALID_NAMES_REGEX))
 
@@ -198,6 +279,12 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         TopologyValidation.raise_if_not_unique(
             'name, hosts, routers, networks, wan', a + b + c + d + e
         )
+        for name in b + c + d + e:
+            if name in RESERVED_NAMES:
+                raise ValueError(
+                    f'The name "{name}" is reserved for the sandbox management node and network. '
+                    'Rename the host, router or network.'
+                )
 
         return True
 
@@ -233,15 +320,28 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         """
         Validate volumes.
         """
-        if volumes is not None and len(volumes) < 1:
+        if volumes is None:
+            return
+        if len(volumes) < 1:
             raise ValueError('Volumes must contain at least one entry for system disk')
+        if len(volumes) > MAX_VOLUMES:
+            raise ValueError(f'Volumes must not contain more than {MAX_VOLUMES} entries')
+        if volumes[0].image is not None:
+            raise ValueError(
+                'volumes[0] is the system disk and is created from base_box.image; '
+                'set base_box.image instead'
+            )
+        for index, volume in enumerate(volumes):
+            if isinstance(volume.size, bool) or volume.size < 1:
+                raise ValueError(f'volumes[{index}].size must be a whole number of at least 1 GB')
 
     @staticmethod
     def validate_monitoring_targets(
         obj: TopologyDefinition, monitoring_targets: MonitoringTargets | None
     ) -> bool:
         """
-        Validate monitoring targets — referenced nodes must exist in the topology.
+        Validate monitoring targets — referenced nodes must exist in the topology
+        and must not be hosts with managed: false.
         Called with TopologyDefinition as obj, giving access to hosts and routers.
         """
         if monitoring_targets is None:
@@ -250,6 +350,8 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         node_names = set(
             [host.name for host in obj.hosts] + [router.name for router in obj.routers]
         )
+
+        unmanaged_hosts = {host.name for host in obj.hosts if not host.managed}
 
         for targets_list, label in (
             (monitoring_targets.tcp or [], 'TCP'),
@@ -262,6 +364,11 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
                         'No node with name "{}" found.'
                     )
                     raise ValueError(_msg.format(label, target.node))
+                if target.node in unmanaged_hosts:
+                    raise ValueError(
+                        f'Host "{target.node}" is managed: false, so stage one never '
+                        f'gathers its facts and cannot monitor it ({label} MonitoringTarget).'
+                    )
 
         return True
 
@@ -371,7 +478,8 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         structural validation of entrypoints (name/routes) and DNS (servers/
         search_domains) is handled by the per-attribute validators; this
         TopologyDefinition-level validator only performs the cross-reference
-        check that requires access to hosts and routers.
+        check that requires access to hosts and routers. An entrypoint must not
+        be a host with managed: false.
         """
         if vpn is None:
             return
@@ -379,11 +487,17 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         if not entrypoints:
             return
         known_node_names = {h.name for h in obj.hosts} | {r.name for r in obj.routers}
+        unmanaged_hosts = {h.name for h in obj.hosts if not h.managed}
         for ep in entrypoints:
             if ep.name not in known_node_names:
                 raise ValueError(
                     f'vpn.entrypoints references "{ep.name}" '
                     'which does not exist in hosts or routers.'
+                )
+            if ep.name in unmanaged_hosts:
+                raise ValueError(
+                    f'vpn.entrypoints references "{ep.name}" which is managed: false, '
+                    'so stage one never installs the NetBird agent on it.'
                 )
 
     @staticmethod
@@ -415,7 +529,7 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         if not domains:
             return
         for domain in domains:
-            if not re.match(DNS_DOMAIN_REGEX, domain):
+            if not re.fullmatch(DNS_DOMAIN_REGEX, domain):
                 raise ValueError(
                     f'vpn.dns.search_domains contains invalid domain "{domain}". '
                     'Each search domain must be a valid DNS domain name.'

@@ -1,8 +1,22 @@
 """Tests for Ansible inventory generation."""
 
-import pytest
+from pathlib import Path
+from typing import Any
 
+import pytest
+import yaml
+
+from crczp.cloud_commons import TopologyInstance, TransformationConfiguration
 from crczp.sandbox_ansible_app.lib.inventory import Inventory, Routing
+from crczp.sandbox_common_lib import exceptions
+from crczp.topology_definition.models import TopologyDefinition
+
+FORWARDING_DEFINITION = (
+    Path(__file__).parents[2] / 'sandbox_definition_app/tests/assets/definition-forwarding.yml'
+)
+MULTI_HOMED_DEFINITION = (
+    Path(__file__).parents[2] / 'sandbox_instance_app/tests/assets/definition_multi_homed.yml'
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -209,3 +223,146 @@ class TestVpnEntrypointsGroup:
         )
 
         assert 'vpn_entrypoints' not in result.to_dict()['all']['children']
+
+
+def _inventory(top_ins) -> Inventory:
+    return Inventory(
+        'pool-prefix',
+        'stack-name',
+        top_ins,
+        '/root/.ssh/pool_mng_key',
+        '/root/.ssh/pool_mng_cert',
+        '/root/.ssh/pool_mng_key.pub',
+        '/root/.ssh/user_key.pub',
+    )
+
+
+def test_node_without_management_link_rejected(top_ins, mocker):
+    """A node missing from the management network cannot be given an ansible_host."""
+    links = top_ins.get_network_links
+    mocker.patch.object(
+        top_ins,
+        'get_network_links',
+        side_effect=lambda network: [link for link in links(network) if link.node.name != 'server'],
+    )
+
+    with pytest.raises(exceptions.AnsibleError, match='Management IP of node server is not known'):
+        _inventory(top_ins)
+
+
+def _server_def(top_ins):
+    return next(h for h in top_ins.topology_definition.hosts if h.name == 'server')
+
+
+class TestPasswordHost:
+    """Tests for a host authenticating by password (e.g. an appliance without cloud-init)."""
+
+    def test_password_authentication_vars(self, top_ins):
+        """A host with a password gets ansible_password and ansible_become_password."""
+        _server_def(top_ins).base_box.mgmt_password = 'test-password'  # nosec B105
+
+        server_vars = _inventory(top_ins).to_dict()['all']['hosts']['server']
+
+        assert server_vars['ansible_password'] == 'test-password'
+        assert server_vars['ansible_become_password'] == 'test-password'
+        assert 'ansible_connection' not in server_vars
+
+    def test_host_without_password_has_no_password_vars(self, top_ins):
+        """Without mgmt_password the inventory carries no password."""
+        server_vars = _inventory(top_ins).to_dict()['all']['hosts']['server']
+
+        assert 'ansible_password' not in server_vars
+        assert 'ansible_become_password' not in server_vars
+
+    def test_password_is_serialized_unsafe(self, top_ins):
+        """A password with template syntax is tagged !unsafe so Ansible keeps it literal."""
+        _server_def(top_ins).base_box.mgmt_password = 'te{{st'  # nosec B105
+
+        serialized = _inventory(top_ins).serialize()
+
+        assert "ansible_password: !unsafe 'te{{st'" in serialized
+        assert "ansible_become_password: !unsafe 'te{{st'" in serialized
+
+    @pytest.mark.parametrize('password', ['12345', 'test-password'])
+    def test_password_without_template_syntax_is_a_plain_string(self, top_ins, password):
+        """Only template syntax gets the !unsafe tag, which plain YAML loaders cannot read."""
+        _server_def(top_ins).base_box.mgmt_password = password
+
+        serialized = _inventory(top_ins).serialize()
+
+        assert yaml.safe_load(serialized)['all']['hosts']['server']['ansible_password'] == password
+        assert '!unsafe' not in serialized
+
+
+class TestUnmanagedHostsGroup:
+    """Tests for hosts that stage one must not configure."""
+
+    def test_unmanaged_host_is_grouped_and_otherwise_unchanged(self, top_ins):
+        """The host joins unmanaged_hosts but keeps its groups and variables."""
+        baseline = _inventory(top_ins).to_dict()['all']
+        _server_def(top_ins).managed = False
+
+        result = _inventory(top_ins).to_dict()['all']
+
+        children = result['children']
+        assert children['unmanaged_hosts'] == {'hosts': {'server': None}}
+        assert 'server' in children['ssh_nodes']['hosts']
+        assert result['hosts']['server'] == baseline['hosts']['server']
+
+    def test_unmanaged_hosts_group_is_empty_by_default(self, top_ins):
+        """The group is always defined so that excluding it in a play pattern does not warn."""
+        children = _inventory(top_ins).to_dict()['all']['children']
+
+        assert children['unmanaged_hosts'] == {}
+
+
+def _forwarding_definition() -> dict[str, Any]:
+    return yaml.safe_load(FORWARDING_DEFINITION.read_text(encoding='utf-8'))
+
+
+def _user_network_ips(
+    definition: dict[str, Any], trc: TransformationConfiguration
+) -> dict[str, str]:
+    top_ins = TopologyInstance(TopologyDefinition.load(yaml.safe_dump(definition)), trc)
+    top_ins.name = 'stack-name'
+    top_ins.ip = '10.10.10.10'
+    for number, link in enumerate(top_ins.get_network_links(top_ins.man_network), start=1):
+        link.ip = f'192.168.128.{number}'
+    hosts = _inventory(top_ins).to_dict()['all']['hosts']
+    return {
+        name: host_vars['user_network_ip']
+        for name, host_vars in hosts.items()
+        if 'user_network_ip' in host_vars
+    }
+
+
+class TestUserNetworkIp:
+    """Tests for the user_network_ip variable of multi-homed nodes."""
+
+    def test_main_link_of_forwarding_destination(self, trc_config):
+        """The destination host gets its first mapping's IP, never the mirror destination."""
+        ips = _user_network_ips(_forwarding_definition(), trc_config)
+
+        assert ips == {
+            'server': '10.10.20.5',
+            'monitoring': '10.10.20.6',
+            'server-router': '10.10.20.1',
+        }
+
+    @pytest.mark.parametrize(
+        ('sections', 'expected'),
+        [
+            ((), '10.10.20.6'),
+            (('networks',), '10.10.20.6'),
+            (('net_mappings',), '10.10.40.5'),
+            (('net_mappings', 'networks'), '10.10.40.5'),
+        ],
+        ids=['unchanged', 'networks', 'net_mappings', 'both'],
+    )
+    def test_follows_net_mappings_order_not_networks_order(self, trc_config, sections, expected):
+        """Reordering the host's net_mappings changes the IP; reordering networks does not."""
+        definition = yaml.safe_load(MULTI_HOMED_DEFINITION.read_text(encoding='utf-8'))
+        for section in sections:
+            definition[section].reverse()
+
+        assert _user_network_ips(definition, trc_config)['monitoring'] == expected

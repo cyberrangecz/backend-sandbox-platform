@@ -7,6 +7,9 @@ from typing import Any, cast
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
+from jinja2 import Environment, FileSystemLoader
+
 from crczp.cloud_commons import (
     CrczpCloudClientBase,
     HardwareUsage,
@@ -18,11 +21,12 @@ from crczp.cloud_commons import (
     QuotaSet,
     TopologyInstance,
     TransformationConfiguration,
+    hcl_string,
 )
-from crczp.cloud_commons.topology_elements import Host
-from jinja2 import Environment, FileSystemLoader
+from crczp.cloud_commons.topology_elements import Node
 
 from .exceptions import ImageDoesNotExist, KeyPairDoesNotExist
+from .network_forwarding import traffic_directions, validate_network_forwarding
 
 # Only provide a default CA bundle when the environment does not already specify one
 # and the fallback file exists on the system.
@@ -39,6 +43,7 @@ AWS_CONFIG_FILE_TEMPLATE = """[default]
 region = {}
 """
 TEMPLATE_DIR_PATH = os.path.join(os.path.dirname(__file__), 'templates')
+SNAPSHOT_NOT_FOUND_ERRORS = frozenset({'InvalidSnapshot.NotFound', 'InvalidSnapshotID.Malformed'})
 
 
 def regex_replace(string: str, pattern: str = '', replace: str = '') -> str:
@@ -46,15 +51,16 @@ def regex_replace(string: str, pattern: str = '', replace: str = '') -> str:
     return re.sub(pattern, replace, string)
 
 
-def get_default_route_ip(topology_instance: TopologyInstance, node: Host) -> str:
+def get_default_route_ip(topology_instance: TopologyInstance, node: Node) -> str | None:
     """
-    Get default route IP of the node.
+    Get the default route IP of the node: the gateway of its main link, or None without one.
     """
-    host_networks = topology_instance.get_hosts_networks()
-    host_link = topology_instance.get_node_links(node, host_networks)[0]
-    # The link was filtered by `host_networks`, so its network is a user-defined host network
-    # and `get_network_default_gateway_link` therefore never returns None here.
-    gateway_link = cast(Link, topology_instance.get_network_default_gateway_link(host_link.network))
+    main_link = topology_instance.get_node_main_link(node)
+    if main_link is None:
+        return None
+    # The main link is on a user-defined host network, so
+    # `get_network_default_gateway_link` never returns None here.
+    gateway_link = cast(Link, topology_instance.get_network_default_gateway_link(main_link.network))
     return str(gateway_link.ip)
 
 
@@ -118,6 +124,7 @@ class CrczpAwsClient(CrczpCloudClientBase):
         # Renders Terraform templates, not HTML.
         self.jinja2_env = Environment(loader=FileSystemLoader(TEMPLATE_DIR_PATH))  # noqa: S701
         self.jinja2_env.filters['regex_replace'] = regex_replace
+        self.jinja2_env.filters['hcl_string'] = hcl_string
         self.trc = trc
 
     @staticmethod
@@ -156,7 +163,10 @@ class CrczpAwsClient(CrczpCloudClientBase):
         :keyword key_pair_name_cert: The name of certificate key pair in the cloud
         :keyword resource_prefix: The prefix of all resources
         :return: Terraform template as a string
+        :raise InvalidTopologyDefinition: on a network_forwarding rule AWS cannot mirror
         """
+        network_forwarding = topology_instance.get_network_forwarding()
+        validate_network_forwarding(network_forwarding)
         template = self.jinja2_env.get_template('terraform-deploy-template.j2')
         return str(
             template.render(
@@ -168,12 +178,23 @@ class CrczpAwsClient(CrczpCloudClientBase):
                 base_subnet_name=self.base_subnet_name,
                 trc=self.trc,
                 get_default_route_ip=get_default_route_ip,
+                network_forwarding=network_forwarding,
+                traffic_directions=traffic_directions(network_forwarding),
             )
         )
 
     @staticmethod
     def _map_aws_image(image_raw: dict[str, Any]) -> Image:
         os_type = 'windows' if 'windows' in image_raw['PlatformDetails'].lower() else 'linux'
+        root_device = image_raw.get('RootDeviceName')
+        min_disk = next(
+            (
+                mapping.get('Ebs', {}).get('VolumeSize', 0)
+                for mapping in image_raw.get('BlockDeviceMappings', [])
+                if mapping.get('DeviceName') == root_device
+            ),
+            0,
+        )
         return Image(
             os_distro=image_raw['Name'],
             os_type=os_type,
@@ -183,7 +204,7 @@ class CrczpAwsClient(CrczpCloudClientBase):
             size=0,
             status=image_raw['State'],
             min_ram=0,
-            min_disk=0,
+            min_disk=min_disk,
             created_at=image_raw['CreationDate'],
             updated_at=None,
             tags=[],
@@ -217,6 +238,33 @@ class CrczpAwsClient(CrczpCloudClientBase):
             raise ImageDoesNotExist(image_id)
 
         return self._map_aws_image(image_raw[0])
+
+    def get_snapshot_sizes(self, snapshot_ids: list[str]) -> dict[str, int]:
+        """
+        Get the sizes of EBS snapshots owned by the AWS account.
+
+        :param snapshot_ids: The IDs of the snapshots
+        :return: Size in GiB of each found snapshot, keyed by its ID; IDs that do not exist,
+                 are malformed or belong to another account are left out
+        """
+        if not snapshot_ids:
+            return {}
+        try:
+            snapshots = self.ec2_client.describe_snapshots(
+                SnapshotIds=snapshot_ids, OwnerIds=['self']
+            )['Snapshots']
+        except ClientError as ex:
+            if ex.response.get('Error', {}).get('Code') not in SNAPSHOT_NOT_FOUND_ERRORS:
+                raise
+            if len(snapshot_ids) == 1:
+                return {}
+            # One unknown ID fails the whole call, so look them up one by one.
+            return {
+                snapshot_id: size
+                for single_id in snapshot_ids
+                for snapshot_id, size in self.get_snapshot_sizes([single_id]).items()
+            }
+        return {snapshot['SnapshotId']: snapshot['VolumeSize'] for snapshot in snapshots}
 
     def resume_node(self, node_id: str) -> None:
         """

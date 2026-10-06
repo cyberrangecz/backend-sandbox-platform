@@ -1,7 +1,10 @@
 """Root test fixtures shared across all test directories."""
 
+import copy
+
 import fakeredis
 import pytest
+from django.conf import settings
 from rq import Queue as RQQueue
 
 
@@ -39,8 +42,6 @@ def fake_redis_for_integration(request, monkeypatch):
     monkeypatch.setattr('redis.Redis', SharedFakeRedis)
     monkeypatch.setattr('redis.StrictRedis', SharedFakeRedis)
 
-    from django.conf import settings  # noqa: PLC0415
-
     from crczp.sandbox_instance_app.lib import request_handlers  # noqa: PLC0415
 
     queues = {
@@ -71,3 +72,20 @@ def fake_redis_for_integration(request, monkeypatch):
     monkeypatch.setattr(request_handlers.RequestHandler, 'queue_default', queues['default'])
     monkeypatch.setattr(request_handlers.RequestHandler, 'queue_stack', queues['openstack'])
     monkeypatch.setattr(request_handlers.RequestHandler, 'queue_ansible', queues['ansible'])
+
+
+@pytest.fixture
+def forwarding_flag(mocker):
+    """Return a function that sets network_forwarding_enabled on a copy of the app config.
+
+    A copy, because the attributes of the CRCZP_CONFIG singleton are yamlize descriptors: mock
+    restores a patched one by deleting it, which resets it to the class default instead of the
+    configured value.
+    """
+
+    def set_flag(*, enabled: bool) -> None:
+        config = copy.copy(settings.CRCZP_CONFIG)
+        config.network_forwarding_enabled = enabled
+        mocker.patch.object(settings, 'CRCZP_CONFIG', config)
+
+    return set_flag

@@ -1,6 +1,5 @@
 """VM Service module for VM management."""
 
-import itertools
 from dataclasses import dataclass
 
 import django_rq
@@ -111,7 +110,7 @@ def get_console_url(sandbox: Sandbox, node_name: str) -> str:
             get_console_url_job,
             sandbox.allocation_unit.get_stack_name(),
             node_name,
-            settings.CRCZP_CONFIG.os_console_type.value,
+            settings.CRCZP_CONFIG.openstack.console_type.value,
             console_cache_name,
             job_cache_id_running,
         )
@@ -174,10 +173,12 @@ def get_node_image_has_gui_access(image: Image) -> bool:
 
 def _get_node_ip(topology_instance: TopologyInstance, node: Node) -> str:
     """Get the IP address of a node from the topology instance."""
-    host_links = topology_instance.get_node_links(node, topology_instance.get_hosts_networks())
-    router_links = topology_instance.get_node_links(node, [topology_instance.wan])
+    links = topology_instance.get_node_links(node, [topology_instance.wan])
+    main_link = topology_instance.get_node_main_link(node)
+    if main_link is not None:
+        links.append(main_link)
 
-    for link in itertools.chain(router_links, host_links):
+    for link in links:
         network = link.network
         if (
             hasattr(network, 'accessible_by_user')

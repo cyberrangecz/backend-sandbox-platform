@@ -37,6 +37,8 @@ TERRAFORM_PROVIDER_FILE_NAME = 'provider.tf'
 TERRAFORM_WORKSPACE_PATH = 'terraform.tfstate.d/{}/' + TERRAFORM_STATE_FILE_NAME
 TERRAFORM_DEFAULT_WORKSPACE = 'default'
 TERRAFORM_RETRY_NEW_WORKSPACE_COMMAND = 5
+INSTANCE_RESOURCE_TYPES = ('openstack_compute_instance_v2', 'aws_instance')
+PORT_RESOURCE_TYPES = ('openstack_networking_port_v2', 'aws_network_interface')
 
 
 class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
@@ -451,13 +453,18 @@ class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
 
     def get_resource_dict(self, stack_name: str) -> dict[str, Any]:
         """
-        Get dictionary of resources. The keys are resource names and values are attributes
+        Get dictionary of instance resources. The keys are resource names and values are instances.
+        Other resource types are skipped as they may share a name with a node.
 
         :param stack_name: The name of stack
         :return: Dictionary of resources
         """
         list_of_resources = self.list_stack_resources(stack_name)
-        return {res['name']: res['instances'] for res in list_of_resources}
+        return {
+            res['name']: res['instances']
+            for res in list_of_resources
+            if res['type'] in INSTANCE_RESOURCE_TYPES
+        }
 
     def get_resource_id(self, stack_name: str, node_name: str) -> str:
         """
@@ -542,7 +549,9 @@ class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
         """
         topology_instance.name = stack_name
         list_of_resources = self.list_stack_resources(stack_name)
-        resources_dict = {res['name']: res for res in list_of_resources}
+        resources_dict = {
+            res['name']: res for res in list_of_resources if res['type'] in PORT_RESOURCE_TYPES
+        }
 
         man_out_port_dict = resources_dict[f'{stack_name}-{self.trc.man_out_port}']['instances'][0][
             'attributes'

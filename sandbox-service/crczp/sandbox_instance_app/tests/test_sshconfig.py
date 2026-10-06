@@ -31,3 +31,17 @@ class TestGetSshConfig:
             '/root/.ssh/id_rsa',
         )
         assert result.asdict() == ansible_ssh_config.asdict()
+
+    def test_user_config_lists_main_link_first(self, top_ins_multi_homed):
+        """A node's first Host block, which OpenSSH uses, is its first mapping's address."""
+        proxy_jump = settings.CRCZP_CONFIG.proxy_jump_to_man
+
+        result = sshconfig.CrczpUserSSHConfig(top_ins_multi_homed, proxy_jump.Host, 'stack-name')
+
+        assert [host['Host'] for host in result.asdict()[2:]] == [
+            'monitoring 10.10.20.6',
+            'server-router 10.10.20.1',
+            'server 10.10.20.5',
+            'monitoring 10.10.40.5',
+            'server-router 10.10.40.1',
+        ]

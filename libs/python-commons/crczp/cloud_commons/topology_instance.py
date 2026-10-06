@@ -6,6 +6,7 @@ from typing import cast, override
 import yaml
 from crczp.topology_definition.models import (
     DockerContainers,
+    ForwardingInterface,
     Group,
     Host,
     MonitoringTargetHTTP,
@@ -24,6 +25,7 @@ from crczp.cloud_commons.exceptions import CrczpException, InvalidTopologyDefini
 from crczp.cloud_commons.topology_elements import (
     MAN,
     Link,
+    NetworkForwarding,
     Node,
     NodeToNodeLinkPair,
     SecurityGroups,
@@ -237,6 +239,15 @@ class TopologyInstance:
             if networks is None or link.network in networks
         ]
 
+    def get_node_main_link(self, node: Node) -> Link | None:
+        """
+        Return the main Link of a node, or None if it has no user-defined network.
+
+        It is the Link of the node's first net_mapping (for a router, its first
+        router_mapping) in document order; never the management or WAN link.
+        """
+        return next(iter(self.get_node_links(node, self.get_hosts_networks())), None)
+
     def get_network_links(
         self, network: Network, nodes: Iterable[Node] | None = None
     ) -> list[Link]:
@@ -314,6 +325,33 @@ class TopologyInstance:
 
         return accessible_links
 
+    # network forwarding (port mirroring)
+
+    def get_network_forwarding(self) -> NetworkForwarding | None:
+        """
+        Return the resolved network-forwarding (port mirroring) rule.
+
+        The rule from the topology definition is resolved to concrete Links: the
+        ``(node, network)`` source/destination interfaces become their Links.
+        Returns None when no forwarding is defined.
+        """
+        rule = self.topology_definition.network_forwarding
+        if rule is None:
+            return None
+        return NetworkForwarding(
+            sources=[self._resolve_forwarding_link(iface) for iface in rule.sources],
+            destination=self._resolve_forwarding_link(rule.destination),
+            direction=rule.direction,
+        )
+
+    def _resolve_forwarding_link(self, iface: ForwardingInterface) -> Link:
+        """
+        Resolve a forwarding ``(node, network)`` interface to its Link.
+        """
+        return next(
+            link for link in self._node_links[iface.node] if link.network.name == iface.network
+        )
+
     # get link pairs
 
     def get_node_to_nodes_link_pairs(
@@ -386,6 +424,9 @@ class TopologyInstance:
         }
         if self.ip:
             ret['ip'] = self.ip
+        forwarding = self.get_network_forwarding()
+        if forwarding:
+            ret['network_forwarding'] = repr(forwarding)
         return yaml.dump({'TopologyInstance': ret}, width=1000)
 
     def _create_extra_nodes_links(self) -> None:

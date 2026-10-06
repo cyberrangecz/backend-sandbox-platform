@@ -3,6 +3,7 @@
 {%- set tf_resource_subnet = "openstack_networking_subnet_v2" -%}
 {%- set tf_resource_port = "openstack_networking_port_v2" -%}
 {%- set tf_data_secgroup = "openstack_networking_secgroup_v2" -%}
+{%- set mirror_secgroup = "sandbox-mirror-sg" -%}
 
 {%- set tf_provider = "openstack" -%}
 {%- set tf_provider_source = "terraform-provider-openstack/openstack" -%}
@@ -44,7 +45,7 @@ resource "{{ tf_resource_subnet }}" "{{ name }}" {
 
 
 {%- macro tf_port(name, network_name, security_group_name, fixed_ip, subnet_name,
-                  allowed_address_pairs=false, admin_state_up=true) %}
+                  allowed_address_pairs=false, admin_state_up=true, security_group_ref=none) %}
 resource "{{ tf_resource_port }}" "{{ name }}" {
     name = "{{ name }}"
 {%- if network_name == trc.base_network %}
@@ -54,7 +55,11 @@ resource "{{ tf_resource_port }}" "{{ name }}" {
 {%- endif %}
     admin_state_up = "{{ (admin_state_up | string).lower() }}"
     security_group_ids = [
+{%- if security_group_ref %}
+        {{ security_group_ref }}
+{%- else %}
         data.{{ tf_data_secgroup + '.' + security_group_name}}.id
+{%- endif %}
     ]
 {% if subnet_name %}
     fixed_ip {
@@ -75,34 +80,39 @@ resource "{{ tf_resource_port }}" "{{ name }}" {
 {%- endmacro -%}
 
 {%- macro tf_instance(name, image_name, flavor_name, key_pair, link_names, volumes=[]) %}
-data "openstack_images_image_ids_v2" "image_data_source-{{ name }}" {
-  name = "{{ image_name }}"
+{%- if volumes %}
+{%- set volume_images = [image_name] + (volumes[1:] | map(attribute='image') | list) %}
+{%- for image in volume_images %}
+{%- if image is not none %}
+data "openstack_images_image_ids_v2" "image_data_source-{{ name }}-{{ loop.index0 }}" {
+  name = {{ image | hcl_string }}
 }
-
+{%- endif %}
+{%- endfor %}
+{% endif %}
 resource "{{ tf_resource_instance }}" "{{ name }}" {
     name = "{{ name }}"
-    image_name = "{{ image_name }}"
-    flavor_name = "{{ flavor_name }}"
+{%- if not volumes %}
+    image_name = {{ image_name | hcl_string }}
+{%- endif %}
+    flavor_name = {{ flavor_name | hcl_string }}
     key_pair = "{{ key_pair }}"
     config_drive = "true"
 {% if volumes %}
+{%- for volume in volumes %}
     block_device {
-        uuid                  = data.openstack_images_image_ids_v2.image_data_source-{{ name }}.ids[0]
+{%- if volume_images[loop.index0] is not none %}
+        uuid                  = data.openstack_images_image_ids_v2.image_data_source-{{ name }}-{{ loop.index0 }}.ids[0]
         source_type           = "image"
-        destination_type      = "volume"
-        boot_index            = 0
-        volume_size           = {{ volumes[0].size }}
-        delete_on_termination = true
-    }
-{% for volume in volumes[1:] %}
-    block_device {
+{%- else %}
         source_type           = "blank"
+{%- endif %}
         destination_type      = "volume"
+        boot_index            = {{ 0 if loop.first else -1 }}
         volume_size           = {{ volume.size }}
-        boot_index            = -1
         delete_on_termination = true
     }
-{% endfor -%}
+{%- endfor %}
 {%- endif %}
 {% for link_name in link_names %}
     network {
@@ -133,6 +143,12 @@ data "{{ tf_data_secgroup }}" "{{ group.value }}" {
     {{ tf_network(network_name) }}
     {{ tf_subnet(subnet_name, network_name, network.cidr, default_gateway.ip,
                  dns_name_servers) }}
+    {#- Nothing on the mirror-destination network may send except DHCP requests (UDP to
+        port 67), or it could leave through the forwarding router's external gateway. -#}
+    {%- set secgroup_ref = ('data.' ~ tf_data_secgroup ~ '.' ~ mirror_secgroup ~ '.id')
+                           if network_forwarding
+                              and network_forwarding.destination.network == network
+                           else none -%}
 
     {%- for link in topology_instance.get_network_links(network) -%}
         {%- set link_name = resource_prefix ~ '-' ~ link.name -%}
@@ -142,10 +158,10 @@ data "{{ tf_data_secgroup }}" "{{ group.value }}" {
                        allowed_address_pairs=false) }}
         {%- elif link.node.name in hosts_names or network == topology_instance.man_network %}
             {{ tf_port(link_name, network_name, link.security_group, link.ip, subnet_name,
-                       allowed_address_pairs=true) }}
+                       allowed_address_pairs=true, security_group_ref=secgroup_ref) }}
         {%- else %}
             {{ tf_port(link_name, network_name, link.security_group, link.ip, subnet_name,
-                       allowed_address_pairs=false) }}
+                       allowed_address_pairs=false, security_group_ref=secgroup_ref) }}
         {%- endif %}
     {%- endfor %}
 {% endfor -%}
@@ -169,4 +185,81 @@ data "{{ tf_data_secgroup }}" "{{ group.value }}" {
     {%- set man_link_names = [man_out_port_name] + (man_links | map(attribute='name')
                              | map('regex_replace', '^', resource_prefix ~ '-') | list) -%}
     {{ tf_instance(man_name, man.base_box.image, man.flavor, key_pair_name_ssh, man_link_names) }}
+{%- endif -%}
+
+{#- Network forwarding (port mirroring) via OVN Tap-as-a-Service. Traffic on each source
+    port is mirrored into a GRE tunnel to the destination's floating IP. -#}
+{%- if network_forwarding %}
+{%- set destination = network_forwarding.destination %}
+{%- set destination_network = destination.network %}
+{%- set destination_network_name = resource_prefix ~ '-' ~ destination_network.name %}
+{%- set router_name = resource_prefix ~ '-tapm-rtr' %}
+{%- set router_port_name = resource_prefix ~ '-tapm-rp-' ~ destination_network.name %}
+{%- set router_iface_name = resource_prefix ~ '-tapm-ri-' ~ destination_network.name %}
+{%- set fip_name = resource_prefix ~ '-tapm-fip-' ~ destination.name %}
+{%- set fip_assoc_name = resource_prefix ~ '-tapm-fipa-' ~ destination.name %}
+{# Created by the platform base deployment; only read here to learn the external network. -#}
+data "openstack_networking_router_v2" "network-forwarding-platform-router" {
+    name = "base-router-public"
+}
+data "{{ tf_resource_network }}" "network-forwarding-ext-net" {
+    network_id = data.openstack_networking_router_v2.network-forwarding-platform-router.external_network_id
+}
+
+{# Created by the platform base deployment: GRE from the hypervisors, plus DHCP requests. -#}
+data "{{ tf_data_secgroup }}" "{{ mirror_secgroup }}" {
+    name = "{{ mirror_secgroup }}"
+}
+
+{# A router per sandbox: a pool renders the same destination CIDRs for every sandbox, which
+   Neutron would reject as overlapping subnets if they all attached to the platform router. -#}
+resource "openstack_networking_router_v2" "{{ router_name }}" {
+    name                = "{{ router_name }}"
+    admin_state_up      = "true"
+    external_network_id = data.{{ tf_resource_network }}.network-forwarding-ext-net.id
+}
+{# Created after the topology ports so Neutron cannot hand it an address one of them asks for. -#}
+resource "{{ tf_resource_port }}" "{{ router_port_name }}" {
+    name = "{{ router_port_name }}"
+    network_id = {{ tf_resource_network }}.{{ destination_network_name }}.id
+    fixed_ip {
+        subnet_id = {{ tf_resource_subnet }}.{{ destination_network_name }}-subnet.id
+    }
+    depends_on = [
+    {%- for link in topology_instance.get_network_links(destination_network) %}
+        {{ tf_resource_port }}.{{ resource_prefix }}-{{ link.name }},
+    {%- endfor %}
+    ]
+}
+resource "openstack_networking_router_interface_v2" "{{ router_iface_name }}" {
+    router_id = openstack_networking_router_v2.{{ router_name }}.id
+    port_id   = {{ tf_resource_port }}.{{ router_port_name }}.id
+}
+
+resource "openstack_networking_floatingip_v2" "{{ fip_name }}" {
+    pool = data.{{ tf_resource_network }}.network-forwarding-ext-net.name
+}
+resource "openstack_networking_floatingip_associate_v2" "{{ fip_assoc_name }}" {
+    floating_ip = openstack_networking_floatingip_v2.{{ fip_name }}.address
+    port_id     = {{ tf_resource_port }}.{{ resource_prefix }}-{{ destination.name }}.id
+    depends_on  = [openstack_networking_router_interface_v2.{{ router_iface_name }}]
+}
+
+{% for tm in tap_mirrors %}
+{%- set tm_name = resource_prefix ~ '-tapm-' ~ loop.index0 %}
+resource "openstack_taas_tap_mirror_v2" "{{ tm_name }}" {
+    name        = "{{ tm_name }}"
+    mirror_type = "gre"
+    port_id     = {{ tf_resource_port }}.{{ resource_prefix }}-{{ tm.source.name }}.id
+    remote_ip   = openstack_networking_floatingip_v2.{{ fip_name }}.address
+    directions {
+    {%- if tm.tunnel_id_in is not none %}
+        in  = {{ tm.tunnel_id_in }}
+    {%- endif %}
+    {%- if tm.tunnel_id_out is not none %}
+        out = {{ tm.tunnel_id_out }}
+    {%- endif %}
+    }
+}
+{% endfor -%}
 {%- endif -%}

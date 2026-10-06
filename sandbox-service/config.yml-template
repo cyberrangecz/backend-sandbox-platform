@@ -45,17 +45,19 @@ application_configuration:
     # The destination port for syslog messages.
     #syslog_destination_port: 515
 
-    # The URL of OpenStack Identity service API.
-    os_auth_url: ""
+    # OpenStack cloud provider configuration.
+    openstack:
+        # The URL of OpenStack Identity service API.
+        auth_url: ""
 
-    # The ID of application credentials to authenticate at OpenStack cloud platform.
-    os_application_credential_id: ""
+        # The ID of application credentials to authenticate at OpenStack cloud platform.
+        application_credential_id: ""
 
-    # The secret string of APPLICATION_CREDENTIAL_ID.
-    os_application_credential_secret: ""
+        # The secret string of application_credential_id.
+        application_credential_secret: ""
 
-    # The OpenStack console type. One of: novnc, xvpvnc, spice-html5, rdp-html5, serial, webmks.
-    #os_console_type: spice-html5
+        # The OpenStack console type. One of: novnc, xvpvnc, spice-html5, rdp-html5, serial, webmks.
+        #console_type: spice-html5
 
     # AWS specific configuration.
     # Keeps configuration file backwards compatible.
@@ -97,6 +99,30 @@ application_configuration:
     # Environment variable for Git SSL verification
     git_skip_ssl_verification: false
 
+    # Whether network traffic forwarding (port mirroring) is available on this deployment.
+    # When False (default), a sandbox definition that declares `network_forwarding` is
+    # rejected on import, pool creation and sandbox allocation.
+    # Enable only when the target cloud supports it:
+    #   * OpenStack: the Neutron TaaS extension with the OVN driver, and a platform base
+    #     deployment (tf-module-openstack-base) providing the security group sandbox-mirror-sg
+    #     (GRE ingress from the hypervisors, plus DHCP requests) and the router base-router-public.
+    #     Deploy it before enabling the flag: a missing sandbox-mirror-sg is not detected at
+    #     import; every sandbox build with forwarding fails until it exists.
+    #     Each forwarding sandbox uses 1 extra router, 2 external IPs (router gateway and
+    #     floating IP) and 1 extra port of project quota.
+    #     Tunnel ids are derived from the sandbox id, so two deployments sharing one OpenStack
+    #     project cannot both use forwarding.
+    #     The destination network carries only the mirrored traffic: no other host may be on
+    #     it and its ports can send nothing but DHCP requests, so the destination host's first
+    #     net_mapping must be on another network.
+    #   * AWS: VPC Traffic Mirroring. Every source must be on the destination's network (each
+    #     network is its own VPC), there can be at most 10 sources, and their instance types
+    #     must be t3, t3a or t4g (t2 does not support mirroring). The destination receives
+    #     VXLAN on UDP 4789 with an AWS-assigned VNI.
+    #   Together, the OpenStack and AWS rules mean that in practice a useful forwarding
+    #   definition is valid on only one of the two providers.
+    #network_forwarding_enabled: False
+
     # How GitHub sandbox-definition topology is cached. GitHub provider only (GitLab unaffected).
     # One of:
     #   AGGRESSIVE (default): cache key stable per branch, topology served until the cache TTL expires
@@ -110,8 +136,13 @@ application_configuration:
 
     # The rev of Ansible networking Git repository.
     #ansible_networking_rev: master
+    # managed: false hosts need ansible-stage-one newer than v2.2.1 (skips unmanaged_hosts).
 
-    # The pattern to be replaced in image names of sandbox definitions.
+    # The pattern to be replaced in image names of sandbox definitions. It also applies to
+    # volumes[].image; on AWS those are AMI and EBS snapshot ids, so the pattern must not match
+    # ami-/snap- ids. On AWS, volumes[].image must be an EBS snapshot owned by the platform
+    # account (checked at definition import, pool creation and allocation), and the volume
+    # must be at least the snapshot size.
     #image_naming_strategy:
     #    pattern: ^
     #    replace: ''
@@ -136,7 +167,8 @@ application_configuration:
     #sandbox_ansible_timeout: 7200
 
     # The name of the Docker image that is able to run Ansible playbook.
-    #ansible_docker_image: ghcr.io/cyberrangecz/crczp-ansible-runner:1.4.1
+    # Hosts with base_box.mgmt_password need sshpass in the runner image (1.2.0 or newer).
+    #ansible_docker_image: ghcr.io/cyberrangecz/crczp-ansible-runner:1.2.0
 
     # The name of the Docker network that the Runner will use.
     #ansible_docker_network: bridge
@@ -202,7 +234,7 @@ application_configuration:
         # The name of the flavor in OpenStack that will be used for MAN.
         man_flavor: ""
 
-        # The cidr notation of network between MAN and every other node in sandbox.
+        # The IPv4 cidr notation of network between MAN and every other node in sandbox.
         #sb_man_cidr: 192.168.128.0/17
 
         # The list of IP addresses to custom DNS servers.

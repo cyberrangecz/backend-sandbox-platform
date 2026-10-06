@@ -1,3 +1,4 @@
+{#- Keep the provider version constraint in line with sandbox-service/tofu/openstack.tf. -#}
 {%- set tf_provider = "openstack" -%}
 {%- set tf_provider_source = "terraform-provider-openstack/openstack" -%}
 
@@ -5,6 +6,7 @@ terraform {
     required_providers {
         {{ tf_provider }} = {
             source = "{{ tf_provider_source }}"
+            version = "~> 3.4"
         }
     }
 }

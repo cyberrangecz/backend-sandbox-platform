@@ -256,6 +256,7 @@ class AllocationStackStageHandler(StackStageHandler):
         pool = allocation_unit.pool
         definition = pool.definition
         top_def = definitions.get_definition(definition.url, pool.rev_sha, settings.CRCZP_CONFIG)
+        definitions.validate_build_requirements(top_def)
         try:
             self.process = self._client.create_stack(
                 top_def,

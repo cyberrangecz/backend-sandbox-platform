@@ -2,11 +2,12 @@
 Module for topology definition models.
 """
 
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any, Self
 
 from ruamel.yaml.loader import RoundTripLoader as _RoundTripLoader
-from yamlize import Attribute, Dynamic, Map, Object, Sequence, StrList, Typed
+from ruamel.yaml.nodes import MappingNode, Node, ScalarNode
+from yamlize import Attribute, Dynamic, Map, Object, Sequence, StrList, Typed, YamlizingError
 
 from crczp.topology_definition.utils import rename_deprecated_attribute
 
@@ -18,6 +19,35 @@ from crczp.topology_definition.utils import rename_deprecated_attribute
 if not hasattr(_RoundTripLoader, 'max_depth'):
     _RoundTripLoader.max_depth = None  # ty: ignore[unresolved-attribute]
 from crczp.topology_definition.validators import TopologyValidation
+
+
+class ForwardingDirection(StrEnum):
+    """
+    Enum for the traffic direction mirrored by a network-forwarding rule.
+    """
+
+    IN = 'in'
+    OUT = 'out'
+    BOTH = 'both'
+
+
+def _value_node(mapping: MappingNode, key: str) -> Node:
+    """
+    Return the value node of key in a YAML mapping, or the mapping itself if key is absent.
+    """
+    return next((value for key_node, value in mapping.value if key_node.value == key), mapping)
+
+
+def _direction_from_yaml(loader: Any, node: Node, _rtd: Any) -> ForwardingDirection:
+    value = loader.construct_object(node, deep=True)
+    try:
+        return ForwardingDirection(value)
+    except ValueError as exc:
+        raise YamlizingError(
+            f'network_forwarding has invalid direction "{value}". '
+            f'Must be one of {sorted(d.value for d in ForwardingDirection)}.',
+            node,
+        ) from exc
 
 
 class Protocol(Enum):
@@ -56,6 +86,9 @@ class BaseBox(Object):
         ),
         default=Protocol.SSH,
     )
+    # SSH password for images that cannot receive the injected management key;
+    # the key is still tried first.
+    mgmt_password = Attribute(type=str, default=None)
 
     @classmethod
     def from_yaml(cls, loader: Any, node: Any, _rtd: Any = None) -> 'BaseBox':
@@ -64,7 +97,33 @@ class BaseBox(Object):
         """
         rename_deprecated_attribute(node.value, 'man_user', 'mgmt_user')
         rename_deprecated_attribute(node.value, 'mng_protocol', 'mgmt_protocol')
-        return super().from_yaml(loader, node, _rtd)
+        for index, (key, value) in enumerate(node.value):
+            if (
+                key.value == 'mgmt_password'
+                and isinstance(value, ScalarNode)
+                and value.tag != 'tag:yaml.org,2002:null'
+            ):
+                # An unquoted 1234 would resolve to int and fail yamlize's str check cryptically.
+                # The node is copied because an anchor may share it with other keys.
+                node.value[index] = (
+                    key,
+                    ScalarNode(
+                        'tag:yaml.org,2002:str',
+                        value.value,
+                        value.start_mark,
+                        value.end_mark,
+                        style=value.style,
+                    ),
+                )
+        base_box = super().from_yaml(loader, node, _rtd)
+        if base_box.mgmt_password is not None and not base_box.mgmt_password:
+            raise YamlizingError(
+                'mgmt_password must not be empty.', _value_node(node, 'mgmt_password')
+            )
+        # Not an Attribute validator: those run in key order and may see the default protocol.
+        if base_box.mgmt_password is not None and base_box.mgmt_protocol != Protocol.SSH:
+            raise YamlizingError('mgmt_password is supported only with mgmt_protocol ssh.', node)
+        return base_box
 
 
 class ExtraValues(Map):
@@ -78,10 +137,13 @@ class ExtraValues(Map):
 
 class Volume(Object):
     """
-    Volume definition.
+    Disk of a host. volumes[0] is the system disk, created from base_box.image and sized by
+    size (GB); later entries are extra disks, blank or created from image (a Glance image
+    name on OpenStack, an EBS snapshot id on AWS).
     """
 
-    size = Attribute(type=int, default=None)
+    size = Attribute(type=int)
+    image = Attribute(type=str, default=None)
 
 
 class VolumeList(Sequence):
@@ -102,6 +164,10 @@ class Host(Object):
     flavor = Attribute(type=str)
     block_internet = Attribute(type=bool, default=False)
     hidden = Attribute(type=bool, default=False)
+    # When False, the host is deployed but stage one never configures it (networking, hostname,
+    # user access, docker, NetBird, exporters); the definition's own playbook may. Routers have
+    # no such switch: they carry the sandbox routing.
+    managed = Attribute(type=bool, default=True)
     extra = Attribute(type=ExtraValues, default=None)
     volumes = Attribute(
         type=VolumeList, default=None, validator=TopologyValidation.is_volumes_valid
@@ -163,7 +229,7 @@ class Network(Object):
     """
 
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
-    cidr = Attribute(type=str)
+    cidr = Attribute(type=str, validator=TopologyValidation.is_ipv4_cidr)
     accessible_by_user = Attribute(type=bool, default=True)
     hidden = Attribute(type=bool, default=False)
 
@@ -180,7 +246,7 @@ class WAN(Object):
     """
 
     name = Attribute(type=str, validator=TopologyValidation.is_valid_ostack_name)
-    cidr = Attribute(type=str)
+    cidr = Attribute(type=str, validator=TopologyValidation.is_ipv4_cidr)
 
     def __init__(self, name: str, cidr: str) -> None:
         self.name = name
@@ -202,7 +268,7 @@ class NetworkMapping(Object):
 
     host = Attribute(type=str)
     network = Attribute(type=str)
-    ip = Attribute(type=str)
+    ip = Attribute(type=str, validator=TopologyValidation.is_ipv4_address)
 
     def __init__(self, host: str, network: str, ip: str) -> None:
         self.host = host
@@ -225,7 +291,7 @@ class RouterMapping(Object):
 
     router = Attribute(type=str)
     network = Attribute(type=str)
-    ip = Attribute(type=str)
+    ip = Attribute(type=str, validator=TopologyValidation.is_ipv4_address)
 
     def __init__(self, router: str, network: str, ip: str) -> None:
         self.router = router
@@ -427,6 +493,48 @@ class Vpn(Object):
     dns = Attribute(type=VpnDns, default=None)
 
 
+class ForwardingInterface(Object):
+    """
+    A single interface in a network-forwarding rule, identified by a host or router and
+    the network it is attached to. Maps 1:1 to a Neutron port / AWS network interface.
+    """
+
+    node = Attribute(type=str)
+    network = Attribute(type=str)
+
+
+class ForwardingInterfaceList(Sequence):
+    """
+    List of forwarding interfaces.
+    """
+
+    item_type = ForwardingInterface
+
+
+class NetworkForwardingRule(Object):
+    """
+    Network traffic forwarding (port mirroring) rule. A copy of the traffic on one
+    or more source interfaces is delivered to a single destination interface.
+
+    A topology declares at most one rule, so the resources it renders are named after
+    the sandbox prefix alone and need no name of their own.
+
+    ``direction`` selects which traffic is mirrored relative to the source
+    (``in``/``out``/``both``). Cloud-specific constraints are enforced by the cloud drivers.
+    """
+
+    sources = Attribute(type=ForwardingInterfaceList)
+    destination = Attribute(type=ForwardingInterface)
+    direction = Attribute(
+        type=Typed(  # ty: ignore[no-matching-overload]
+            ForwardingDirection,
+            from_yaml=_direction_from_yaml,
+            to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.value)),
+        ),
+        default=ForwardingDirection.BOTH,
+    )
+
+
 class TopologyDefinition(Object):  # pylint: disable=too-many-instance-attributes
     """
     Topology definition.
@@ -436,26 +544,13 @@ class TopologyDefinition(Object):  # pylint: disable=too-many-instance-attribute
     hosts = Attribute(type=HostList)
     routers = Attribute(type=RouterList)
     wan = Attribute(type=WAN, default=WAN('wan', '100.100.100.0/24'))
-    networks = Attribute(type=NetworkList, validator=TopologyValidation.validate_name_uniqueness)
-    # the validation of networks ABOVE is also used to validate the names of the upper four elements
-    net_mappings = Attribute(
-        type=NetworkMappingList, validator=TopologyValidation.validate_net_mappings
-    )
-    router_mappings = Attribute(
-        type=RouterMappingList, validator=TopologyValidation.validate_router_mappings
-    )
-    # the validation of router_mappings is also used to validate CIDRs and IP addresses
-    groups = Attribute(type=GroupList, validator=TopologyValidation.validate_groups)
-    monitoring_targets = Attribute(
-        type=MonitoringTargets,
-        validator=TopologyValidation.validate_monitoring_targets,
-        default=None,
-    )
-    vpn = Attribute(
-        type=Vpn,
-        validator=TopologyValidation.validate_vpn,
-        default=None,
-    )
+    networks = Attribute(type=NetworkList)
+    net_mappings = Attribute(type=NetworkMappingList)
+    router_mappings = Attribute(type=RouterMappingList)
+    groups = Attribute(type=GroupList)
+    monitoring_targets = Attribute(type=MonitoringTargets, default=None)
+    vpn = Attribute(type=Vpn, default=None)
+    network_forwarding = Attribute(type=NetworkForwardingRule, default=None)
 
     # Class-level defaults so yamlize (which bypasses __init__) finds these attributes
     _indexed: bool = False
@@ -474,10 +569,38 @@ class TopologyDefinition(Object):  # pylint: disable=too-many-instance-attribute
         self.groups = GroupList()
         self.monitoring_targets = None
         self.vpn = None
+        self.network_forwarding = None
         self._indexed: bool = False
         self._hosts_index: dict[str, Host] = {}
         self._routers_index: dict[str, Router] = {}
         self._networks_index: dict[str, Network] = {}
+
+    @classmethod
+    def from_yaml(cls, loader: Any, node: Any, _rtd: Any = None) -> 'TopologyDefinition':
+        """
+        Load TopologyDefinition from YAML, then run the checks that span several attributes.
+
+        yamlize runs Attribute validators in document key order, so a validator reading other
+        attributes would see only what is loaded so far. Each error points at the checked key.
+        """
+        td = super().from_yaml(loader, node, _rtd)
+        # Names first: the later checks look nodes and networks up by name.
+        cross_attribute_checks = (
+            ('networks', TopologyValidation.validate_name_uniqueness),
+            ('networks', TopologyValidation.validate_network_cidrs),
+            ('net_mappings', TopologyValidation.validate_net_mappings),
+            ('router_mappings', TopologyValidation.validate_router_mappings),
+            ('groups', TopologyValidation.validate_groups),
+            ('monitoring_targets', TopologyValidation.validate_monitoring_targets),
+            ('vpn', TopologyValidation.validate_vpn),
+            ('network_forwarding', TopologyValidation.validate_network_forwarding),
+        )
+        for key, validate in cross_attribute_checks:
+            try:
+                validate(td, getattr(td, key))
+            except ValueError as exc:
+                raise YamlizingError(str(exc), _value_node(node, key)) from exc
+        return td
 
     @staticmethod
     def from_file(file: str) -> 'TopologyDefinition':

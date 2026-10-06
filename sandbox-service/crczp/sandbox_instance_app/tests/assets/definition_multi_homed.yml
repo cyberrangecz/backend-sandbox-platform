@@ -1,0 +1,33 @@
+name: multi-homed-definition
+hosts:
+  - name: server
+    base_box: { image: debian-12-x86_64, mgmt_user: debian }
+    flavor: standard.small
+
+  - name: monitoring
+    base_box: { image: debian-12-x86_64, mgmt_user: debian }
+    flavor: standard.small
+
+routers:
+  - name: server-router
+    base_box: { image: debian-12-x86_64, mgmt_user: debian }
+    flavor: standard.small
+
+# monitoring's main network (its first net_mapping) is not the first network here.
+networks:
+  - name: monitoring-switch
+    cidr: 10.10.40.0/24
+
+  - name: server-switch
+    cidr: 10.10.20.0/24
+
+net_mappings:
+  - { host: server, network: server-switch, ip: 10.10.20.5 }
+  - { host: monitoring, network: server-switch, ip: 10.10.20.6 }
+  - { host: monitoring, network: monitoring-switch, ip: 10.10.40.5 }
+
+router_mappings:
+  - { router: server-router, network: server-switch, ip: 10.10.20.1 }
+  - { router: server-router, network: monitoring-switch, ip: 10.10.40.1 }
+
+groups: []

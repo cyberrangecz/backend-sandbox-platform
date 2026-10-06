@@ -69,6 +69,16 @@ class CrczpCloudClientBase(ABC):
         :return: Image object
         """
 
+    def get_snapshot_sizes(self, snapshot_ids: list[str]) -> dict[str, int]:
+        """
+        Get the sizes of volume snapshots owned by the cloud account.
+
+        :param snapshot_ids: The IDs of the snapshots
+        :return: Size in GiB of each found snapshot, keyed by its ID; missing IDs are left out
+        :raise NotImplementedError: The cloud has no volume snapshots
+        """
+        raise NotImplementedError
+
     @abstractmethod
     def resume_node(self, node_id: str) -> None:
         """

@@ -282,10 +282,6 @@ resource "openstack_networking_port_v2" "stack-name-link-9" {
   }
 }
 
-data "openstack_images_image_ids_v2" "image_data_source-stack-name-server" {
-  name = "debian-12-x86_64"
-}
-
 resource "openstack_compute_instance_v2" "stack-name-server" {
   name = "stack-name-server"
   image_name = "debian-12-x86_64"
@@ -302,10 +298,6 @@ resource "openstack_compute_instance_v2" "stack-name-server" {
   }
 }
 
-data "openstack_images_image_ids_v2" "image_data_source-stack-name-home" {
-  name = "debian-12-x86_64"
-}
-
 resource "openstack_compute_instance_v2" "stack-name-home" {
   name = "stack-name-home"
   image_name = "debian-12-x86_64"
@@ -320,10 +312,6 @@ resource "openstack_compute_instance_v2" "stack-name-home" {
   network {
     port = openstack_networking_port_v2.stack-name-link-6.id
   }
-}
-
-data "openstack_images_image_ids_v2" "image_data_source-stack-name-server-router" {
-  name = "debian-12-x86_64"
 }
 
 resource "openstack_compute_instance_v2" "stack-name-server-router" {
@@ -344,10 +332,6 @@ resource "openstack_compute_instance_v2" "stack-name-server-router" {
   network {
     port = openstack_networking_port_v2.stack-name-link-11.id
   }
-}
-
-data "openstack_images_image_ids_v2" "image_data_source-stack-name-home-router" {
-  name = "debian-12-x86_64"
 }
 
 resource "openstack_compute_instance_v2" "stack-name-home-router" {
@@ -381,10 +365,6 @@ resource "openstack_networking_port_v2" "stack-name-man-out-port" {
   allowed_address_pairs {
     ip_address = "0.0.0.0/0"
   }
-}
-
-data "openstack_images_image_ids_v2" "image_data_source-stack-name-man" {
-  name = "debian-12-x86_64"
 }
 
 resource "openstack_compute_instance_v2" "stack-name-man" {
