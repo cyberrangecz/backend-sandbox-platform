@@ -1,12 +1,17 @@
 """Tests for CRCZP configuration parsing."""
 
 import os
+import re
 from io import StringIO
 from pathlib import Path
 
 import pytest
 
-from crczp.sandbox_common_lib.crczp_config import TopologyCacheMode
+from crczp.sandbox_common_lib.crczp_config import (
+    OpenStackConfiguration,
+    OpenStackConsoleType,
+    TopologyCacheMode,
+)
 from crczp.sandbox_common_lib.crczp_service_config import CrczpServiceConfig
 from crczp.sandbox_common_lib.exceptions import ImproperlyConfigured
 
@@ -14,7 +19,8 @@ TEST_CONFIG = (
     Path(__file__).parents[2] / 'sandbox_service_project' / 'tests' / 'config.yml'
 ).read_text(encoding='utf-8')
 APP_CONFIG_KEY = 'application_configuration:\n'
-CONSOLE_TYPE_LINE = '    #os_console_type: spice-html5\n'
+OPENSTACK_BLOCK = re.compile(r'^    openstack:\n(?:(?:        .*)?\n)*', re.MULTILINE)
+CONSOLE_TYPE_LINE = '        #console_type: spice-html5\n'
 IDENTITY_FILE_LINE = '        IdentityFile: /tmp/id_rsa\n'
 
 
@@ -58,13 +64,72 @@ class TestTopologyCacheModeCreate:
         assert 'FRESH_IMPORT' in message
 
 
+class TestOpenStackConfiguration:
+    """Tests for the nested OpenStack provider config block."""
+
+    def test_parses_nested_block(self):
+        """All OpenStack settings parse from the nested map."""
+        config = OpenStackConfiguration.load(
+            'auth_url: http://keystone\n'
+            'application_credential_id: cred-id\n'
+            'application_credential_secret: cred-secret\n'
+            'console_type: novnc\n'
+        )
+        assert config.auth_url == 'http://keystone'
+        assert config.application_credential_id == 'cred-id'
+        assert config.console_type is OpenStackConsoleType.NOVNC
+
+    def test_defaults_when_unset(self):
+        """Omitted settings fall back to their defaults (console spice-html5)."""
+        config = OpenStackConfiguration.load('auth_url: http://keystone\n')
+        assert config.console_type is OpenStackConsoleType.SPICE_HTML5
+
+
 class TestServiceConfigLoad:
     """Tests loading variants of the real test config through CrczpServiceConfig.load."""
 
+    def test_test_config_loads(self):
+        """The unmodified test config loads."""
+        assert _load(TEST_CONFIG).app_config.openstack.auth_url == ''
+
+    def test_legacy_openstack_keys_name_new_paths(self):
+        """Flat os_* keys are rejected with one error naming each key's openstack.* path."""
+        text = _with_app_setting(
+            'os_auth_url: http://keystone\n'
+            '    os_application_credential_id: cred-id\n'
+            '    os_application_credential_secret: cred-secret\n'
+            '    os_console_type: novnc'
+        )
+        with pytest.raises(
+            ImproperlyConfigured,
+            match=re.escape(
+                'OpenStack settings moved under `openstack:`: '
+                'os_auth_url -> openstack.auth_url, '
+                'os_application_credential_id -> openstack.application_credential_id, '
+                'os_application_credential_secret -> openstack.application_credential_secret, '
+                'os_console_type -> openstack.console_type\nstart:'
+            ),
+        ):
+            _load(text)
+
+    def test_missing_openstack_block_gets_fresh_defaults_per_load(self):
+        """Without an openstack block every load gets its own default OpenStackConfiguration."""
+        text = OPENSTACK_BLOCK.sub('', TEST_CONFIG, count=1)
+        assert 'openstack:' not in text
+        text = _with_app_setting('aws:\n        region: eu-central-1', text)
+
+        first = _load(text).app_config
+        second = _load(text).app_config
+
+        assert first.aws.region == 'eu-central-1'
+        assert first.openstack is not second.openstack
+        assert first.openstack.console_type is OpenStackConsoleType.SPICE_HTML5
+        assert second.openstack.console_type is OpenStackConsoleType.SPICE_HTML5
+
     @pytest.mark.parametrize('value', ['spice', ''])
     def test_invalid_console_type_lists_valid_values(self, value):
-        """An unknown or empty os_console_type is a positioned ImproperlyConfigured."""
-        text = _replace_once(TEST_CONFIG, CONSOLE_TYPE_LINE, f'    os_console_type: {value}\n')
+        """An unknown or empty console_type is a positioned ImproperlyConfigured."""
+        text = _replace_once(TEST_CONFIG, CONSOLE_TYPE_LINE, f'        console_type: {value}\n')
         with pytest.raises(
             ImproperlyConfigured,
             match=r'(?s)Expected one of: novnc, xvpvnc, spice-html5, rdp-html5, serial, '

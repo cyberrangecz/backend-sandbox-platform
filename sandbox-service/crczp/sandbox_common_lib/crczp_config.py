@@ -7,6 +7,7 @@ from collections.abc import Callable
 from enum import Enum
 from typing import Any
 
+from ruamel.yaml import MappingNode
 from yamlize import Attribute, Map, Object, Typed, YamlizingError
 
 from crczp.cloud_commons import TransformationConfiguration
@@ -43,6 +44,16 @@ REDIS_HOST = 'localhost'
 REDIS_PORT = 6379
 REDIS_DB = 0
 REDIS_TIMEOUT = 86400 * 30
+
+LEGACY_OPENSTACK_KEYS = {
+    f'os_{name}': name
+    for name in (
+        'auth_url',
+        'application_credential_id',
+        'application_credential_secret',
+        'console_type',
+    )
+}
 
 
 def _enum_from_yaml(create: Callable[[str], Enum]) -> Callable[[Any, Any, Any], Enum]:
@@ -138,7 +149,7 @@ class OpenStackConsoleType(Enum):
         except KeyError:
             valid = ', '.join(console.value for console in cls)
             raise ValueError(
-                f'Invalid value for os_console_type: {value}. Expected one of: {valid}.'
+                f'Invalid value for console_type: {value}. Expected one of: {valid}.'
             ) from None
 
 
@@ -151,6 +162,25 @@ class AwsConfiguration(Object):
     availability_zone = Attribute(type=str, default='')
     base_vpc = Attribute(type=str, default='Base VPC')
     base_subnet = Attribute(type=str, default='Base Subnet')
+
+
+class OpenStackConfiguration(Object):
+    """OpenStack cloud provider configuration."""
+
+    auth_url = Attribute(type=str, default=None)
+    application_credential_id = Attribute(type=str, default=None)
+    application_credential_secret = Attribute(type=str, default=None)
+    # yamlize's Typed is a metaclass whose __new__ builds and returns a separate class,
+    # so type.__init__ is never reached; ty still checks the call against its overloads.
+    # The same applies to every other Typed(...) call in this file.
+    console_type = Attribute(
+        type=Typed(  # ty: ignore[no-matching-overload]
+            OpenStackConsoleType,
+            from_yaml=_enum_from_yaml(OpenStackConsoleType.create),
+            to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.name)),
+        ),
+        default=OpenStackConsoleType.SPICE_HTML5,
+    )
 
 
 class NamingStrategy(Object):
@@ -227,21 +257,7 @@ class CrczpConfiguration(Object):
     head_host = Attribute(type=str, default=HEAD_IP)
     syslog_destination_port = Attribute(type=int, default=515)
 
-    os_auth_url = Attribute(type=str, default=None)
-    os_application_credential_id = Attribute(type=str, default=None)
-    os_application_credential_secret = Attribute(type=str, default=None)
-    # yamlize's Typed is a metaclass whose __new__ builds and returns a separate class,
-    # so type.__init__ is never reached; ty still checks the call against its overloads.
-    # The same applies to every other Typed(...) call in this file.
-    os_console_type = Attribute(
-        type=Typed(  # ty: ignore[no-matching-overload]
-            OpenStackConsoleType,
-            from_yaml=_enum_from_yaml(OpenStackConsoleType.create),
-            to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.name)),
-        ),
-        default=OpenStackConsoleType.SPICE_HTML5,
-    )
-
+    openstack = Attribute(type=OpenStackConfiguration, default=None)
     aws = Attribute(type=AwsConfiguration, default=None)
 
     log_file = Attribute(type=str, default=LOG_FILE)
@@ -332,8 +348,20 @@ class CrczpConfiguration(Object):
     # Nested under CrczpServiceConfig, so yamlize builds this through from_yaml, never load.
     @classmethod
     def from_yaml(cls, loader: Any, node: Any, _rtd: Any = None) -> 'CrczpConfiguration':
-        """Load CrczpConfiguration from YAML, making the ProxyJump IdentityFile absolute."""
+        """Load CrczpConfiguration from YAML, rejecting the legacy flat OpenStack keys."""
+        legacy = [
+            key_node
+            for key_node, _ in (node.value if isinstance(node, MappingNode) else [])
+            if key_node.value in LEGACY_OPENSTACK_KEYS
+        ]
+        if legacy:
+            moves = ', '.join(
+                f'{key.value} -> openstack.{LEGACY_OPENSTACK_KEYS[key.value]}' for key in legacy
+            )
+            raise YamlizingError(f'OpenStack settings moved under `openstack:`: {moves}', legacy[0])
         obj = super().from_yaml(loader, node, _rtd)
+        if obj.openstack is None:
+            obj.openstack = OpenStackConfiguration()
         # ProxyJump IdentityFile must be an absolute path. abspath('') would give the cwd.
         if obj.proxy_jump_to_man.IdentityFile:
             obj.proxy_jump_to_man.IdentityFile = os.path.abspath(

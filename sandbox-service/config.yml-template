@@ -45,17 +45,19 @@ application_configuration:
     # The destination port for syslog messages.
     #syslog_destination_port: 515
 
-    # The URL of OpenStack Identity service API.
-    os_auth_url: ""
+    # OpenStack cloud provider configuration.
+    openstack:
+        # The URL of OpenStack Identity service API.
+        auth_url: ""
 
-    # The ID of application credentials to authenticate at OpenStack cloud platform.
-    os_application_credential_id: ""
+        # The ID of application credentials to authenticate at OpenStack cloud platform.
+        application_credential_id: ""
 
-    # The secret string of APPLICATION_CREDENTIAL_ID.
-    os_application_credential_secret: ""
+        # The secret string of application_credential_id.
+        application_credential_secret: ""
 
-    # The OpenStack console type. One of: novnc, xvpvnc, spice-html5, rdp-html5, serial, webmks.
-    #os_console_type: spice-html5
+        # The OpenStack console type. One of: novnc, xvpvnc, spice-html5, rdp-html5, serial, webmks.
+        #console_type: spice-html5
 
     # AWS specific configuration.
     # Keeps configuration file backwards compatible.

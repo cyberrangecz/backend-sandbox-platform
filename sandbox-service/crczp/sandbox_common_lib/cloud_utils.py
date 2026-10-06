@@ -24,20 +24,23 @@ def get_database_settings(crczp_config: CrczpConfiguration) -> dict[str, Any]:
 
 def get_ostack_client(crczp_config: CrczpConfiguration) -> CrczpTerraformClient:
     """Abstracts creation and authentication to CRCZP lib client."""
-    if None in [
-        crczp_config.os_auth_url,
-        crczp_config.os_application_credential_id,
-        crczp_config.os_application_credential_secret,
-    ]:
+    openstack = crczp_config.openstack
+    required = {
+        'openstack.auth_url': openstack.auth_url,
+        'openstack.application_credential_id': openstack.application_credential_id,
+        'openstack.application_credential_secret': openstack.application_credential_secret,
+    }
+    if None in required.values():
+        unset = ', '.join(key for key, value in required.items() if value is None)
         raise ValidationError(
-            'Missing OpenStack configuration options. '
-            'Either AWS or OpenStack configuration must be set.'
+            f'Unset OpenStack configuration options: {unset}. '
+            'Configure either an `aws:` section or these `openstack:` credentials.'
         )
 
     return CrczpTerraformClient(
-        auth_url=crczp_config.os_auth_url,
-        application_credential_id=crczp_config.os_application_credential_id,
-        application_credential_secret=crczp_config.os_application_credential_secret,
+        auth_url=openstack.auth_url,
+        application_credential_id=openstack.application_credential_id,
+        application_credential_secret=openstack.application_credential_secret,
         trc=crczp_config.trc,
         cloud_client=AvailableCloudLibraries.OPENSTACK,
         backend_type=CrczpTerraformBackendType(crczp_config.terraform_configuration.backend_type),
