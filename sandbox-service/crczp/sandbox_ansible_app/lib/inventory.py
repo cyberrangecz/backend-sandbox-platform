@@ -407,15 +407,10 @@ class Inventory(BaseInventory):
         }
         mgmt_links[self.topology_instance.man.name] = self.topology_instance.ip
         for node in self.topology_instance.get_nodes():
-            # mgmt_links values come from Link.ip / TopologyInstance.ip, both Optional in
-            # crczp.cloud_commons only for the pre-enrichment state.
-            self._add_host(
-                Host(
-                    node.name,
-                    mgmt_links[node.name],  # ty: ignore[invalid-argument-type]
-                    node.base_box.mgmt_user,
-                )
-            )
+            ip = mgmt_links.get(node.name)
+            if ip is None:
+                raise exceptions.AnsibleError(f'Management IP of node {node.name} is not known.')
+            self._add_host(Host(node.name, ip, node.base_box.mgmt_user))
 
     def _add_host(self, host: Host) -> None:
         """

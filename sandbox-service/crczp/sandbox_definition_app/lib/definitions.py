@@ -222,7 +222,8 @@ def get_def_provider(url: str, config: CrczpConfiguration) -> DefinitionProvider
 
 def validate_topology_definition(topology_definition: TopologyDefinition) -> None:
     """
-    Validates ansible hosts groups of topology definition
+    Validates that the topology definition does not redefine the default ansible hosts groups
+    and uses only flavors and images that exist on the terraform backend.
 
     :param topology_definition: Topology definition
     :raise: ValidationError if definition is incorrect

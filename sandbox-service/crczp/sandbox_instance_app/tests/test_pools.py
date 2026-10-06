@@ -33,7 +33,9 @@ class TestCreatePool:
     def set_up(self, mocker, image):  # pylint: disable=attribute-defined-outside-init
         """Set up mocks for pool creation tests."""
         self.client = mocker.patch('crczp.sandbox_common_lib.utils.get_terraform_client')
-        mocker.patch('crczp.sandbox_cloud_app.lib.projects.list_images', return_value=[image])
+        mocker.patch(
+            'crczp.sandbox_definition_app.lib.definitions.list_images', return_value=[image]
+        )
         mocker.patch('crczp.sandbox_definition_app.lib.definitions.get_definition')
         mocker.patch('crczp.sandbox_definition_app.lib.definitions.get_containers')
         mock_repo = mocker.patch('crczp.sandbox_definition_app.lib.definitions.get_def_provider')

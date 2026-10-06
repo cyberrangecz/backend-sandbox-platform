@@ -89,7 +89,7 @@ class CrczpTerraformClient:  # pylint: disable=too-many-public-methods
     def create_stack(  # pylint: disable=too-many-arguments,too-many-positional-arguments,keyword-arg-before-vararg
         self,
         topology_definition: TopologyDefinition,
-        stack_name: str = 'stack-name',
+        stack_name: str,
         key_pair_name_ssh: str = 'dummy-ssh-key-pair',
         key_pair_name_cert: str = 'dummy-cert-key-pair',
         dry_run: bool = False,

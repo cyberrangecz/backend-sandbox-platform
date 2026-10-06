@@ -3,6 +3,7 @@
 import pytest
 
 from crczp.sandbox_ansible_app.lib.inventory import Inventory, Routing
+from crczp.sandbox_common_lib import exceptions
 
 pytestmark = pytest.mark.django_db
 
@@ -209,3 +210,28 @@ class TestVpnEntrypointsGroup:
         )
 
         assert 'vpn_entrypoints' not in result.to_dict()['all']['children']
+
+
+def _inventory(top_ins) -> Inventory:
+    return Inventory(
+        'pool-prefix',
+        'stack-name',
+        top_ins,
+        '/root/.ssh/pool_mng_key',
+        '/root/.ssh/pool_mng_cert',
+        '/root/.ssh/pool_mng_key.pub',
+        '/root/.ssh/user_key.pub',
+    )
+
+
+def test_node_without_management_link_rejected(top_ins, mocker):
+    """A node missing from the management network cannot be given an ansible_host."""
+    links = top_ins.get_network_links
+    mocker.patch.object(
+        top_ins,
+        'get_network_links',
+        side_effect=lambda network: [link for link in links(network) if link.node.name != 'server'],
+    )
+
+    with pytest.raises(exceptions.AnsibleError, match='Management IP of node server is not known'):
+        _inventory(top_ins)

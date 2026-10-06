@@ -28,8 +28,8 @@ SANDBOX_DEFINITION_VPN_PATH = os.path.join(
 )
 
 
-@pytest.fixture
-def topology_definition_string() -> str:
+@pytest.fixture(name='topology_definition_string')
+def fixture_topology_definition_string() -> str:
     """
     Fixture for topology definition string.
     """
@@ -37,8 +37,8 @@ def topology_definition_string() -> str:
         return f.read()
 
 
-@pytest.fixture
-def topology_definition_dict() -> dict[str, Any]:
+@pytest.fixture(name='topology_definition_dict')
+def fixture_topology_definition_dict() -> dict[str, Any]:
     """
     Fixture for topology definition dict.
     """
@@ -46,16 +46,16 @@ def topology_definition_dict() -> dict[str, Any]:
         return dict(YAML(typ='safe', pure=True).load(f))
 
 
-@pytest.fixture
-def topology_definition() -> TopologyDefinition:
+@pytest.fixture(name='topology_definition')
+def fixture_topology_definition() -> TopologyDefinition:
     """
     Fixture for topology definition.
     """
     return TopologyDefinition.from_file(SANDBOX_DEFINITION_PATH)
 
 
-@pytest.fixture
-def topology_definition_monitoring() -> TopologyDefinition:
+@pytest.fixture(name='topology_definition_monitoring')
+def fixture_topology_definition_monitoring() -> TopologyDefinition:
     """
     Fixture for topology definition with monitoring.
     """
@@ -588,3 +588,35 @@ vpn:
         server_router: Router | None = td.find_router_by_name('server-router')
         assert server_router is not None
         assert server_router.base_box.image == 'debian-12-x86_64'
+
+
+class TestVpnRules:
+    """
+    Tests for the VPN schema rules.
+    """
+
+    @pytest.mark.parametrize('domain', ['local', 'sandbox.local', 'a-1.example.com'])
+    def test_search_domain_accepted(self, topology_definition_string: str, domain: str) -> None:
+        """
+        Single- and multi-label domains are valid search domains.
+        """
+        td = TopologyDefinition.load(
+            topology_definition_string
+            + f'\nvpn:\n  dns:\n    servers: [10.10.20.5]\n    search_domains: [{domain}]\n'
+        )
+        assert td.vpn is not None
+        assert td.vpn.dns is not None
+        assert list(td.vpn.dns.search_domains) == [domain]
+
+    def test_search_domain_with_trailing_newline_rejected(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        A search domain must match the domain pattern in full, trailing newline included.
+        """
+        with pytest.raises(YamlizingError, match='contains invalid domain'):
+            TopologyDefinition.load(
+                topology_definition_string
+                + '\nvpn:\n  dns:\n    servers: [10.10.20.5]\n'
+                + '    search_domains: ["sandbox.local\\n"]\n'
+            )

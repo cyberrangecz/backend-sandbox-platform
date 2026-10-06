@@ -70,7 +70,7 @@ CI/CD runs via GitHub Actions (`.github/workflows/github-actions.yml`):
 
 * Every push to a non-`master` branch and every pull request against `master` runs the full quality suite: pre-commit (ruff, including its security rules, and ty), pylint and pytest through `tox`, a dependency audit, and a secret scan of the new commits (gitleaks and TruffleHog).
 * The dependency audit fails a branch only for vulnerabilities that branch introduces. Vulnerabilities already on `master` are reported but not blocking, and are fixed in their own PR to `master`.
-* Pushes also build a Docker image, scan it with grype, and publish it to the GitHub Container Registry as `ghcr.io/cyberrangecz/backend-sandbox-service/sandbox-service:<version>-dev`.
+* Pushes also build a Docker image, scan it with grype, and publish it to the GitHub Container Registry as `ghcr.io/cyberrangecz/backend-sandbox-platform/sandbox-service:<version>-dev`.
 * Manually dispatching the workflow on `master` (with tag creation confirmed) builds and publishes the release image tagged with the version from `pyproject.toml`, generates the OpenAPI schema (drf-spectacular) to GitHub Pages, and pushes the corresponding git tag. This run is the hard gate: any known dependency vulnerability not listed in `audit-ignore.txt`, or a high/critical image finding that has a fix, stops the release before the image is pushed. The image carries an SBOM and build provenance as attestations.
 * `.github/workflows/security-schedule.yml` rescans `master` and the latest release nightly (dependencies and image) and the full git history weekly (TruffleHog), and opens an issue for each failing scan.
 

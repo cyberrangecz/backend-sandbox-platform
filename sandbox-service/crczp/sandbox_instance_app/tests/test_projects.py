@@ -7,8 +7,6 @@ from django.core.cache import cache
 
 from crczp.sandbox_common_lib.common_cloud import list_images
 
-IMAGE_LIST_CACHE_KEY = 'image_list'
-
 
 @pytest.fixture
 def mock_terraform_client():

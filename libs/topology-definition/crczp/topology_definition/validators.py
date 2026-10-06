@@ -58,7 +58,7 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         """
         Validate OpenStack name.
         """
-        if not re.match(VALID_NAMES_REGEX, name):
+        if not re.fullmatch(VALID_NAMES_REGEX, name):
             _msg = 'Cannot set {}.name to "{}". It does not match regex "{}".'
             raise ValueError(_msg.format(obj.__class__.__name__, name, VALID_NAMES_REGEX))
 
@@ -195,7 +195,7 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         Validate group nodes.
         """
         for node in nodes:
-            if not re.match(VALID_NAMES_REGEX, node):
+            if not re.fullmatch(VALID_NAMES_REGEX, node):
                 _msg = 'Invalid name "{}" in Group.nodes. It does not match regex "{}".'
                 raise ValueError(_msg.format(node, VALID_NAMES_REGEX))
 
@@ -440,7 +440,7 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         if not domains:
             return
         for domain in domains:
-            if not re.match(DNS_DOMAIN_REGEX, domain):
+            if not re.fullmatch(DNS_DOMAIN_REGEX, domain):
                 raise ValueError(
                     f'vpn.dns.search_domains contains invalid domain "{domain}". '
                     'Each search domain must be a valid DNS domain name.'
