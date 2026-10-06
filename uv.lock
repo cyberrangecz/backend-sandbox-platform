@@ -828,7 +828,7 @@ requires-dist = [
     { name = "netaddr", specifier = ">=1.3.0" },
     { name = "python-glanceclient", specifier = ">=4.8.0" },
     { name = "python-keystoneclient", specifier = ">=5.6.0" },
-    { name = "python-neutronclient", specifier = ">=11.5.0" },
+    { name = "python-neutronclient", specifier = ">=14.0.0" },
     { name = "python-novaclient", specifier = ">=18.9.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "structlog", specifier = ">=25.3.0" },
@@ -3000,7 +3000,7 @@ wheels = [
 
 [[package]]
 name = "python-neutronclient"
-version = "13.0.0"
+version = "14.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cliff" },
@@ -3017,9 +3017,9 @@ dependencies = [
     { name = "python-keystoneclient" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/27/c4/e4eb2270cc288875f63339e32be98ac47bcb86e7913232149a9d483e7dbc/python_neutronclient-13.0.0.tar.gz", hash = "sha256:c5fd856adf3dc02cc5f31f9a76f4591d50af48cdfaad25b6e99b1291b543f95a", size = 179680, upload-time = "2026-07-09T08:41:21.028Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/5b/1af04d85cf6c3340686d058eb5580e2bbc3249084cdbe60391bbfa57a2a6/python_neutronclient-14.0.0.tar.gz", hash = "sha256:9f7ba93e6845e381b833eb54c8fd143160b8fa026c383078f9ac39de7f3c5d19", size = 165833, upload-time = "2026-08-26T12:18:45.554Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/27/f37c6ef70518438f6f1a9f28430c71616c2289024011b7d2b0ade69c205d/python_neutronclient-13.0.0-py3-none-any.whl", hash = "sha256:b1a64ef5f274a1fdbf5acf96b981847ed31ec8ada022e137a5953efa91bf4af9", size = 235780, upload-time = "2026-07-09T08:41:19.757Z" },
+    { url = "https://files.pythonhosted.org/packages/45/ff/c8d794ce4bceff1c8c267fe74573ea8d8912fa827d9be36d822f75998516/python_neutronclient-14.0.0-py3-none-any.whl", hash = "sha256:1c97137036315a4cd31f77155d77317a336d8aa7fd4f0c9a1b61437add4fef66", size = 202730, upload-time = "2026-08-26T12:18:44.404Z" },
 ]
 
 [[package]]
