@@ -90,7 +90,8 @@ class AnsibleRunner:  # pylint: disable=too-many-instance-attributes
             self.container_manager: type[BaseContainer] = KubernetesContainer
         else:
             self.container_manager = DockerContainer
-        self.template_environment = Environment(  # nosec B701
+        # Renders a Dockerfile and a docker-compose file, not HTML.
+        self.template_environment = Environment(  # noqa: S701
             loader=FileSystemLoader(TEMPLATES_DIR_PATH)
         )
 

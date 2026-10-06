@@ -28,7 +28,7 @@ class TestPrepareInventoryFile:
         mock_inventory = mocker.patch('crczp.sandbox_ansible_app.lib.ansible.Inventory')
         mocker.patch.object(sandboxes, 'get_topology_instance', return_value=top_ins)
 
-        dir_path = '/tmp'  # nosec B108
+        dir_path = '/tmp'
         sandbox = Sandbox.objects.get(pk=1)
         AllocationAnsibleRunner(dir_path).prepare_inventory_file(sandbox)
 
@@ -97,7 +97,7 @@ class TestGenerateDockerfiles:
         sandbox.allocation_unit.pool.definition.rev = 'branch-name'
         sandbox.allocation_unit.pool.rev_sha = 'resolved-sha-123'
 
-        runner = AllocationAnsibleRunner('/tmp')  # nosec B108
+        runner = AllocationAnsibleRunner('/tmp')
         runner._generate_dockerfiles(sandbox)  # pylint: disable=protected-access
 
         mock_get_dockerfile.assert_called_once_with(

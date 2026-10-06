@@ -68,7 +68,7 @@ def get_random_text(text_file: str) -> str:
     """
 
     try:
-        chosen_sentence = random.randint(0, get_number_of_lines(text_file) - 1)  # nosec B311
+        chosen_sentence = random.randint(0, get_number_of_lines(text_file) - 1)
         with open(text_file, encoding='utf-8') as source_file:
             for sentence in source_file:
                 if chosen_sentence == 0:
@@ -97,7 +97,7 @@ def get_random_name(name_file: str, var: Variable) -> str:
     """
 
     try:
-        chosen_name = random.randint(0, get_number_of_lines(name_file) - 1)  # nosec B311
+        chosen_name = random.randint(0, get_number_of_lines(name_file) - 1)
         with open(name_file, encoding='utf-8') as source_file:
             for _ in range(2):
                 source_file.seek(0)
@@ -138,7 +138,7 @@ def get_random_port(var_obj: Variable) -> str:
         v_max = v_min + 4000
 
     for _ in range(4000):
-        port = random.randint(v_min, v_max)  # nosec B311
+        port = random.randint(v_min, v_max)
         if port not in var_obj.prohibited:
             return str(port)
     return '0'
@@ -198,13 +198,13 @@ def get_random_ip(var_obj: Variable) -> str:
 
     # Generate random IPs until we find one not prohibited
     for _ in range(4000):
-        ip_dec = random.randint(ip_min, ip_max)  # nosec B311
+        ip_dec = random.randint(ip_min, ip_max)
         ip_str = str(IPv4Address(ip_dec))
 
         if ip_str not in var_obj.prohibited:
             return ip_str
 
-    return '0.0.0.0'  # nosec B104
+    return '0.0.0.0'  # noqa: S104  # fallback value of a generated IP variable, not a bind address
 
 
 def get_cwd(file: str) -> str:
@@ -244,7 +244,7 @@ def get_random_password(var: Variable) -> str:
         var.length = 8
     while True:
         letters_and_digits = string.ascii_letters + string.digits
-        result_str = ''.join(random.choice(letters_and_digits) for _ in range(var.length))  # nosec B311
+        result_str = ''.join(random.choice(letters_and_digits) for _ in range(var.length))
         if result_str not in var.prohibited:
             return result_str
 

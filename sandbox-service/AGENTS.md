@@ -19,7 +19,8 @@ pools of sandboxes, sandbox instances, and Ansible playbook execution on sandbox
 The REST API is documented via OpenAPI (drf-spectacular).
 
   Core tooling: `uv` (packages), `pyproject.toml` (config), `tox` (task orchestration),
-  `pre-commit` / `ruff` / `ty` / `pylint` (quality), `bandit` + dependency audit (security),
+  `pre-commit` / `ruff` / `ty` / `pylint` (quality), ruff `S` rules + dependency audit +
+  gitleaks (security),
   `pytest` with Django test settings (testing).
 
 ---
@@ -93,9 +94,10 @@ Two different bars apply, and agents should not conflate them:
   e.g. `ruff check`, `ruff format`, `ty check`, and the specific test file(s) for the code you
   changed (`tox -e pytest -- path/to/test_file.py` or `pytest` directly inside `uv run`).
 * **Before considering a change complete / ready to merge:** run both halves of the suite —
-  `tox` for `pylint`, `bandit`, dependency audit, `pytest` and `python manage.py check`, and
-  `pre-commit` for ruff lint, ruff format and `ty`. Linting and type checking are
-  workspace-level and run from the repository root, not from this package.
+  `tox` for `pylint`, dependency audit, `pytest` and `python manage.py check`, and
+  `pre-commit` for ruff lint (including its `S` security rules), ruff format, `ty` and
+  gitleaks. Linting and type checking are workspace-level and run from the repository root,
+  not from this package.
 
 ```bash
 tox                                    # from sandbox-service/
@@ -103,7 +105,11 @@ pre-commit run --all-files             # from the repository root
 ```
 
 Together these are the authoritative, CI-equivalent way to validate a change before merge.
-All tox environments and all pre-commit hooks must pass.
+All tox environments and all pre-commit hooks must pass, with one exception: a plain
+`tox -e audit` fails on every known vulnerability, including ones already on `master`. CI
+fails a branch only on the ones it introduces, and so does
+`BASE=$(git merge-base origin/master HEAD) tox -e audit`. Inherited ones are fixed in
+their own PR to `master`, not in an unrelated change.
 
 Notes:
 
@@ -114,8 +120,10 @@ Notes:
   multi-table-inheritance accessors) are not inferred — declare them on the model.
 * Minimum Pylint score: `9.5`, run against both `crczp` and `tests`. Don't disable
   warnings without justification.
-* Bandit: no `eval`/`exec` on untrusted input, no hard-coded secrets, no insecure crypto
-  patterns. No new dependencies with known vulnerabilities.
+* Security lint (ruff `S` rules, its port of bandit): no `eval`/`exec` on untrusted input,
+  no hard-coded secrets, no insecure crypto patterns. Suppress a finding only on its own
+  line, with `# noqa: Sxxx` and the reason. No new dependencies with known
+  vulnerabilities; accepted ones go in `audit-ignore.txt` with a reason and a review date.
 
 ---
 

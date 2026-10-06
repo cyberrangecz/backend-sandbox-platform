@@ -115,7 +115,8 @@ class CrczpAwsClient(CrczpCloudClientBase):
             config=boto_client_config,
             verify=verify,
         )
-        self.jinja2_env = Environment(loader=FileSystemLoader(TEMPLATE_DIR_PATH))  # nosec B701 - renders Terraform templates, not HTML
+        # Renders Terraform templates, not HTML.
+        self.jinja2_env = Environment(loader=FileSystemLoader(TEMPLATE_DIR_PATH))  # noqa: S701
         self.jinja2_env.filters['regex_replace'] = regex_replace
         self.trc = trc
 

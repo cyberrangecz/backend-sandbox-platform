@@ -1,0 +1,6 @@
+# Vulnerabilities accepted on purpose, read by audit.sh. One advisory id per line,
+# followed by a comment saying why it is accepted and when to look at it again:
+#
+#   PYSEC-2026-0000  # no fix released; the affected API is never called - review 2027-01-31
+#
+# Accept only what has no fix, or provably cannot be reached. Everything else is fixed.

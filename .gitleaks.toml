@@ -1,0 +1,16 @@
+# gitleaks configuration, read by the pre-commit hook and the CI `secrets` job.
+#
+# Allowlist a path only for material that grants access to nothing real. A finding in
+# real code is fixed, not allowlisted: move the value to config.yml or the environment,
+# and rotate it if it was ever pushed.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "SSH key of the throwaway git server in the integration-test compose setup"
+paths = [
+    '''sandbox-service/crczp/sandbox_service_project/tests/assets/it-compose/git-keys/''',
+    # The same key before the kypo -> crczp rename; only matters for history scans.
+    '''sandbox-service/kypo/sandbox_service_project/tests/assets/kypo-it-compose/git-keys/''',
+]

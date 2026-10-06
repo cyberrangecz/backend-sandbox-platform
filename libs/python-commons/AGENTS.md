@@ -22,7 +22,7 @@ Core tooling:
 * **Project configuration:** `pyproject.toml`
 * **Task orchestration:** `tox`
 * **Code quality:** `pre-commit`, `ruff`, `ty`, `pylint`
-* **Security:** `bandit`, dependency audit
+* **Security:** ruff `S` rules; dependency audit runs from `sandbox-service`
 * **Testing:** `pytest`
 
 ---
@@ -72,7 +72,7 @@ uv sync
 ```
 
 Tooling dependencies live in the `[dependency-groups]` table of this package's
-`pyproject.toml` — `test`, `lint` and `security`. `tox.ini` pulls them in via
+`pyproject.toml` — `test` and `lint`. `tox.ini` pulls them in via
 `dependency_groups` / `only_groups`; to get one in your own shell, run
 `uv sync --group test` from the repository root. They are not default groups, so a
 plain `uv sync` does not install them.
@@ -152,9 +152,9 @@ Agents must ensure all hooks pass.
 
 ## Security Checks
 
-### Bandit
+### Security lint
 
-Bandit is used to detect common security issues.
+Ruff's `S` rules (its port of bandit) run with the rest of ruff in `pre-commit`.
 
 Agents must not introduce:
 
@@ -162,9 +162,13 @@ Agents must not introduce:
 * Hard-coded secrets
 * Insecure cryptographic patterns
 
+Suppress a finding only on its own line, with `# noqa: Sxxx` and the reason.
+
 ### Dependency Audit
 
-Agents must not introduce dependencies with known vulnerabilities.
+Agents must not introduce dependencies with known vulnerabilities. The audit runs once
+for the whole workspace, from `sandbox-service` (`tox -e audit` there): sandbox-service
+depends on every library, so its locked set includes theirs.
 
 ---
 
@@ -233,8 +237,6 @@ All tox environments must pass before merging.
    This runs the full suite, including:
 
    * `pylint`
-   * `bandit`
-   * dependency audit
    * `pytest`
 4. Ensure all checks pass
 
