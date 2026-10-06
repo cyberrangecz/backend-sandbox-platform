@@ -11,6 +11,9 @@ from crczp.sandbox_ansible_app.lib.inventory import Inventory, Routing
 from crczp.sandbox_common_lib import exceptions
 from crczp.topology_definition.models import TopologyDefinition
 
+FORWARDING_DEFINITION = (
+    Path(__file__).parents[2] / 'sandbox_definition_app/tests/assets/definition-forwarding.yml'
+)
 MULTI_HOMED_DEFINITION = (
     Path(__file__).parents[2] / 'sandbox_instance_app/tests/assets/definition_multi_homed.yml'
 )
@@ -313,6 +316,10 @@ class TestUnmanagedHostsGroup:
         assert children['unmanaged_hosts'] == {}
 
 
+def _forwarding_definition() -> dict[str, Any]:
+    return yaml.safe_load(FORWARDING_DEFINITION.read_text(encoding='utf-8'))
+
+
 def _user_network_ips(
     definition: dict[str, Any], trc: TransformationConfiguration
 ) -> dict[str, str]:
@@ -331,6 +338,16 @@ def _user_network_ips(
 
 class TestUserNetworkIp:
     """Tests for the user_network_ip variable of multi-homed nodes."""
+
+    def test_main_link_of_forwarding_destination(self, trc_config):
+        """The destination host gets its first mapping's IP, never the mirror destination."""
+        ips = _user_network_ips(_forwarding_definition(), trc_config)
+
+        assert ips == {
+            'server': '10.10.20.5',
+            'monitoring': '10.10.20.6',
+            'server-router': '10.10.20.1',
+        }
 
     @pytest.mark.parametrize(
         ('sections', 'expected'),

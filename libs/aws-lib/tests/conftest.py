@@ -51,6 +51,7 @@ def fixture_topology_instance_from(
     return build
 
 
+# Mirroring needs the source on the destination's network: each network is its own VPC.
 _BASE_TOPOLOGY = """
 name: base-definition
 hosts:

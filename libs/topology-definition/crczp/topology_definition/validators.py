@@ -20,6 +20,7 @@ if TYPE_CHECKING:
         MonitoringTargets,
         MonitoringTargetTCPList,
         Network,
+        NetworkForwardingRule,
         NetworkList,
         NetworkMapping,
         NetworkMappingList,
@@ -101,6 +102,66 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
                 raise ValueError(_msg.format(net_mapping.ip, 'network', net_mapping.network))
         TopologyValidation.raise_if_not_in_network(net_mappings, obj.networks)
         return True
+
+    @staticmethod
+    def validate_network_forwarding(
+        obj: TopologyDefinition, rule: NetworkForwardingRule | None
+    ) -> None:
+        """
+        Validate that the network forwarding rule is well-formed and references existing
+        interfaces of the topology.
+        """
+        if rule is None:
+            return
+        if not rule.sources:
+            raise ValueError('network_forwarding must have at least one source.')
+
+        sources = [(src.node, src.network) for src in rule.sources]
+        seen: set[tuple[str, str]] = set()
+        for node, network in sources:
+            if (node, network) in seen:
+                raise ValueError(
+                    f'network_forwarding lists source {node}:{network} more than once.'
+                )
+            seen.add((node, network))
+
+        destination = (rule.destination.node, rule.destination.network)
+        interfaces = [('destination', destination)] + [('source', src) for src in sources]
+        for role, (node, network) in interfaces:
+            if not obj.find_host_by_name(node) and not obj.find_router_by_name(node):
+                raise ValueError(
+                    f'network_forwarding {role} {node}:{network} references unknown node "{node}".'
+                )
+            mapped_networks = TopologyValidation._node_interface_networks(obj, node)
+            if network not in mapped_networks:
+                raise ValueError(
+                    f'network_forwarding {role} {node}:{network} is invalid: '
+                    f'"{node}" has no mapping to network "{network}".'
+                )
+            if mapped_networks.count(network) > 1:
+                raise ValueError(
+                    f'network_forwarding {role} {node}:{network} is ambiguous: '
+                    f'"{node}" has several interfaces on network "{network}".'
+                )
+
+        if destination in seen:
+            raise ValueError(
+                f'network_forwarding mirrors interface {destination[0]}:{destination[1]} to itself.'
+            )
+
+    @staticmethod
+    def _node_interface_networks(obj: TopologyDefinition, node: str) -> list[str]:
+        """
+        Return the user-defined networks a host or router is mapped to.
+        """
+        # Host and router names share one namespace, so at most one of the lists matches.
+        return [
+            net_mapping.network for net_mapping in obj.net_mappings if net_mapping.host == node
+        ] + [
+            router_mapping.network
+            for router_mapping in obj.router_mappings
+            if router_mapping.router == node
+        ]
 
     @staticmethod
     def validate_router_mappings(

@@ -208,8 +208,15 @@ class TestKeyOrder:
             ),
             ('  - name: capture-switch\n', '  - name: server-switch\n', 'networks'),
             ('    ip: 10.10.50.5\n', '    ip: 10.10.99.5\n', 'net_mappings'),
+            (
+                '      - home-router\n',
+                '      - home-router\n\nnetwork_forwarding:\n'
+                '  sources:\n    - { node: server, network: home-switch }\n'
+                '  destination: { node: home, network: capture-switch }\n',
+                'network_forwarding',
+            ),
         ],
-        ids=['groups', 'router_mappings', 'networks', 'net_mappings'],
+        ids=['groups', 'router_mappings', 'networks', 'net_mappings', 'network_forwarding'],
     )
     def test_error_points_at_offending_block(
         self, topology_definition_string: str, old: str, new: str, key: str

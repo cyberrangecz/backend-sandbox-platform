@@ -2,7 +2,7 @@
 Module for topology definition models.
 """
 
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any, Self
 
 from ruamel.yaml.loader import RoundTripLoader as _RoundTripLoader
@@ -21,11 +21,33 @@ if not hasattr(_RoundTripLoader, 'max_depth'):
 from crczp.topology_definition.validators import TopologyValidation
 
 
+class ForwardingDirection(StrEnum):
+    """
+    Enum for the traffic direction mirrored by a network-forwarding rule.
+    """
+
+    IN = 'in'
+    OUT = 'out'
+    BOTH = 'both'
+
+
 def _value_node(mapping: MappingNode, key: str) -> Node:
     """
     Return the value node of key in a YAML mapping, or the mapping itself if key is absent.
     """
     return next((value for key_node, value in mapping.value if key_node.value == key), mapping)
+
+
+def _direction_from_yaml(loader: Any, node: Node, _rtd: Any) -> ForwardingDirection:
+    value = loader.construct_object(node, deep=True)
+    try:
+        return ForwardingDirection(value)
+    except ValueError as exc:
+        raise YamlizingError(
+            f'network_forwarding has invalid direction "{value}". '
+            f'Must be one of {sorted(d.value for d in ForwardingDirection)}.',
+            node,
+        ) from exc
 
 
 class Protocol(Enum):
@@ -471,6 +493,48 @@ class Vpn(Object):
     dns = Attribute(type=VpnDns, default=None)
 
 
+class ForwardingInterface(Object):
+    """
+    A single interface in a network-forwarding rule, identified by a host or router and
+    the network it is attached to. Maps 1:1 to a Neutron port / AWS network interface.
+    """
+
+    node = Attribute(type=str)
+    network = Attribute(type=str)
+
+
+class ForwardingInterfaceList(Sequence):
+    """
+    List of forwarding interfaces.
+    """
+
+    item_type = ForwardingInterface
+
+
+class NetworkForwardingRule(Object):
+    """
+    Network traffic forwarding (port mirroring) rule. A copy of the traffic on one
+    or more source interfaces is delivered to a single destination interface.
+
+    A topology declares at most one rule, so the resources it renders are named after
+    the sandbox prefix alone and need no name of their own.
+
+    ``direction`` selects which traffic is mirrored relative to the source
+    (``in``/``out``/``both``). Cloud-specific constraints are enforced by the cloud drivers.
+    """
+
+    sources = Attribute(type=ForwardingInterfaceList)
+    destination = Attribute(type=ForwardingInterface)
+    direction = Attribute(
+        type=Typed(  # ty: ignore[no-matching-overload]
+            ForwardingDirection,
+            from_yaml=_direction_from_yaml,
+            to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.value)),
+        ),
+        default=ForwardingDirection.BOTH,
+    )
+
+
 class TopologyDefinition(Object):  # pylint: disable=too-many-instance-attributes
     """
     Topology definition.
@@ -486,6 +550,7 @@ class TopologyDefinition(Object):  # pylint: disable=too-many-instance-attribute
     groups = Attribute(type=GroupList)
     monitoring_targets = Attribute(type=MonitoringTargets, default=None)
     vpn = Attribute(type=Vpn, default=None)
+    network_forwarding = Attribute(type=NetworkForwardingRule, default=None)
 
     # Class-level defaults so yamlize (which bypasses __init__) finds these attributes
     _indexed: bool = False
@@ -504,6 +569,7 @@ class TopologyDefinition(Object):  # pylint: disable=too-many-instance-attribute
         self.groups = GroupList()
         self.monitoring_targets = None
         self.vpn = None
+        self.network_forwarding = None
         self._indexed: bool = False
         self._hosts_index: dict[str, Host] = {}
         self._routers_index: dict[str, Router] = {}
@@ -527,6 +593,7 @@ class TopologyDefinition(Object):  # pylint: disable=too-many-instance-attribute
             ('groups', TopologyValidation.validate_groups),
             ('monitoring_targets', TopologyValidation.validate_monitoring_targets),
             ('vpn', TopologyValidation.validate_vpn),
+            ('network_forwarding', TopologyValidation.validate_network_forwarding),
         )
         for key, validate in cross_attribute_checks:
             try:

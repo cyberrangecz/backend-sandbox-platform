@@ -26,6 +26,7 @@ from crczp.cloud_commons import (
 from crczp.cloud_commons.topology_elements import Node
 
 from .exceptions import ImageDoesNotExist, KeyPairDoesNotExist
+from .network_forwarding import traffic_directions, validate_network_forwarding
 
 # Only provide a default CA bundle when the environment does not already specify one
 # and the fallback file exists on the system.
@@ -162,7 +163,10 @@ class CrczpAwsClient(CrczpCloudClientBase):
         :keyword key_pair_name_cert: The name of certificate key pair in the cloud
         :keyword resource_prefix: The prefix of all resources
         :return: Terraform template as a string
+        :raise InvalidTopologyDefinition: on a network_forwarding rule AWS cannot mirror
         """
+        network_forwarding = topology_instance.get_network_forwarding()
+        validate_network_forwarding(network_forwarding)
         template = self.jinja2_env.get_template('terraform-deploy-template.j2')
         return str(
             template.render(
@@ -174,6 +178,8 @@ class CrczpAwsClient(CrczpCloudClientBase):
                 base_subnet_name=self.base_subnet_name,
                 trc=self.trc,
                 get_default_route_ip=get_default_route_ip,
+                network_forwarding=network_forwarding,
+                traffic_directions=traffic_directions(network_forwarding),
             )
         )
 

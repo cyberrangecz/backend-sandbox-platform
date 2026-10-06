@@ -1,5 +1,6 @@
 """Tests for TopologyInstance link resolution."""
 
+import yaml
 from crczp.topology_definition.models import TopologyDefinition
 
 from crczp.cloud_commons.topology_instance import TopologyInstance
@@ -46,11 +47,65 @@ router_mappings:
 groups: []
 """
 
+_FORWARDING = """
+network_forwarding:
+  sources:
+    - { node: server, network: server-switch }
+    - { node: server-router, network: server-switch }
+  destination: { node: monitoring, network: monitoring-switch }
+  direction: both
+"""
+
 
 def _trc() -> TransformationConfiguration:
     return TransformationConfiguration(
         man_image='man-image', man_flavor='man-flavor', man_user='debian'
     )
+
+
+def test_get_network_forwarding_resolves_links() -> None:
+    """A network_forwarding rule is resolved into concrete source/destination Links."""
+    topology = TopologyDefinition.load(_BASE_TOPOLOGY + _FORWARDING)
+    instance = TopologyInstance(topology, _trc())
+
+    rule = instance.get_network_forwarding()
+
+    assert rule is not None
+    assert rule.direction == 'both'
+    assert len(rule.sources) == 2
+    assert [(link.node.name, link.network.name) for link in rule.sources] == [
+        ('server', 'server-switch'),
+        ('server-router', 'server-switch'),
+    ]
+    assert rule.destination.node.name == 'monitoring'
+    assert rule.destination.network.name == 'monitoring-switch'
+
+
+def test_get_network_forwarding_none_when_absent() -> None:
+    """A topology without network_forwarding resolves to None."""
+    topology = TopologyDefinition.load(_BASE_TOPOLOGY)
+    instance = TopologyInstance(topology, _trc())
+
+    assert instance.get_network_forwarding() is None
+
+
+def test_str_contains_network_forwarding() -> None:
+    """The text dump of a topology instance includes its network_forwarding rule."""
+    topology = TopologyDefinition.load(_BASE_TOPOLOGY + _FORWARDING)
+    instance = TopologyInstance(topology, _trc())
+
+    dumped = yaml.safe_load(str(instance))['TopologyInstance']
+    assert dumped['network_forwarding'] == (
+        "NetworkForwarding({'sources': ['link-5', 'link-10'], "
+        "'destination': 'link-7', 'direction': 'both'})"
+    )
+
+
+def test_str_omits_network_forwarding_when_absent() -> None:
+    """Topologies without forwarding keep their text dump unchanged."""
+    instance = TopologyInstance(TopologyDefinition.load(_BASE_TOPOLOGY), _trc())
+
+    assert 'network_forwarding' not in yaml.safe_load(str(instance))['TopologyInstance']
 
 
 def _main_link(instance: TopologyInstance, node_name: str) -> tuple[str, str | None] | None:

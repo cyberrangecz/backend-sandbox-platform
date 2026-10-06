@@ -29,6 +29,12 @@ from crczp.cloud_commons import (
     TransformationConfiguration,
     hcl_string,
 )
+from crczp.openstack_driver.network_forwarding import (
+    TapMirror,
+    build_tap_mirrors,
+    tunnel_id_base,
+    validate_destination_network,
+)
 from crczp.topology_definition.models import Protocol
 
 if TYPE_CHECKING:
@@ -45,6 +51,7 @@ SEC_RULES_IP_PREFIX = '0.0.0.0/0'  # "147.251.0.0/16"
 TEMPLATES_DIR_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')
 TERRAFORM_DEPLOY_TEMPLATE_FILE = 'terraform-deploy-template.j2'
 TERRAFORM_PROVIDER_TEMPLATE_FILE = 'terraform-provider-template.j2'
+VALIDATION_RESOURCE_PREFIX = 'stack-name'
 
 
 def regex_replace(string: str, pattern: str = '', replace: str = '') -> str:
@@ -332,6 +339,8 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         used_network = len(networks)
         used_subnet = len(networks)
         used_port = len(list(topology_instance.get_links()))
+        if topology_instance.get_network_forwarding():
+            used_port += 1  # the forwarding router's interface on the destination network
 
         return HardwareUsage(
             used_vcpu, used_ram, used_instances, used_network, used_subnet, used_port
@@ -384,7 +393,7 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         topology_instance: TopologyInstance,
         key_pair_name_ssh: str = 'dummy-ssh-key-pair',
         key_pair_name_cert: str = 'ummy-cert-key-pair',
-        resource_prefix: str = 'stack-name',
+        resource_prefix: str | None = None,
     ) -> str:
         """
         Transform TopologyInstance into Terraform Template.
@@ -392,11 +401,21 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         :param topology_instance: TopologyInstance used to create template
         :param key_pair_name_ssh: The name of a SSH key pair saved in the cloud
         :param key_pair_name_cert: The name of certificate key pair in the cloud
-        :param resource_prefix: The prefix of all resources.
+        :param resource_prefix: The prefix of all resources. None renders a template that is
+            only validated, with placeholder names and tunnel ids.
         :return: Terraform Template as a string
-        :raise: CrczpException on network validation error
-        :raise: InvalidTopologyDefinition on template rendering error
+        :raise: CrczpException on network validation error or a stack name without a sandbox id
+        :raise: InvalidTopologyDefinition on an invalid network_forwarding rule or template
+            rendering error
         """
+        network_forwarding = topology_instance.get_network_forwarding()
+        validate_destination_network(network_forwarding, topology_instance)
+        tap_mirrors: list[TapMirror] = []
+        if network_forwarding:
+            base = 0 if resource_prefix is None else tunnel_id_base(resource_prefix)
+            tap_mirrors = build_tap_mirrors(network_forwarding, base)
+        if resource_prefix is None:
+            resource_prefix = VALIDATION_RESOURCE_PREFIX
         try:
             template = self.template_environment.get_template(TERRAFORM_DEPLOY_TEMPLATE_FILE)
             template_str = template.render(
@@ -410,6 +429,8 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
                 auth_url=self.auth_url,
                 app_cred_id=self.app_cred_id,
                 app_cred_secret=self.app_cred_secret,
+                network_forwarding=network_forwarding,
+                tap_mirrors=tap_mirrors,
             )
         except Exception as e:
             raise InvalidTopologyDefinition('Error while generating template: ', e) from e

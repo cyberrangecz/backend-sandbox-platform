@@ -136,3 +136,47 @@ resource "aws_instance" "{{ man_name }}" {
 {%- endfor %}
 }
 
+{#- Network forwarding (port mirroring) via AWS VPC Traffic Mirroring. Each source ENI is
+    mirrored (VXLAN-encapsulated) to the destination ENI target through a filter. -#}
+{% if network_forwarding %}
+{%- set target_name = resource_prefix ~ '-tmt-' ~ network_forwarding.destination.name %}
+{%- set filter_name = resource_prefix ~ '-tmf' %}
+{%- set dest_port = resource_prefix ~ '-' ~ network_forwarding.destination.name %}
+resource "aws_ec2_traffic_mirror_target" "{{ target_name }}" {
+    network_interface_id = aws_network_interface.{{ dest_port }}.id
+    depends_on = [aws_instance.{{ resource_prefix }}-{{ network_forwarding.destination.node.name }}]
+    tags = {
+        Name = "{{ target_name }}"
+    }
+}
+
+resource "aws_ec2_traffic_mirror_filter" "{{ filter_name }}" {
+    network_services = ["amazon-dns"]
+    tags = {
+        Name = "{{ filter_name }}"
+    }
+}
+{% for direction in traffic_directions %}
+resource "aws_ec2_traffic_mirror_filter_rule" "{{ resource_prefix }}-tmfr-{{ direction }}" {
+    traffic_mirror_filter_id = aws_ec2_traffic_mirror_filter.{{ filter_name }}.id
+    source_cidr_block        = "0.0.0.0/0"
+    destination_cidr_block   = "0.0.0.0/0"
+    rule_number              = {{ loop.index }}
+    rule_action              = "accept"
+    traffic_direction        = "{{ direction }}"
+}
+{% endfor -%}
+{% for source in network_forwarding.sources %}
+{%- set session_name = resource_prefix ~ '-tms-' ~ loop.index0 %}
+resource "aws_ec2_traffic_mirror_session" "{{ session_name }}" {
+    network_interface_id     = aws_network_interface.{{ resource_prefix }}-{{ source.name }}.id
+    traffic_mirror_target_id = aws_ec2_traffic_mirror_target.{{ target_name }}.id
+    traffic_mirror_filter_id = aws_ec2_traffic_mirror_filter.{{ filter_name }}.id
+    session_number           = 1
+    depends_on               = [aws_instance.{{ resource_prefix }}-{{ source.node.name }}]
+    tags = {
+        Name = "{{ session_name }}"
+    }
+}
+{% endfor -%}
+{% endif -%}

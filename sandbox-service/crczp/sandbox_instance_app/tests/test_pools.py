@@ -37,7 +37,10 @@ class TestCreatePool:
         mocker.patch(
             'crczp.sandbox_definition_app.lib.definitions.list_images', return_value=[image]
         )
-        mocker.patch('crczp.sandbox_definition_app.lib.definitions.get_definition')
+        topology_definition = mocker.patch(
+            'crczp.sandbox_definition_app.lib.definitions.get_definition'
+        ).return_value
+        topology_definition.network_forwarding = None
         mocker.patch('crczp.sandbox_definition_app.lib.definitions.get_containers')
         mock_repo = mocker.patch('crczp.sandbox_definition_app.lib.definitions.get_def_provider')
         mock_repo.return_value.get_rev_sha = mocker.MagicMock(return_value='sha')
@@ -70,6 +73,24 @@ class TestCreatePool:
         pool_count = Pool.objects.count()
 
         with pytest.raises(exceptions.CrczpException, match='bad topology'):
+            pools.create_pool(
+                {'definition_id': DEFINITION_ID, 'max_size': self.MAX_SIZE}, created_by=created_by
+            )
+
+        assert Pool.objects.count() == pool_count
+
+    @pytest.mark.usefixtures('definition', 'get_terraform_client')
+    def test_create_pool_rolls_back_when_forwarding_disabled(
+        self, mocker, created_by, forwarding_flag
+    ):
+        """Test that a forwarding definition is rejected with the flag off, leaving no Pool row."""
+        mocker.patch(
+            'crczp.sandbox_definition_app.lib.definitions.get_definition'
+        ).return_value.network_forwarding = mocker.Mock()
+        forwarding_flag(enabled=False)
+        pool_count = Pool.objects.count()
+
+        with pytest.raises(ApiValidationError, match='network_forwarding_enabled'):
             pools.create_pool(
                 {'definition_id': DEFINITION_ID, 'max_size': self.MAX_SIZE}, created_by=created_by
             )

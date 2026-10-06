@@ -321,6 +321,9 @@ class CrczpConfiguration(Object):
 
     ssl_ca_certificate_verify = Attribute(type=str, default=SSL_CA_CERTIFICATE_VERIFY)
 
+    # When False, definitions declaring `network_forwarding` are rejected before Terraform apply.
+    network_forwarding_enabled = Attribute(type=bool, default=False)
+
     trc = Attribute(type=TransformationConfiguration, key='sandbox_configuration')
 
     # Email allocation notifications

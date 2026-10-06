@@ -35,6 +35,7 @@ class TestCreateDefinition:
         """Patch definitions.get_definition and return the patch mock."""
         definition = mocker.Mock()
         definition.name = self.NAME
+        definition.network_forwarding = None
         definition.hosts = []
         return mocker.patch(
             'crczp.sandbox_definition_app.lib.definitions.get_definition', return_value=definition
@@ -69,6 +70,31 @@ class TestCreateDefinition:
         topology_definition.groups = [hosts_group]
         with pytest.raises(exceptions.ValidationError):
             definitions.create_definition(url=self.URL, rev=self.REV, created_by=created_by)
+
+    def test_create_definition_forwarding_disabled(
+        self, mocker, topology_definition, created_by, forwarding_flag
+    ):
+        """A definition declaring network_forwarding is rejected when the feature is off."""
+        mocker.patch('crczp.sandbox_definition_app.lib.definitions.validate_topology_definition')
+        topology_definition.network_forwarding = mocker.Mock()
+        forwarding_flag(enabled=False)
+
+        with pytest.raises(exceptions.ValidationError, match='network_forwarding_enabled'):
+            definitions.create_definition(url=self.URL, rev=self.REV, created_by=created_by)
+
+        assert not Definition.objects.filter(name=self.NAME).exists()
+
+    def test_create_definition_forwarding_enabled(
+        self, mocker, topology_definition, created_by, forwarding_flag
+    ):
+        """With the feature enabled, a definition declaring network_forwarding is created."""
+        mocker.patch('crczp.sandbox_definition_app.lib.definitions.validate_topology_definition')
+        topology_definition.network_forwarding = mocker.Mock()
+        forwarding_flag(enabled=True)
+
+        definitions.create_definition(url=self.URL, rev=self.REV, created_by=created_by)
+
+        assert Definition.objects.get(name=self.NAME).url == self.URL
 
     def test_create_definition_fresh_import_forces_refresh(
         self, mocker, get_definition_mock, created_by
@@ -554,6 +580,65 @@ class TestAwsVolumeValidation(VolumeFixtures):
 
         definitions.validate_volumes(
             make_definition([{'size': 8}, {'size': 8, 'image': self.SNAPSHOT}])
+        )
+
+
+class TestNetworkForwardingEnabled:
+    """Tests for the network_forwarding_enabled feature flag."""
+
+    def test_rejected_when_disabled(self, topology_definition_forwarding, forwarding_flag):
+        """A definition declaring network_forwarding is rejected when the feature is off."""
+        forwarding_flag(enabled=False)
+
+        with pytest.raises(exceptions.ValidationError, match='network_forwarding_enabled'):
+            definitions.validate_network_forwarding_enabled(topology_definition_forwarding)
+
+    def test_accepted_when_enabled(self, topology_definition_forwarding, forwarding_flag):
+        """A definition declaring network_forwarding passes when the feature is on."""
+        forwarding_flag(enabled=True)
+
+        definitions.validate_network_forwarding_enabled(topology_definition_forwarding)
+
+    def test_without_forwarding_accepted_when_disabled(
+        self, topology_definition_stream, forwarding_flag
+    ):
+        """A definition without network_forwarding does not depend on the flag."""
+        forwarding_flag(enabled=False)
+
+        definitions.validate_network_forwarding_enabled(
+            definitions.load_definition(topology_definition_stream)
+        )
+
+    @pytest.mark.usefixtures('get_terraform_client')
+    def test_topology_validation_ignores_flag(
+        self, topology_definition_forwarding, forwarding_flag
+    ):
+        """Reading a definition must not depend on the current value of the flag."""
+        forwarding_flag(enabled=False)
+
+        definitions.validate_topology_definition(topology_definition_forwarding)
+
+    @pytest.mark.usefixtures('get_terraform_client')
+    def test_get_definition_ignores_flag(
+        self, mocker, topology_definition_forwarding, forwarding_flag
+    ):
+        """An already imported definition stays readable after the flag is switched off."""
+        forwarding_flag(enabled=False)
+        caches['topology_cache'].clear()
+        provider = mocker.MagicMock()
+        provider.get_rev_sha.return_value = 'sha'
+        provider.get_file.return_value = 'topology'
+        mocker.patch(
+            'crczp.sandbox_definition_app.lib.definitions.get_def_provider', return_value=provider
+        )
+        mocker.patch(
+            'crczp.sandbox_definition_app.lib.definitions.load_definition',
+            return_value=topology_definition_forwarding,
+        )
+
+        assert (
+            definitions.get_definition('url', 'rev', settings.CRCZP_CONFIG)
+            is topology_definition_forwarding
         )
 
 

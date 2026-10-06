@@ -99,6 +99,30 @@ application_configuration:
     # Environment variable for Git SSL verification
     git_skip_ssl_verification: false
 
+    # Whether network traffic forwarding (port mirroring) is available on this deployment.
+    # When False (default), a sandbox definition that declares `network_forwarding` is
+    # rejected on import, pool creation and sandbox allocation.
+    # Enable only when the target cloud supports it:
+    #   * OpenStack: the Neutron TaaS extension with the OVN driver, and a platform base
+    #     deployment (tf-module-openstack-base) providing the security group sandbox-mirror-sg
+    #     (GRE ingress from the hypervisors, plus DHCP requests) and the router base-router-public.
+    #     Deploy it before enabling the flag: a missing sandbox-mirror-sg is not detected at
+    #     import; every sandbox build with forwarding fails until it exists.
+    #     Each forwarding sandbox uses 1 extra router, 2 external IPs (router gateway and
+    #     floating IP) and 1 extra port of project quota.
+    #     Tunnel ids are derived from the sandbox id, so two deployments sharing one OpenStack
+    #     project cannot both use forwarding.
+    #     The destination network carries only the mirrored traffic: no other host may be on
+    #     it and its ports can send nothing but DHCP requests, so the destination host's first
+    #     net_mapping must be on another network.
+    #   * AWS: VPC Traffic Mirroring. Every source must be on the destination's network (each
+    #     network is its own VPC), there can be at most 10 sources, and their instance types
+    #     must be t3, t3a or t4g (t2 does not support mirroring). The destination receives
+    #     VXLAN on UDP 4789 with an AWS-assigned VNI.
+    #   Together, the OpenStack and AWS rules mean that in practice a useful forwarding
+    #   definition is valid on only one of the two providers.
+    #network_forwarding_enabled: False
+
     # How GitHub sandbox-definition topology is cached. GitHub provider only (GitLab unaffected).
     # One of:
     #   AGGRESSIVE (default): cache key stable per branch, topology served until the cache TTL expires

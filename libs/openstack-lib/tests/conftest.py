@@ -14,9 +14,17 @@ TESTING_DATA_DIR = 'assets'
 
 TESTING_DEFINITION = 'definition.yml'
 TESTING_DEFINITION_EMPTY = 'definition-empty.yml'
+TESTING_DEFINITION_FORWARDING = 'definition-forwarding.yml'
 TESTING_TRANSFORMATION_CONFIGURATION = 'trc-config.yml'
 TESTING_GENERATED_HEAT_TEMPLATE = 'generated-template.tf'
 TESTING_BASE_NETWORK_TEMPLATE = 'base-net-template.yml'
+
+_SERVER_ON_MONITORING_SWITCH = """\
+  - host: server
+    network: monitoring-switch
+    ip: 10.10.40.6
+
+"""
 
 SERVER_VOLUMES = """\
     volumes:
@@ -50,6 +58,49 @@ def empty_topology_definition():
     """Create an empty topology definition."""
     with open(data_path_join(TESTING_DEFINITION_EMPTY), encoding='utf-8') as file:
         return TopologyDefinition.load(file)
+
+
+@pytest.fixture
+def forwarding_definition():
+    """Create a topology definition that uses network forwarding."""
+    with open(data_path_join(TESTING_DEFINITION_FORWARDING), encoding='utf-8') as file:
+        return TopologyDefinition.load(file)
+
+
+@pytest.fixture
+def topology_instance_forwarding(forwarding_definition, trc):  # pylint: disable=redefined-outer-name
+    """Create a TopologyInstance from a definition that uses network forwarding."""
+    return TopologyInstance(forwarding_definition, trc)
+
+
+@pytest.fixture
+def server_on_monitoring_switch() -> str:
+    """Return a mapping that puts a second host on the monitoring switch."""
+    return _SERVER_ON_MONITORING_SWITCH
+
+
+@pytest.fixture
+def build_forwarding_instance(trc):  # pylint: disable=redefined-outer-name
+    """Return a factory for the forwarding topology with extra YAML spliced into its text.
+
+    The edits are applied before loading, so the topology schema validators still run on them.
+    ``extra_net_mappings`` lands after the existing net_mappings, ``extra_sections`` after the
+    last top-level section, and ``unmanaged_host`` gets ``managed: false``.
+    """
+
+    def build(
+        extra_net_mappings: str = '', extra_sections: str = '', unmanaged_host: str = ''
+    ) -> TopologyInstance:
+        with open(data_path_join(TESTING_DEFINITION_FORWARDING), encoding='utf-8') as file:
+            text = file.read()
+        if unmanaged_host:
+            host_line = f'  - name: {unmanaged_host}\n'
+            text = text.replace(host_line, host_line + '    managed: false\n', 1)
+        text = text.replace('router_mappings:', extra_net_mappings + 'router_mappings:', 1)
+        definition = TopologyDefinition.load(io.StringIO(text + extra_sections))
+        return TopologyInstance(definition, trc)
+
+    return build
 
 
 @pytest.fixture

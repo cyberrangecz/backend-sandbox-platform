@@ -233,7 +233,25 @@ def validate_build_requirements(topology_definition: TopologyDefinition) -> None
     :param topology_definition: Topology definition
     :raise: ValidationError if the definition cannot be built on this deployment
     """
+    validate_network_forwarding_enabled(topology_definition)
     validate_volumes(topology_definition)
+
+
+def validate_network_forwarding_enabled(topology_definition: TopologyDefinition) -> None:
+    """
+    Rejects a definition that declares network forwarding when the deployment does not enable it.
+
+    :param topology_definition: Topology definition
+    :raise: ValidationError if network forwarding is declared but not enabled
+    """
+    if (
+        topology_definition.network_forwarding
+        and not settings.CRCZP_CONFIG.network_forwarding_enabled
+    ):
+        raise exceptions.ValidationError(
+            'This sandbox definition declares network_forwarding, but the feature is not enabled '
+            'on this deployment (application_configuration.network_forwarding_enabled).'
+        )
 
 
 def validate_volumes(topology_definition: TopologyDefinition) -> None:

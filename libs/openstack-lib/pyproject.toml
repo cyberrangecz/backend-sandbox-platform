@@ -9,6 +9,7 @@ authors = [{ name = "cybersecurityhub.cz" }]
 dependencies = [
     "PyYAML>=6.0.2",
     "crczp-python-commons",
+    "crczp-topology-definition",
     "jinja2>=3.1.3",
     "keystoneauth1>=5.11.0",
     "netaddr>=1.3.0",
@@ -41,6 +42,7 @@ GitHub = "https://github.com/cyberrangecz/backend-sandbox-platform"
 
 [tool.uv.sources]
 crczp-python-commons = { workspace = true }
+crczp-topology-definition = { workspace = true }
 
 [build-system]
 # TODO: Replace this with uv_build when it is it released for GA.
