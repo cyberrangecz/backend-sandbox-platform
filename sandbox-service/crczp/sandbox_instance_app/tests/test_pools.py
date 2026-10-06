@@ -3,6 +3,7 @@
 import zipfile
 
 import pytest
+from botocore.exceptions import ClientError
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.http import Http404
@@ -23,6 +24,13 @@ DEFINITION_ID = 1
 POOL_ID = 1
 FULL_POOL_ID = 2
 SANDBOX_UUID = '1'
+
+
+def client_error(operation: str) -> ClientError:
+    """Return the error boto3 raises when an AWS operation is not permitted."""
+    return ClientError(
+        {'Error': {'Code': 'UnauthorizedOperation', 'Message': 'not authorized'}}, operation
+    )
 
 
 class TestCreatePool:
@@ -47,7 +55,7 @@ class TestCreatePool:
         self.arf = APIRequestFactory()
         yield
 
-    def test_create_pool_success(self, definition, created_by, get_terraform_client):  # pylint: disable=unused-argument
+    def test_create_pool_success(self, definition, created_by, get_terraform_client):
         """Test that a pool is created successfully with valid parameters."""
         pool = pools.create_pool(
             {'definition_id': DEFINITION_ID, 'max_size': self.MAX_SIZE}, created_by=created_by
@@ -57,6 +65,12 @@ class TestCreatePool:
         assert pool.rev == definition.rev
         assert pool.definition.id == DEFINITION_ID
 
+        stored = Pool.objects.get(pk=pool.pk)
+        ssh_call, certificate_call = get_terraform_client.create_keypair.call_args_list
+        assert stored.public_management_key == ssh_call.args[1] != ''
+        assert stored.management_certificate == certificate_call.args[1] != ''
+        assert stored.private_management_key
+
     def test_create_pool_invalid_definition(self, created_by):
         """Test that pool creation raises Http404 for an invalid definition ID."""
         with pytest.raises(Http404):
@@ -64,20 +78,66 @@ class TestCreatePool:
                 {'definition_id': -1, 'max_size': self.MAX_SIZE}, created_by=created_by
             )
 
+    @pytest.mark.parametrize(
+        'error',
+        [exceptions.CrczpException('bad topology'), client_error('DescribeImages')],
+        ids=['crczp', 'cloud'],
+    )
     @pytest.mark.usefixtures('definition')
-    def test_create_pool_rolls_back_on_crczp_exception(self, created_by, get_terraform_client):
-        """Test that a driver-side validation failure leaves no Pool row behind."""
-        get_terraform_client.validate_topology_definition.side_effect = exceptions.CrczpException(
-            'bad topology'
-        )
+    def test_create_pool_leaves_no_pool_when_validation_fails(
+        self, created_by, get_terraform_client, error
+    ):
+        """Test that any definition validation failure leaves no Pool row and no key-pair."""
+        get_terraform_client.validate_topology_definition.side_effect = error
         pool_count = Pool.objects.count()
 
-        with pytest.raises(exceptions.CrczpException, match='bad topology'):
+        with pytest.raises(type(error)) as raised:
+            pools.create_pool(
+                {'definition_id': DEFINITION_ID, 'max_size': self.MAX_SIZE}, created_by=created_by
+            )
+
+        assert raised.value is error
+        assert Pool.objects.count() == pool_count
+        get_terraform_client.create_keypair.assert_not_called()
+
+    @pytest.mark.usefixtures('definition')
+    def test_create_pool_cleans_up_when_keypair_creation_fails(
+        self, created_by, get_terraform_client
+    ):
+        """Test that a failed cloud key-pair import deletes the Pool row and its key-pairs."""
+        get_terraform_client.create_keypair.side_effect = client_error('ImportKeyPair')
+        pool_count = Pool.objects.count()
+
+        with pytest.raises(ClientError, match='ImportKeyPair'):
             pools.create_pool(
                 {'definition_id': DEFINITION_ID, 'max_size': self.MAX_SIZE}, created_by=created_by
             )
 
         assert Pool.objects.count() == pool_count
+        ssh_keypair_name = get_terraform_client.create_keypair.call_args.args[0]
+        get_terraform_client.delete_keypair.assert_any_call(ssh_keypair_name)
+
+    @pytest.mark.usefixtures('definition')
+    def test_create_pool_raises_original_error_when_cleanup_fails(
+        self, mocker, created_by, get_terraform_client
+    ):
+        """Test that a failing key-pair cleanup is logged and does not hide the original error."""
+        log = mocker.patch('crczp.sandbox_instance_app.lib.pools.LOG')
+        get_terraform_client.create_keypair.side_effect = client_error('ImportKeyPair')
+        get_terraform_client.delete_keypair.side_effect = client_error('DeleteKeyPair')
+        pool_count = Pool.objects.count()
+
+        with pytest.raises(ClientError, match='ImportKeyPair'):
+            pools.create_pool(
+                {'definition_id': DEFINITION_ID, 'max_size': self.MAX_SIZE}, created_by=created_by
+            )
+
+        assert Pool.objects.count() == pool_count
+        log.warning.assert_called_once_with(
+            'Pool removal after failed key-pair creation failed',
+            pool_id=mocker.ANY,
+            error=mocker.ANY,
+        )
 
     @pytest.mark.usefixtures('definition', 'get_terraform_client')
     def test_create_pool_rolls_back_when_forwarding_disabled(
@@ -112,6 +172,30 @@ class TestCreatePool:
             )
 
         assert Pool.objects.count() == pool_count
+
+    @pytest.mark.usefixtures('definition')
+    def test_create_pool_leaves_no_pool_when_snapshot_lookup_fails(
+        self, mocker, created_by, get_terraform_client
+    ):
+        """Test that a cloud error while looking up a volume snapshot leaves no Pool row."""
+        mocker.patch.object(settings, 'AWS_PROVIDER_CONFIGURED', True)
+        topology_definition = mocker.patch(
+            'crczp.sandbox_definition_app.lib.definitions.get_definition'
+        ).return_value
+        topology_definition.network_forwarding = None
+        topology_definition.hosts = [
+            mocker.Mock(volumes=[mocker.Mock(image=None), mocker.Mock(image='snap-0123abcd')])
+        ]
+        get_terraform_client.get_snapshot_sizes.side_effect = client_error('DescribeSnapshots')
+        pool_count = Pool.objects.count()
+
+        with pytest.raises(ClientError, match='DescribeSnapshots'):
+            pools.create_pool(
+                {'definition_id': DEFINITION_ID, 'max_size': self.MAX_SIZE}, created_by=created_by
+            )
+
+        assert Pool.objects.count() == pool_count
+        get_terraform_client.get_snapshot_sizes.assert_called_once_with(['snap-0123abcd'])
 
     def test_create_pool_invalid_size(self, created_by):
         """Test that pool creation raises ValidationError for an invalid pool size."""

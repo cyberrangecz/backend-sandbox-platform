@@ -2,7 +2,6 @@
 Pool Service module for Pool management.
 """
 
-import contextlib
 import io
 import zipfile
 from typing import Any
@@ -64,31 +63,22 @@ def create_pool(data: dict[str, Any], created_by: User | None) -> Pool:
     """
     definition = get_object_or_404(Definition, pk=data.get('definition_id'))
     provider = definitions.get_def_provider(definition.url, settings.CRCZP_CONFIG)
+    rev_sha = provider.get_rev_sha(definition.rev)
 
     data['rev'] = definition.rev
-    data['rev_sha'] = provider.get_rev_sha(definition.rev)
+    data['rev_sha'] = rev_sha
 
     serializer = serializers.PoolSerializerCreate(data=data)
     serializer.is_valid(raise_exception=True)
-    pool = serializer.save(created_by=created_by)
-    try:
-        client = utils.get_terraform_client()
 
-        # Validate definition
-        top_def = definitions.get_definition(definition.url, pool.rev_sha, settings.CRCZP_CONFIG)
-        definitions.validate_build_requirements(top_def)
-        definitions.validate_topology_definition(top_def)
-
-        # Validate containers
-        containers = definitions.get_containers(definition.url, pool.rev_sha, settings.CRCZP_CONFIG)
-        if containers:
-            definitions.validate_docker_containers(
-                definition.url, pool.rev_sha, settings.CRCZP_CONFIG
-            )
-        client.validate_topology_definition(top_def)
-    except (exceptions.GitError, exceptions.ValidationError, CrczpException):
-        pool.delete()
-        raise
+    client = utils.get_terraform_client()
+    top_def = definitions.get_definition(definition.url, rev_sha, settings.CRCZP_CONFIG)
+    definitions.validate_build_requirements(top_def)
+    definitions.validate_topology_definition(top_def)
+    containers = definitions.get_containers(definition.url, rev_sha, settings.CRCZP_CONFIG)
+    if containers:
+        definitions.validate_docker_containers(definition.url, rev_sha, settings.CRCZP_CONFIG)
+    client.validate_topology_definition(top_def)
 
     private_key, public_key = utils.generate_ssh_keypair()
     if settings.AWS_PROVIDER_CONFIGURED:
@@ -96,19 +86,28 @@ def create_pool(data: dict[str, Any], created_by: User | None) -> Pool:
     else:
         certificate = utils.create_self_signed_certificate(private_key)
 
-    pool.private_management_key = private_key
-    pool.public_management_key = public_key
-    pool.management_certificate = certificate
-    pool.save()
+    pool = serializer.save(
+        created_by=created_by,
+        private_management_key=private_key,
+        public_management_key=public_key,
+        management_certificate=certificate,
+    )
 
+    # Key-pair names are derived from the pool's id, so the row has to exist first.
     try:
         client.create_keypair(pool.ssh_keypair_name, public_key, 'ssh')
         if certificate:
             client.create_keypair(pool.certificate_keypair_name, certificate, 'x509')
-    except CrczpException:
-        with contextlib.suppress(CrczpException):
+    except Exception:
+        pool_id = pool.id
+        try:
             delete_pool(pool)
-
+        except Exception as cleanup_exc:  # pylint: disable=broad-exception-caught
+            LOG.warning(
+                'Pool removal after failed key-pair creation failed',
+                pool_id=pool_id,
+                error=str(cleanup_exc),
+            )
         raise
 
     return pool
