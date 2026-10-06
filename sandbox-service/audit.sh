@@ -61,10 +61,24 @@ audit() { # <requirements> <json output>
         annotate error "pip-audit produced no report for $1"
         exit 2
     fi
+    # The script runs without errexit, so a truncated or reshaped report would otherwise
+    # parse as "no vulnerabilities" and pass the gate. Accept it only if it lists the
+    # audited packages (never none: the set has ~130) and every finding has an id.
+    if ! jq -e '(.dependencies | type == "array" and length > 0)
+            and all(.dependencies[]; (.name | type == "string")
+                and ((.vulns // []) | type == "array")
+                and all((.vulns // [])[]; .id | type == "string"))' "$2" >/dev/null; then
+        annotate error "pip-audit report for $1 is not in the expected format"
+        exit 2
+    fi
 }
 
-pairs() { # <json> -> "package advisory" per line
-    jq -r '.dependencies[] | .name as $n | (.vulns // [])[] | "\($n) \(.id)"' "$1" | sort -u
+pairs() { # <json> <output>: "package advisory" per line; any failure stops the audit
+    if ! jq -r '.dependencies[] | .name as $n | (.vulns // [])[] | "\($n) \(.id)"' "$1" |
+        sort -u > "$2"; then
+        annotate error "could not read the findings in $1"
+        exit 2
+    fi
 }
 
 table() { # <pairs file>
@@ -82,7 +96,7 @@ if ! export_set "$here" --locked "$tmp/head.txt"; then
     exit 2
 fi
 audit "$tmp/head.txt" "$tmp/head.json"
-pairs "$tmp/head.json" > "$tmp/head.pairs"
+pairs "$tmp/head.json" "$tmp/head.pairs"
 
 if [ -z "${BASE:-}" ]; then
     cp "$tmp/head.pairs" "$tmp/new"
@@ -96,7 +110,7 @@ else
         cp "$tmp/head.pairs" "$tmp/base.pairs"
     else
         audit "$tmp/base.txt" "$tmp/base.json"
-        pairs "$tmp/base.json" > "$tmp/base.pairs"
+        pairs "$tmp/base.json" "$tmp/base.pairs"
     fi
     comm -23 "$tmp/head.pairs" "$tmp/base.pairs" > "$tmp/new"
     comm -12 "$tmp/head.pairs" "$tmp/base.pairs" > "$tmp/inherited"

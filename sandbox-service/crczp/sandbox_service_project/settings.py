@@ -58,6 +58,7 @@ else:
         database = _DatabaseConfig()
 
     class _ServiceConfig:  # pylint: disable=too-few-public-methods
+        # Stub for static analysis only, used when no config file exists.
         django_secret_key = 'pylint-only-secret-key'  # noqa: S105
         debug = False
         allowed_hosts: list[str] = []

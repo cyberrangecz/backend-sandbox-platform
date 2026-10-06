@@ -204,7 +204,7 @@ def get_random_ip(var_obj: Variable) -> str:
         if ip_str not in var_obj.prohibited:
             return ip_str
 
-    return '0.0.0.0'  # noqa: S104
+    return '0.0.0.0'  # noqa: S104  # fallback value of a generated IP variable, not a bind address
 
 
 def get_cwd(file: str) -> str:

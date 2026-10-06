@@ -4,7 +4,7 @@ import abc
 import contextlib
 import os
 import signal
-from subprocess import Popen  # noqa: S404
+from subprocess import Popen  # noqa: S404  # used for type annotations only
 from typing import Any, override
 
 import docker.errors

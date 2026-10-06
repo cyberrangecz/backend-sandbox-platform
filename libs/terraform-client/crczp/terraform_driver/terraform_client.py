@@ -2,7 +2,7 @@
 Module containing CyberRangeCZ Platform Terraform client.
 """
 
-import subprocess  # noqa: S404
+import subprocess  # noqa: S404  # tofu runs with argument lists, never through a shell
 from collections.abc import Iterator
 from enum import Enum
 from typing import Any
