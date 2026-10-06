@@ -742,7 +742,7 @@ test = [
 
 [[package]]
 name = "crczp-aws-lib"
-version = "1.0.4"
+version = "1.1.0"
 source = { editable = "libs/aws-lib" }
 dependencies = [
     { name = "boto3" },
@@ -789,7 +789,7 @@ test = [
 
 [[package]]
 name = "crczp-openstack-lib"
-version = "1.0.6"
+version = "1.1.0"
 source = { editable = "libs/openstack-lib" }
 dependencies = [
     { name = "crczp-python-commons" },
@@ -856,7 +856,7 @@ test = [
 
 [[package]]
 name = "crczp-python-commons"
-version = "2.0.1"
+version = "2.1.0"
 source = { editable = "libs/python-commons" }
 dependencies = [
     { name = "crczp-topology-definition" },
@@ -910,7 +910,7 @@ test = [
 
 [[package]]
 name = "crczp-sandbox-service"
-version = "3.3.0"
+version = "4.0.0"
 source = { editable = "sandbox-service" }
 dependencies = [
     { name = "better-profanity" },
@@ -1051,7 +1051,7 @@ test = [
 
 [[package]]
 name = "crczp-terraform-client"
-version = "1.0.4"
+version = "1.1.0"
 source = { editable = "libs/terraform-client" }
 dependencies = [
     { name = "crczp-aws-lib" },
@@ -1098,7 +1098,7 @@ test = [
 
 [[package]]
 name = "crczp-topology-definition"
-version = "2.1.0"
+version = "2.2.0"
 source = { editable = "libs/topology-definition" }
 dependencies = [
     { name = "netaddr" },
