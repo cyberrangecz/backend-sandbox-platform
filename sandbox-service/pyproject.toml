@@ -78,7 +78,7 @@ dev = [
     # Held one patch behind djangorestframework on purpose: 3.17.1 retyped Request.data as
     # dict | list, which the views do not handle yet. Bump only together with those views.
     "djangorestframework-stubs==3.17.0",
-    "types-requests ~=2.33.0.20260712",
+    "types-requests~=2.33.0.20260906",
     "types-paramiko ~=5.0.0.20260724",
 ]
 
