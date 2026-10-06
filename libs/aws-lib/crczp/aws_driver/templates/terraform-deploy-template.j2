@@ -60,8 +60,10 @@ resource "aws_instance" "{{ name }}" {
 {% endfor -%}
     user_data = <<EOF
 #!/bin/bash
+{%- if default_ip is not none %}
 sudo ip r del default
 sudo ip r add default via {{ default_ip }}
+{%- endif %}
 
 EOF
 }

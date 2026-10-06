@@ -23,7 +23,7 @@ from crczp.cloud_commons import (
     TransformationConfiguration,
     hcl_string,
 )
-from crczp.cloud_commons.topology_elements import Host
+from crczp.cloud_commons.topology_elements import Node
 
 from .exceptions import ImageDoesNotExist, KeyPairDoesNotExist
 
@@ -50,15 +50,16 @@ def regex_replace(string: str, pattern: str = '', replace: str = '') -> str:
     return re.sub(pattern, replace, string)
 
 
-def get_default_route_ip(topology_instance: TopologyInstance, node: Host) -> str:
+def get_default_route_ip(topology_instance: TopologyInstance, node: Node) -> str | None:
     """
-    Get default route IP of the node.
+    Get the default route IP of the node: the gateway of its main link, or None without one.
     """
-    host_networks = topology_instance.get_hosts_networks()
-    host_link = topology_instance.get_node_links(node, host_networks)[0]
-    # The link was filtered by `host_networks`, so its network is a user-defined host network
-    # and `get_network_default_gateway_link` therefore never returns None here.
-    gateway_link = cast(Link, topology_instance.get_network_default_gateway_link(host_link.network))
+    main_link = topology_instance.get_node_main_link(node)
+    if main_link is None:
+        return None
+    # The main link is on a user-defined host network, so
+    # `get_network_default_gateway_link` never returns None here.
+    gateway_link = cast(Link, topology_instance.get_network_default_gateway_link(main_link.network))
     return str(gateway_link.ip)
 
 

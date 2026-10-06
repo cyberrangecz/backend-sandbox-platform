@@ -48,3 +48,27 @@ class TestGetNode:  # pylint: disable=too-few-public-methods
         mock_client = mocker.patch('crczp.terraform_driver.CrczpTerraformClient.get_node')
         result = nodes.get_node(mocker.MagicMock(), 'node_name')
         assert result == mock_client.return_value
+
+
+class TestGetNodeAccessData:
+    """Tests for the host_ip of node access data."""
+
+    @pytest.fixture(autouse=True)
+    def _no_image_lookup(self, mocker):
+        mocker.patch.object(nodes, 'get_node_available_protocols', return_value=[])
+
+    def test_host_ip_is_main_link(self, top_ins_multi_homed):
+        """A multi-homed host is reached on its first mapping, not its first network."""
+        monitoring = top_ins_multi_homed.get_node('monitoring')
+
+        access_data = nodes.get_node_access_data(top_ins_multi_homed, monitoring)
+
+        assert access_data.host_ip == '10.10.20.6'
+
+    def test_host_with_inaccessible_main_link_rejected(self, top_ins_multi_homed):
+        """An inaccessible main network is rejected even if another network is accessible."""
+        top_ins_multi_homed.get_network('server-switch').accessible_by_user = False
+        monitoring = top_ins_multi_homed.get_node('monitoring')
+
+        with pytest.raises(exceptions.ValidationError, match='not user-accessible'):
+            nodes.get_node_access_data(top_ins_multi_homed, monitoring)

@@ -53,6 +53,7 @@ TESTING_SSH_CONFIG_MANAGEMENT = 'ssh_config_management'
 TESTING_SSH_CONFIG_ANSIBLE = 'ssh_config_ansible'
 TESTING_DEFINITION = 'definition.yml'
 TESTING_DEFINITION_HIDDEN = 'definition_hidden.yml'
+TESTING_DEFINITION_MULTI_HOMED = 'definition_multi_homed.yml'
 TESTING_TOPOLOGY = 'topology.yml'
 TESTING_TOPOLOGY_HIDDEN = 'topology_hidden.yml'
 TESTING_TRC_CONFIG = 'trc-config.yml'
@@ -151,6 +152,17 @@ def top_ins(top_def, trc_config, links):
 def top_ins_hidden(top_def_hidden, trc_config):
     """Creates example topology instance."""
     topology_instance = TopologyInstance(top_def_hidden, trc_config)
+    topology_instance.name = 'stack-name'
+    topology_instance.ip = '10.10.10.10'
+
+    return topology_instance
+
+
+@pytest.fixture
+def top_ins_multi_homed(trc_config):
+    """Creates a topology instance with a host on two networks."""
+    with open(data_path_join(TESTING_DEFINITION_MULTI_HOMED), encoding='utf-8') as f:
+        topology_instance = TopologyInstance(TopologyDefinition.load(f), trc_config)
     topology_instance.name = 'stack-name'
     topology_instance.ip = '10.10.10.10'
 

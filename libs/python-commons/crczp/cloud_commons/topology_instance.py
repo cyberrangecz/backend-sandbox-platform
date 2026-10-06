@@ -237,6 +237,15 @@ class TopologyInstance:
             if networks is None or link.network in networks
         ]
 
+    def get_node_main_link(self, node: Node) -> Link | None:
+        """
+        Return the main Link of a node, or None if it has no user-defined network.
+
+        It is the Link of the node's first net_mapping (for a router, its first
+        router_mapping) in document order; never the management or WAN link.
+        """
+        return next(iter(self.get_node_links(node, self.get_hosts_networks())), None)
+
     def get_network_links(
         self, network: Network, nodes: Iterable[Node] | None = None
     ) -> list[Link]:

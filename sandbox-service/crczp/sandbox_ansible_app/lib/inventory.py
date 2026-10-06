@@ -4,7 +4,6 @@ import abc
 import re
 from enum import Enum
 from ipaddress import ip_network
-from itertools import chain
 from typing import Any, Optional, override
 
 import structlog
@@ -492,18 +491,17 @@ class Inventory(BaseInventory):
 
     def _add_user_network_ip_to_user_defined_nodes(self) -> None:
         """
-        Add IP of user network as variable for every user defined nodes.
-        """
-        user_defined_networks = self.topology_instance.get_hosts_networks()
-        links_lists = [
-            self.topology_instance.get_network_links(network) for network in user_defined_networks
-        ]
-        networks_links = chain(*links_lists)
+        Set `user_network_ip` of every node except MAN and `uan` to the IP of its main link.
 
-        for link in networks_links:
-            if link.node.name == 'uan':
+        The main link is the node's first net_mapping (for a router, its first
+        router_mapping); a node without one gets no `user_network_ip`.
+        """
+        for node in self.topology_instance.get_nodes_without_man():
+            if node.name == 'uan':
                 continue
-            self.hosts[link.node.name].add_variables(user_network_ip=link.ip)
+            link = self.topology_instance.get_node_main_link(node)
+            if link is not None:
+                self.hosts[node.name].add_variables(user_network_ip=link.ip)
 
     def _update_docker_hosts(self) -> None:
         print('Updating docker hosts')

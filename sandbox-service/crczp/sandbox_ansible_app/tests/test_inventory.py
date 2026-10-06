@@ -1,10 +1,19 @@
 """Tests for Ansible inventory generation."""
 
+from pathlib import Path
+from typing import Any
+
 import pytest
 import yaml
 
+from crczp.cloud_commons import TopologyInstance, TransformationConfiguration
 from crczp.sandbox_ansible_app.lib.inventory import Inventory, Routing
 from crczp.sandbox_common_lib import exceptions
+from crczp.topology_definition.models import TopologyDefinition
+
+MULTI_HOMED_DEFINITION = (
+    Path(__file__).parents[2] / 'sandbox_instance_app/tests/assets/definition_multi_homed.yml'
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -302,3 +311,41 @@ class TestUnmanagedHostsGroup:
         children = _inventory(top_ins).to_dict()['all']['children']
 
         assert children['unmanaged_hosts'] == {}
+
+
+def _user_network_ips(
+    definition: dict[str, Any], trc: TransformationConfiguration
+) -> dict[str, str]:
+    top_ins = TopologyInstance(TopologyDefinition.load(yaml.safe_dump(definition)), trc)
+    top_ins.name = 'stack-name'
+    top_ins.ip = '10.10.10.10'
+    for number, link in enumerate(top_ins.get_network_links(top_ins.man_network), start=1):
+        link.ip = f'192.168.128.{number}'
+    hosts = _inventory(top_ins).to_dict()['all']['hosts']
+    return {
+        name: host_vars['user_network_ip']
+        for name, host_vars in hosts.items()
+        if 'user_network_ip' in host_vars
+    }
+
+
+class TestUserNetworkIp:
+    """Tests for the user_network_ip variable of multi-homed nodes."""
+
+    @pytest.mark.parametrize(
+        ('sections', 'expected'),
+        [
+            ((), '10.10.20.6'),
+            (('networks',), '10.10.20.6'),
+            (('net_mappings',), '10.10.40.5'),
+            (('net_mappings', 'networks'), '10.10.40.5'),
+        ],
+        ids=['unchanged', 'networks', 'net_mappings', 'both'],
+    )
+    def test_follows_net_mappings_order_not_networks_order(self, trc_config, sections, expected):
+        """Reordering the host's net_mappings changes the IP; reordering networks does not."""
+        definition = yaml.safe_load(MULTI_HOMED_DEFINITION.read_text(encoding='utf-8'))
+        for section in sections:
+            definition[section].reverse()
+
+        assert _user_network_ips(definition, trc_config)['monitoring'] == expected

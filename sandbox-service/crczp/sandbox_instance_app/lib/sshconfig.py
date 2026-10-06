@@ -164,8 +164,18 @@ class CrczpUserSSHConfig(CrczpSSHConfig):
         )
         man_proxy_jump = f'{SSH_PROXY_USERNAME}@{top_ins.man.name}'
 
-        # Create an entry for user-accessible nodes of a sandbox.
-        for link in top_ins.get_links_to_user_accessible_nodes():
+        # OpenSSH takes the first Host block matching an alias, so a node's main link
+        # takes the slot of that node's first entry.
+        user_accessible_links = top_ins.get_links_to_user_accessible_nodes()
+        first_slots: dict[str, int] = {}
+        for index, link in enumerate(list(user_accessible_links)):
+            first = first_slots.setdefault(link.node.name, index)
+            if link is top_ins.get_node_main_link(link.node):
+                user_accessible_links[first], user_accessible_links[index] = (
+                    link,
+                    user_accessible_links[first],
+                )
+        for link in user_accessible_links:
             self.add_host(
                 link.ip,  # ty: ignore[invalid-argument-type]
                 SSH_PROXY_USERNAME,
