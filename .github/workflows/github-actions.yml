@@ -255,12 +255,10 @@ jobs:
       && github.event_name != 'pull_request'
       && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-24.04
-    needs: [changes, get_current_version, quality, pre-commit, audit, secrets]
+    needs: [changes, quality, pre-commit, audit, secrets]
     permissions:
       contents: read
       packages: write
-    env:
-      VERSION: ${{ needs.get_current_version.outputs.version }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -275,25 +273,48 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Scan before anything is pushed, so a failing release scan leaves no image behind.
-      # pip-audit (the `audit` job) sees only the Python set; this also covers the Debian
-      # base, the apt packages and the OpenTofu/provider binaries. Blocks on the master run
-      # only, and only for high/critical findings that have a fix to move to.
-      # Build context is the repository root so the uv workspace can resolve
-      # libs/* as path dependencies; see sandbox-service/Dockerfile.
-      - name: Build image for scanning
+      # Pushed by digest only, with no tag: nothing can pull it by version until `publish`
+      # tags it after the scan. Build context is the repository root so the uv workspace
+      # can resolve libs/* as path dependencies; see sandbox-service/Dockerfile.
+      # The SBOM and provenance are attached to the image as attestations: a record of
+      # exactly what each released version ships and how it was built, readable with
+      # `docker buildx imagetools inspect <image> --format '{{ json .SBOM }}'`.
+      - name: Build and push Docker image by digest
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./sandbox-service/Dockerfile
-          load: true
-          tags: sandbox-service:scan
+          tags: ghcr.io/${{ github.repository }}/sandbox-service
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          sbom: true
+          provenance: mode=max
+    outputs:
+      image: ghcr.io/${{ github.repository }}/sandbox-service@${{ steps.push.outputs.digest }}
+
+  # grype over the digest `build` pushed. pip-audit (the `audit` job) sees only the Python
+  # set; this also covers the Debian base, the apt packages and the OpenTofu and provider
+  # binaries. Reports on branch builds. On the master run it fails on high or critical
+  # findings that have a fix, and then `publish` never tags the image.
+  image-scan:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Scan image (grype)
         id: grype
         uses: anchore/scan-action@v7.4.2
         with:
-          image: sandbox-service:scan
+          image: ${{ needs.build.outputs.image }}
           fail-build: ${{ github.ref == 'refs/heads/master' }}
           severity-cutoff: high
           only-fixed: true
@@ -310,28 +331,40 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Same build again, from the builder's cache. The SBOM and provenance are attached
-      # to the pushed image as attestations: a record of exactly what each released
-      # version ships and how it was built, readable with `docker buildx imagetools
-      # inspect <image> --format '{{ json .SBOM }}'`.
-      - name: Build and push Docker image
-        env:
-          TAG: ${{ github.ref == 'refs/heads/master' && format('{0}', env.VERSION ) || format('{0}-dev', env.VERSION) }}
-        uses: docker/build-push-action@v6
+  # Tags the scanned digest - the same image index, attestations included, no rebuild.
+  # This is the moment a version becomes pullable, so on the master run it waits for a
+  # passing scan: a failing release leaves only an untagged digest behind. On branches the
+  # scan is report-only, so the -dev tag is published even if the scan job itself errored.
+  publish:
+    needs: [build, image-scan, get_current_version]
+    if: >-
+      !cancelled()
+      && needs.build.result == 'success'
+      && (needs.image-scan.result == 'success' || github.ref != 'refs/heads/master')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      TAG: ${{ github.ref == 'refs/heads/master' && needs.get_current_version.outputs.version || format('{0}-dev', needs.get_current_version.outputs.version) }}
+      IMAGE: ${{ needs.build.outputs.image }}
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          context: .
-          file: ./sandbox-service/Dockerfile
-          push: true
-          tags: ghcr.io/${{ github.repository }}/sandbox-service:${{ env.TAG }}
-          sbom: true
-          provenance: mode=max
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag the image
+        run: docker buildx imagetools create --tag "ghcr.io/${GITHUB_REPOSITORY}/sandbox-service:${TAG}" "$IMAGE"
 
   generate_docs:
     permissions:
       contents: read
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
-    needs: build
+    needs: publish
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -381,7 +414,7 @@ jobs:
   # Push tag only from manual workflow_dispatch with confirmed tag creation
   push_tag:
     if: github.ref == 'refs/heads/master' && github.event.inputs.confirm_action == 'yes'
-    needs: [get_current_version, control_tag, build]
+    needs: [get_current_version, control_tag, publish]
     permissions:
       contents: write
     uses: cyberrangecz/actions-templates/.github/workflows/tag_push_template.yml@master

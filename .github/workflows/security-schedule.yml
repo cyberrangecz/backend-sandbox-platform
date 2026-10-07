@@ -48,17 +48,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Release tags exist both as `v3.0.0` and bare `3.0.0`; the image tag is always
-      # bare. Same selection as the check-version-bump hook in .pre-commit-config.yaml.
+      # The release git tag and the image tag are the same string, `v3.2.0`: both come
+      # from actions-templates' get_version.yml, which always prefixes `v`. Library tags
+      # (`topology-definition/v2.1.0`) do not match.
       - name: Find the latest release
         id: release
         run: |
-          version=$(git tag --sort=-version:refname | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -1 | sed 's/^v//')
-          if [ -z "$version" ]; then
+          tag=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          if [ -z "$tag" ]; then
             echo '::error::No release tag found'
             exit 1
           fi
-          echo "image=ghcr.io/${GITHUB_REPOSITORY}/sandbox-service:${version}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY}/sandbox-service:${tag}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
