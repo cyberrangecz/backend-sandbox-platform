@@ -127,7 +127,7 @@ jobs:
           for job in $(jq -r 'to_entries[] | select(.value.result == "failure") | .key' <<<"$RESULTS"); do
             case "$job" in
               audit)
-                advice='A dependency in uv.lock has a known vulnerability. Fix it in its own PR to master: bump the package, or, if there is no fix or it is unreachable, add it to sandbox-service/audit-ignore.txt with the reason and a review date. Feature branches are not blocked by this; the master release run is.' ;;
+                advice='A dependency in uv.lock has a known vulnerability. Fix it in its own PR to master: bump the package, or, if there is no fix or it is unreachable, add it to sandbox-service/audit-ignore.txt with the reason and a review date. Feature branches are not blocked by this; the master run builds only a v<version>-staging image, with no release, until it is fixed.' ;;
               image)
                 advice='The latest released image has high or critical vulnerabilities that have a fix. Most come from the Debian base: a new release picks up the patched python:3.12-slim. Otherwise bump the affected package.' ;;
               secrets-history)
