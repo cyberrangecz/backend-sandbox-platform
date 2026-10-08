@@ -5,7 +5,8 @@
 #
 # What fails depends on BASE:
 #   unset       Every known vulnerability fails. Local runs, the nightly scheduled run
-#               and the master (release) run.
+#               and the master (release) run. The master run still builds the image, but
+#               tags it v<version>-staging instead of releasing it.
 #   BASE=<rev>  Only vulnerabilities not already present at <rev> fail; the rest are
 #               inherited, listed but left to their own PR to master. CI sets this for
 #               pull requests and branch pushes.
@@ -126,7 +127,8 @@ fi
         if [ -n "${BASE:-}" ]; then
             echo "**Blocking**: not present at the base (${BASE:0:12}), so introduced by this change."
         else
-            echo '**Blocking**: every known vulnerability blocks this run.'
+            # shellcheck disable=SC2016  # a markdown code span, not a command substitution
+            echo '**Failing**: with no base to compare with, every known vulnerability fails the audit. On the master run the image is still built, but tagged `v<version>-staging` instead of released.'
         fi
         echo
         table "$tmp/new"
@@ -141,7 +143,7 @@ fi
 } | tee -a "$summary"
 
 if [ -s "$tmp/new" ]; then
-    annotate error "$(wc -l < "$tmp/new") known vulnerabilities block this run; see the table above."
+    annotate error "$(wc -l < "$tmp/new") known vulnerabilities fail the audit; see the table above."
     exit 1
 fi
 if [ -s "$tmp/inherited" ]; then

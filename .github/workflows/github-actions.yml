@@ -9,7 +9,8 @@
 # what it inherits. A CVE published against a dependency set the branch did not touch is
 # not the branch's problem - it is fixed in its own PR to master, and the nightly run in
 # security-schedule.yml keeps an issue open until it is. The master run (workflow_dispatch,
-# which builds the versioned image and tags) is the hard gate and fails on everything.
+# which builds the versioned image and tags) counts every known vulnerability: it still
+# builds, but then only as v<version>-staging, with no release tag, docs or git tag.
 
 name: Sandbox Workspace CI
 
@@ -217,9 +218,13 @@ jobs:
   # Dependency audit of the locked set the image ships (sandbox-service/audit.sh). Fails
   # only on vulnerabilities this change introduces, compared with BASE; inherited ones go
   # to the job summary and are tracked by the nightly issue from security-schedule.yml.
-  # The master run sets no BASE, so there every known vulnerability blocks the release.
+  # The master run sets no BASE, so there every known vulnerability fails the step. The job
+  # still passes, so the image is built, and `publish` reads the outcome to tag it
+  # v<version>-staging instead of releasing it.
   audit:
     runs-on: ubuntu-24.04
+    outputs:
+      outcome: ${{ steps.pip-audit.outcome }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -232,6 +237,8 @@ jobs:
       - run: uv tool install tox --with tox-uv-bare==1.36.0
 
       - name: pip-audit
+        id: pip-audit
+        continue-on-error: ${{ github.ref == 'refs/heads/master' }}
         working-directory: sandbox-service
         env:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
@@ -343,8 +350,11 @@ jobs:
   # Tags the scanned digest - the same image index, attestations included, no rebuild.
   # Waits for image-scan so every tagged version has a scan report on its run, but not for
   # its result: the scan is report-only, so even a scan job that errored does not block it.
+  # On master the dependency audit picks the tag. Clean, it is the release v<version>, and
+  # the docs and git tag follow. With known vulnerabilities (or an audit that could not
+  # run), it is v<version>-staging only: deployable for testing, but not a release.
   publish:
-    needs: [build, image-scan, get_current_version]
+    needs: [build, audit, image-scan, get_current_version]
     if: >-
       !cancelled()
       && needs.build.result == 'success'
@@ -353,8 +363,11 @@ jobs:
       contents: read
       packages: write
     env:
-      TAG: ${{ github.ref == 'refs/heads/master' && needs.get_current_version.outputs.version || format('{0}-dev', needs.get_current_version.outputs.version) }}
+      VERSION: ${{ needs.get_current_version.outputs.version }}
+      AUDIT: ${{ needs.audit.outputs.outcome }}
       IMAGE: ${{ needs.build.outputs.image }}
+    outputs:
+      release: ${{ steps.tag.outputs.release }}
     steps:
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -364,12 +377,25 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Tag the image
-        run: docker buildx imagetools create --tag "ghcr.io/${GITHUB_REPOSITORY}/sandbox-service:${TAG}" "$IMAGE"
+        id: tag
+        run: |
+          release=false
+          if [ "$GITHUB_REF" != refs/heads/master ]; then
+            tag="${VERSION}-dev"
+          elif [ "$AUDIT" = success ]; then
+            tag="$VERSION"
+            release=true
+          else
+            tag="${VERSION}-staging"
+            echo "::warning title=Not released::The dependency audit found known vulnerabilities, so this build is tagged ${tag} only: no release tag, docs or git tag."
+          fi
+          docker buildx imagetools create --tag "ghcr.io/${GITHUB_REPOSITORY}/sandbox-service:${tag}" "$IMAGE"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
 
   generate_docs:
     permissions:
       contents: read
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/master' && needs.publish.outputs.release == 'true'
     runs-on: ubuntu-24.04
     needs: publish
     steps:
@@ -418,9 +444,13 @@ jobs:
     with:
       VERSION: ${{ needs.get_current_version.outputs.version }}
 
-  # Push tag only from manual workflow_dispatch with confirmed tag creation
+  # Push tag only from manual workflow_dispatch with confirmed tag creation, and only for a
+  # release: a v<version>-staging build gets no git tag.
   push_tag:
-    if: github.ref == 'refs/heads/master' && github.event.inputs.confirm_action == 'yes'
+    if: >-
+      github.ref == 'refs/heads/master'
+      && github.event.inputs.confirm_action == 'yes'
+      && needs.publish.outputs.release == 'true'
     needs: [get_current_version, control_tag, publish]
     permissions:
       contents: write
