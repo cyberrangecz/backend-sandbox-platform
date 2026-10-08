@@ -294,8 +294,11 @@ jobs:
 
   # grype over the digest `build` pushed. pip-audit (the `audit` job) sees only the Python
   # set; this also covers the Debian base, the apt packages and the OpenTofu and provider
-  # binaries. Reports on branch builds. On the master run it fails on high or critical
-  # findings that have a fix, and then `publish` never tags the image.
+  # binaries. Report-only on every run, master included: high or critical findings that
+  # have a fix raise a warning but do not stop `publish`. Some come from upstream binaries
+  # with no fixed release to move to (terraform-provider-openstack 3.4.0 ships go1.24.0),
+  # and in how the image runs them none were found reachable. security-schedule.yml keeps
+  # an issue open while the released image has any.
   image-scan:
     needs: build
     runs-on: ubuntu-24.04
@@ -313,9 +316,10 @@ jobs:
       - name: Scan image (grype)
         id: grype
         uses: anchore/scan-action@v7.4.2
+        # The step fails on findings so the summary can flag them; the job still passes.
+        continue-on-error: true
         with:
           image: ${{ needs.build.outputs.image }}
-          fail-build: ${{ github.ref == 'refs/heads/master' }}
           severity-cutoff: high
           only-fixed: true
           output-format: table
@@ -323,7 +327,12 @@ jobs:
 
       - name: Image scan summary
         if: ${{ !cancelled() && steps.grype.conclusion != 'skipped' }}
+        env:
+          OUTCOME: ${{ steps.grype.outcome }}
         run: |
+          if [ "$OUTCOME" = failure ]; then
+            echo '::warning title=Image scan::grype failed or found high/critical vulnerabilities with a fix; see the job summary'
+          fi
           {
             echo '### Image vulnerabilities (high and above, with a fix available)'
             echo '```'
@@ -332,15 +341,13 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # Tags the scanned digest - the same image index, attestations included, no rebuild.
-  # This is the moment a version becomes pullable, so on the master run it waits for a
-  # passing scan: a failing release leaves only an untagged digest behind. On branches the
-  # scan is report-only, so the -dev tag is published even if the scan job itself errored.
+  # Waits for image-scan so every tagged version has a scan report on its run, but not for
+  # its result: the scan is report-only, so even a scan job that errored does not block it.
   publish:
     needs: [build, image-scan, get_current_version]
     if: >-
       !cancelled()
       && needs.build.result == 'success'
-      && (needs.image-scan.result == 'success' || github.ref != 'refs/heads/master')
     runs-on: ubuntu-24.04
     permissions:
       contents: read
