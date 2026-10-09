@@ -12,7 +12,12 @@ from rest_framework.reverse import reverse
 from rest_framework.test import APIRequestFactory
 
 from crczp.cloud_commons import HardwareUsage, exceptions
-from crczp.sandbox_common_lib.exceptions import ApiException, ForbiddenError, StackError
+from crczp.sandbox_common_lib.exceptions import (
+    ApiException,
+    ConflictError,
+    ForbiddenError,
+    StackError,
+)
 from crczp.sandbox_common_lib.exceptions import ValidationError as ApiValidationError
 from crczp.sandbox_instance_app.lib import pools, sshconfig
 from crczp.sandbox_instance_app.models import Pool, Sandbox, SandboxAllocationUnit, SandboxLock
@@ -257,7 +262,9 @@ class TestCreateSandboxesInPool:
         """Test creating a single sandbox in a pool."""
         pool = pools.get_pool(POOL_ID)
         pools.create_sandboxes_in_pool(pool, created_by, 1)
-        self.fake_create_allocation_requests.assert_called_once_with(pool, 1, created_by)
+        self.fake_create_allocation_requests.assert_called_once_with(
+            pool, 1, created_by, created_by_sub=None
+        )
 
     def test_create_sandboxes_in_pool_success_all(self, created_by):
         """Test filling a pool with sandboxes up to its max size."""
@@ -266,7 +273,7 @@ class TestCreateSandboxesInPool:
 
         pools.create_sandboxes_in_pool(pool, created_by)
         self.fake_create_allocation_requests.assert_called_once_with(
-            pool, pool.max_size - size_before, created_by
+            pool, pool.max_size - size_before, created_by, created_by_sub=None
         )
 
     def test_create_sandboxes_in_pool_full(self, created_by):
@@ -284,6 +291,38 @@ class TestCreateSandboxesInPool:
 
         with pytest.raises(StackError):
             pools.create_sandboxes_in_pool(pool, created_by)
+
+    def test_trainee_with_an_active_sandbox_gets_no_second_one(self, created_by):
+        """Test that a trainee may hold one active sandbox per pool."""
+        pool = pools.get_pool(POOL_ID)
+        SandboxAllocationUnit.objects.create(pool=pool, created_by_sub='trainee-sub')
+
+        with pytest.raises(ConflictError):
+            pools.create_sandboxes_in_pool(pool, created_by, 1, created_by_sub='trainee-sub')
+        self.fake_create_allocation_requests.assert_not_called()
+
+    def test_trainee_whose_sandbox_failed_may_allocate_again(
+        self, pool, sandbox_failed_user_stage, created_by
+    ):
+        """Test that a failed allocation does not count as the trainee's sandbox."""
+        sandbox_failed_user_stage.allocation_unit.created_by_sub = 'trainee-sub'
+        sandbox_failed_user_stage.allocation_unit.save()
+
+        pools.create_sandboxes_in_pool(pool, created_by, 1, created_by_sub='trainee-sub')
+
+        self.fake_create_allocation_requests.assert_called_once_with(
+            pool, 1, created_by, created_by_sub='trainee-sub'
+        )
+
+    def test_trainee_sandbox_in_another_pool_does_not_count(self, pool, created_by):
+        """Test that the one-sandbox rule applies per pool."""
+        SandboxAllocationUnit.objects.create(
+            pool=pools.get_pool(POOL_ID), created_by_sub='trainee-sub'
+        )
+
+        pools.create_sandboxes_in_pool(pool, created_by, 1, created_by_sub='trainee-sub')
+
+        self.fake_create_allocation_requests.assert_called_once()
 
 
 class TestGetUnlockedSandbox:
