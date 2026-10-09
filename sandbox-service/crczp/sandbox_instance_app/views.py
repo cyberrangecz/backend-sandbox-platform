@@ -783,23 +783,7 @@ class SandboxGetAndLockView(generics.RetrieveAPIView[Any]):
         """
         pool_id = self.kwargs.get('pool_id')
         pool = get_object_or_404(Pool, id=pool_id)
-        training_access_token = self.kwargs.get('training_access_token')
-
-        if hasattr(pool, 'lock'):
-            if pool.lock.training_access_token is None:
-                return Response(
-                    {'detail': 'This pool does not have a training assigned'},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-            if pool.lock.training_access_token != training_access_token:
-                return Response(
-                    {'detail': 'Provided training access token is not valid.'},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-        else:
-            return Response(
-                {'detail': 'The pool is not locked.'}, status=status.HTTP_400_BAD_REQUEST
-            )
+        pools.validate_training_access_token(pool, self.kwargs.get('training_access_token'))
 
         created_by = request.user if isinstance(request.user, User) else None
         sandbox = pools.get_unlocked_sandbox(pool, created_by)

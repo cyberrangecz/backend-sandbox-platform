@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import exception_handler
 
 from crczp.cloud_commons import CrczpException
-from crczp.sandbox_common_lib.exceptions import ApiException
+from crczp.sandbox_common_lib.exceptions import ApiException, ConflictError, ForbiddenError
 
 # Create logger
 LOG = structlog.get_logger()
@@ -49,6 +49,8 @@ def custom_exception_handler(exc: Exception, context: dict[str, Any]) -> Respons
             Http404,
             PermissionDenied,
             ValidationError,
+            ForbiddenError,
+            ConflictError,
         ),
     )
     LOG.error(repr(exc), data=response.data if response else None, exc_info=exc_info)
@@ -56,12 +58,15 @@ def custom_exception_handler(exc: Exception, context: dict[str, Any]) -> Respons
 
 
 def handle_crczp_exception(exc: Exception, _context: dict[str, Any]) -> Response:
-    """Handle OpenStack lib and this project exceptions."""
+    """Handle OpenStack lib and this project exceptions.
+
+    This project's exceptions carry their HTTP status; the OpenStack lib's answer 400.
+    """
     return Response(
         {
             'detail': str(exc),
         },
-        status=status.HTTP_400_BAD_REQUEST,
+        status=getattr(exc, 'status_code', status.HTTP_400_BAD_REQUEST),
     )
 
 
