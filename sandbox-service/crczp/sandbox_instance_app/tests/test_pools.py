@@ -22,6 +22,7 @@ from crczp.sandbox_common_lib.exceptions import ValidationError as ApiValidation
 from crczp.sandbox_instance_app.lib import pools, sshconfig
 from crczp.sandbox_instance_app.models import Pool, Sandbox, SandboxAllocationUnit, SandboxLock
 from crczp.sandbox_instance_app.views import (
+    PoolCleanupRequestsListCreateView,
     PoolCleanupRequestUnlockedCreateView,
     PoolListCreateView,
     SandboxGetAndLockView,
@@ -412,8 +413,8 @@ class TestValidateTrainingAccessToken:
             pools.validate_training_access_token(pool, token)
 
 
-class TestPoolCleanupRequestUnlocked:
-    """POST pools/{pool_id}/cleanup-unlocked."""
+class TestPoolCleanupViews:
+    """POST pools/{pool_id}/cleanup-requests and cleanup-unlocked."""
 
     def test_skips_sandboxes_trainees_allocated(self, mocker, pool, sandbox):
         """Test that unlocked trainee sandboxes are in use and are not cleaned up."""
@@ -426,7 +427,8 @@ class TestPoolCleanupRequestUnlocked:
             ready=True,
         )
         create_cleanup_requests = mocker.patch(
-            'crczp.sandbox_instance_app.views.sandbox_requests.create_cleanup_requests'
+            'crczp.sandbox_instance_app.views.sandbox_requests.create_cleanup_requests',
+            return_value=[],
         )
         request = APIRequestFactory().post('/')
 
@@ -434,6 +436,19 @@ class TestPoolCleanupRequestUnlocked:
 
         assert response.status_code == 201
         create_cleanup_requests.assert_called_once_with([sandbox.allocation_unit], False)
+
+    def test_forced_cleanup_reports_the_units_it_skipped(self, mocker, pool):
+        """Test that a forced pool cleanup answers with the units it could not clean up yet."""
+        mocker.patch(
+            'crczp.sandbox_instance_app.views.sandbox_requests.create_cleanup_requests',
+            return_value=[7, 9],
+        )
+        request = APIRequestFactory().post('/?force=true')
+
+        response = PoolCleanupRequestsListCreateView.as_view()(request, pool_id=pool.id)
+
+        assert response.status_code == 201
+        assert response.data == {'skipped_unit_ids': [7, 9]}
 
 
 class TestGetManagementSSHAccess:
