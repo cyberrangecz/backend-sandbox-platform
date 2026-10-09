@@ -29,7 +29,7 @@ dependencies = [
     "requests ~=2.34.2",
     "django-model-utils ~=5.0.0",
     # https://github.com/rq/django-rq/issues/616#event-15494980339
-    "rq ==1.13.0",
+    "rq==2.12.0",
     "django-rq ~=2.8.0",
     "redis ==6.4.0",
     "hiredis ~=3.4.1",
