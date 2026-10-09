@@ -24,7 +24,7 @@ from crczp.sandbox_common_lib import exceptions, utils
 from crczp.sandbox_definition_app.lib import definitions
 from crczp.sandbox_definition_app.models import Definition
 from crczp.sandbox_instance_app import serializers
-from crczp.sandbox_instance_app.lib import requests, sandboxes
+from crczp.sandbox_instance_app.lib import requests, sandboxes, unit_filters
 from crczp.sandbox_instance_app.models import (
     Pool,
     PoolLock,
@@ -173,7 +173,11 @@ def validate_hardware_usage_of_sandboxes(pool: Pool, count: int) -> None:
 
 
 def create_sandboxes_in_pool(
-    pool: Pool, created_by: User | None, count: int | None = None
+    pool: Pool,
+    created_by: User | None,
+    count: int | None = None,
+    *,
+    created_by_sub: str | None = None,
 ) -> list[SandboxAllocationUnit]:
     """
     Creates count sandboxes in given pool.
@@ -181,10 +185,24 @@ def create_sandboxes_in_pool(
     :param pool: Pool where to build sandbox
     :param created_by: User initiating the build.
     :param count: Count of sandboxes, None to build maximum
+    :param created_by_sub: OIDC sub of a trainee allocating a sandbox for themselves. A
+        trainee may hold one active sandbox per pool.
     :return: sandbox instance
+    :raises ConflictError: The trainee already has an active sandbox in the pool.
     """
     with transaction.atomic():
+        # The pool row lock also serializes the check below with concurrent allocations.
         pool = Pool.objects.select_for_update().get(pk=pool.id)
+
+        if (
+            created_by_sub is not None
+            and SandboxAllocationUnit.objects.filter(
+                unit_filters.active(), pool=pool, created_by_sub=created_by_sub
+            ).exists()
+        ):
+            raise exceptions.ConflictError(
+                'You already have a sandbox in this pool. Use it, or clean it up first.'
+            )
 
         current_size = pool.size
         if count is None:
@@ -197,7 +215,9 @@ def create_sandboxes_in_pool(
             )
 
         validate_hardware_usage_of_sandboxes(pool, count)
-        units = requests.create_allocations_requests(pool, count, created_by)
+        units = requests.create_allocations_requests(
+            pool, count, created_by, created_by_sub=created_by_sub
+        )
         pool.size += count
         pool.save()
         return units

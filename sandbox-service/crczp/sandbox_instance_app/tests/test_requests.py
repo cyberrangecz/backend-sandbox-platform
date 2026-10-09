@@ -30,6 +30,20 @@ class TestAllocationRequest:
             'crczp.sandbox_instance_app.lib.requests.request_handlers.AllocationRequestHandler'
         )
 
+    def test_create_allocation_requests_records_the_trainee(self, pool, created_by, mocker):
+        """Test that a trainee's own allocation records their sub and the creation time."""
+        mocker.patch('django.db.transaction.on_commit')
+
+        units = requests.create_allocations_requests(
+            pool, 1, created_by, created_by_sub='trainee-sub'
+        )
+
+        assert len(units) == 1
+        unit = units[0]
+        unit.refresh_from_db()
+        assert unit.created_by_sub == 'trainee-sub'
+        assert unit.created_at is not None
+
     def test_create_allocation_requests_success(self, pool, created_by, mocker):
         """Test that allocation requests are created and enqueued on commit."""
         fake_on_commit = mocker.patch('django.db.transaction.on_commit')
