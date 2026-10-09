@@ -314,10 +314,13 @@ class PoolCleanupRequestUnlockedCreateView(APIView):
     )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Deletes all unlocked sandboxes in a pool. With an optional parameter *force*, it forces
-        the deletion."""
+        the deletion. Sandboxes trainees allocated for themselves are in use although they are
+        not locked, so they are left alone."""
         pool_id = kwargs['pool_id']
         get_object_or_404(Pool, pk=pool_id)
-        all_pool_units = SandboxAllocationUnit.objects.filter(pool_id=pool_id)
+        all_pool_units = SandboxAllocationUnit.objects.filter(
+            pool_id=pool_id, created_by_sub__isnull=True
+        )
         pool_units = [
             unit
             for unit in all_pool_units

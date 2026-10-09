@@ -203,34 +203,50 @@ def create_sandboxes_in_pool(
 
 
 def get_unlocked_sandbox(pool: Pool, created_by: User | None) -> Sandbox | None:
-    """Return unlocked sandbox."""
-    # Note: Locks should be created immediately on Sandbox creation to simplify this logic
+    """Lock and return a free sandbox of the pool, or None when every sandbox is taken.
+
+    Only ready sandboxes an organizer built are handed out: a sandbox a trainee allocated
+    for themselves is theirs, even though it carries no lock. Sandboxes another request is
+    locking right now are skipped instead of waited for, so the trainees of one training
+    starting together do not queue behind each other.
+    """
     with transaction.atomic():
-        sb_queryset = (
-            Sandbox.objects
-            .select_for_update()
-            .order_by('id')
-            .filter(allocation_unit__pool=pool, ready=True)
-        )
-        # Lock filtering needs to be done in Python.
-        # FOR UPDATE cannot be applied to the nullable side of a relation.
-        if _has_locked_sandbox(sb_queryset, created_by):
+        if created_by is not None:
+            # Serializes the requests of one user, so two concurrent ones cannot each lock a
+            # sandbox; the check below then sees the first one's lock.
+            User.objects.select_for_update().filter(pk=created_by.pk).first()
+        if _has_locked_sandbox(pool, created_by):
             raise CrczpException(
                 'You already have a sandbox assigned. Use that one or ask your tutor for help.'
             )
-        sandbox = next((sb for sb in sb_queryset if not hasattr(sb, 'lock')), None)
+        free_sandboxes = (
+            Sandbox.objects
+            .filter(
+                allocation_unit__pool=pool,
+                allocation_unit__created_by_sub__isnull=True,
+                ready=True,
+                lock__isnull=True,
+            )
+            .order_by('id')
+            # Lock only the sandbox row: FOR UPDATE cannot cover the nullable side of the
+            # outer join that lock__isnull needs.
+            .select_for_update(skip_locked=True, of=('self',))
+        )
+        while (sandbox := free_sandboxes.first()) is not None:
+            # A request that locked this sandbox and committed after the query above took its
+            # snapshot is invisible to it; a new statement sees its lock. The next query then
+            # excludes this sandbox, so the loop ends.
+            if not SandboxLock.objects.filter(sandbox=sandbox).exists():
+                SandboxLock.objects.create(sandbox=sandbox, created_by=created_by)
+                return sandbox
+        return None
 
-        if not sandbox:
-            return None
-        SandboxLock.objects.create(sandbox=sandbox, created_by=created_by)
-        return sandbox
 
-
-def _has_locked_sandbox(sb_queryset: QuerySet[Sandbox, Sandbox], created_by: User | None) -> bool:
-    """Check if User locked a sandbox in queryset"""
+def _has_locked_sandbox(pool: Pool, created_by: User | None) -> bool:
+    """Check if the user holds the lock of a sandbox in the pool."""
     if created_by is None:
         return False
-    return len(sb_queryset.filter(lock__created_by=created_by)) != 0
+    return Sandbox.objects.filter(allocation_unit__pool=pool, lock__created_by=created_by).exists()
 
 
 def lock_pool(pool: Pool, training_access_token: str | None = None) -> PoolLock:
