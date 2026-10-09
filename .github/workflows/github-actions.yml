@@ -7,7 +7,7 @@
 #
 # Security gating follows one rule: a run fails on what it introduces, and only reports
 # what it inherits. A CVE published against a dependency set the branch did not touch is
-# not the branch's problem - it is fixed in its own PR to master, and the nightly run in
+# not the branch's problem - it is fixed in its own PR to master, and the scheduled run in
 # security-schedule.yml keeps an issue open until it is. The master run (workflow_dispatch)
 # counts every known vulnerability: it still builds, but then only as v<version>-staging,
 # with no release tag, docs or git tag - as does any master run not confirmed with 'yes'.
@@ -150,7 +150,7 @@ jobs:
   # Commits this run brings in, scanned for secrets by two tools that fail on different
   # things. Any failure here is a leak already published to a public repository: rotate
   # the credential, rewriting history does not un-publish it. The full history is
-  # rescanned weekly by security-schedule.yml.
+  # rescanned twice a week by security-schedule.yml.
   secrets:
     runs-on: ubuntu-24.04
     steps:
@@ -217,7 +217,7 @@ jobs:
 
   # Dependency audit of the locked set the image ships (sandbox-service/audit.sh). Fails
   # only on vulnerabilities this change introduces, compared with BASE; inherited ones go
-  # to the job summary and are tracked by the nightly issue from security-schedule.yml.
+  # to the job summary and are tracked by the issue security-schedule.yml keeps open.
   # The master run sets no BASE, so there every known vulnerability fails the step. The job
   # still passes, so the image is built, and `publish` reads the outcome to tag it
   # v<version>-staging instead of releasing it.
