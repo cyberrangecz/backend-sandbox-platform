@@ -3,10 +3,13 @@
 from collections import OrderedDict
 from typing import Any, override
 
+from django.core.exceptions import FieldError
 from django.db.models.query import QuerySet
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from crczp.sandbox_common_lib import exceptions
 
 
 class PageNumberWithPageSizePagination(PageNumberPagination):
@@ -61,17 +64,25 @@ class PageNumberWithPageSizePagination(PageNumberPagination):
     ) -> list[Any] | None:
         sort_by_param = request.GET.get('sort_by', self.sort_by_default_param)
         order_param = request.GET.get('order', self.order_default_param)
+        # A leading '-' asks for descending order on its own, whatever `order` says.
+        sort_field = sort_by_param.removeprefix('-')
+        descending = order_param == 'desc' or sort_field != sort_by_param
 
         if isinstance(queryset, QuerySet):
-            sort_by_param = '-' + sort_by_param if order_param == 'desc' else sort_by_param
-            queryset = queryset.order_by(sort_by_param)
+            # A view may accept a sort name that differs from the model field, e.g. the
+            # pool allocation-unit list takes the frontend's 'allocation_unit_id' for 'id'.
+            sort_field = getattr(view, 'sort_field_mapping', {}).get(sort_field, sort_field)
+            try:
+                queryset = queryset.order_by(f'-{sort_field}' if descending else sort_field)
+            except FieldError:
+                raise exceptions.ValidationError(
+                    f'Cannot sort by {sort_by_param!r}: unknown field.'
+                ) from None
         else:
             queryset = sorted(
                 queryset,
-                key=lambda item: self._ensure_comparable(
-                    item.get(sort_by_param, ''), sort_by_param
-                ),
-                reverse=order_param == 'desc',
+                key=lambda item: self._ensure_comparable(item.get(sort_field, ''), sort_field),
+                reverse=descending,
             )
         # The base implementation only needs a sized sequence (it hands the value to
         # django.core.paginator.Paginator), which is why this override also accepts the

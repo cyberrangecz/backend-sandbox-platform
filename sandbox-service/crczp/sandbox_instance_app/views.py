@@ -377,6 +377,9 @@ class SandboxAllocationUnitListCreateView(generics.ListCreateAPIView[Any]):
     """
 
     serializer_class = serializers.SandboxAllocationUnitSerializer
+    # The pool-detail frontend reuses one pagination object for this list and for the pool's
+    # sandbox list, which it sorts by 'allocation_unit_id'.
+    sort_field_mapping = {'allocation_unit_id': 'id'}
 
     @override
     def get_queryset(self) -> QuerySet[Any, Any]:
