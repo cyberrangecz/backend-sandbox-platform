@@ -146,8 +146,15 @@ class PoolDetailDeleteUpdateView(generics.RetrieveDestroyAPIView[Any]):
 
         if force and pool.size > 0:
             pool_units = SandboxAllocationUnit.objects.filter(pool_id=pool.id)
-            sandbox_requests.create_cleanup_requests(pool_units, force, delete_pool=True)
-            return Response(status=status.HTTP_201_CREATED)
+            skipped_unit_ids = sandbox_requests.create_cleanup_requests(
+                pool_units, force, delete_pool=True
+            )
+            return Response(
+                serializers.PoolCleanupResultSerializer({
+                    'skipped_unit_ids': skipped_unit_ids
+                }).data,
+                status=status.HTTP_201_CREATED,
+            )
 
         pools.delete_pool(pool)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -287,7 +294,8 @@ class PoolAllocationRequestListView(generics.ListAPIView[Any]):
     ],
     responses={
         201: OpenApiResponse(
-            response=serializers.CleanupRequestSerializer, description='Cleanup Request created'
+            response=serializers.PoolCleanupResultSerializer,
+            description='Cleanup Requests created',
         ),
         **POOL_RESPONSES,
     },
@@ -313,8 +321,11 @@ class PoolCleanupRequestsListCreateView(generics.ListCreateAPIView[Any]):
         get_object_or_404(Pool, pk=pool_id)
         pool_units = SandboxAllocationUnit.objects.filter(pool_id=pool_id)
         force = request.GET.get('force', 'false') == 'true'
-        sandbox_requests.create_cleanup_requests(pool_units, force)
-        return Response(status=status.HTTP_201_CREATED)
+        skipped_unit_ids = sandbox_requests.create_cleanup_requests(pool_units, force)
+        return Response(
+            serializers.PoolCleanupResultSerializer({'skipped_unit_ids': skipped_unit_ids}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class PoolCleanupRequestUnlockedCreateView(APIView):
@@ -332,7 +343,14 @@ class PoolCleanupRequestUnlockedCreateView(APIView):
                 description='Force the deletion of sandboxes',
                 required=False,
             )
-        ]
+        ],
+        responses={
+            201: OpenApiResponse(
+                response=serializers.PoolCleanupResultSerializer,
+                description='Cleanup Requests created',
+            ),
+            **POOL_RESPONSES,
+        },
     )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Deletes all unlocked sandboxes in a pool. With an optional parameter *force*, it forces
@@ -349,8 +367,11 @@ class PoolCleanupRequestUnlockedCreateView(APIView):
             if hasattr(unit, 'sandbox') and not hasattr(unit.sandbox, 'lock')
         ]
         force = request.GET.get('force', 'false') == 'true'
-        sandbox_requests.create_cleanup_requests(pool_units, force)
-        return Response(status=status.HTTP_201_CREATED)
+        skipped_unit_ids = sandbox_requests.create_cleanup_requests(pool_units, force)
+        return Response(
+            serializers.PoolCleanupResultSerializer({'skipped_unit_ids': skipped_unit_ids}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class PoolCleanupRequestFailedCreateView(APIView):
@@ -369,7 +390,13 @@ class PoolCleanupRequestFailedCreateView(APIView):
                 required=False,
             )
         ],
-        responses={201: OpenApiResponse(description='Cleanup Request created')},
+        responses={
+            201: OpenApiResponse(
+                response=serializers.PoolCleanupResultSerializer,
+                description='Cleanup Requests created',
+            ),
+            **POOL_RESPONSES,
+        },
     )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Deletes all failed sandboxes in a pool. With an optional parameter *force*, it forces
@@ -383,8 +410,11 @@ class PoolCleanupRequestFailedCreateView(APIView):
             for unit in all_pool_units
             if unit.allocation_request.stages.filter(failed=True).count()
         ]
-        sandbox_requests.create_cleanup_requests(pool_units, force)
-        return Response(status=status.HTTP_201_CREATED)
+        skipped_unit_ids = sandbox_requests.create_cleanup_requests(pool_units, force)
+        return Response(
+            serializers.PoolCleanupResultSerializer({'skipped_unit_ids': skipped_unit_ids}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 @extend_schema(
@@ -699,15 +729,18 @@ class SandboxCleanupRequestView(generics.RetrieveDestroyAPIView[Any], generics.C
             )
         ],
         responses={
-            201: serializers.CleanupRequestSerializer,
+            201: OpenApiResponse(description='Cleanup Request created'),
+            **POOL_RESPONSES,
         },
     )
     @override
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Create cleanup request."""
         unit = self.get_object()
-        force = request.GET.get('force', 'false') == 'true'
-        sandbox_requests.create_cleanup_requests([unit], force)
+        if request.GET.get('force', 'false') == 'true':
+            sandbox_requests.create_cleanup_request_force(unit, delete_pool=False)
+        else:
+            sandbox_requests.create_cleanup_request(unit)
         return Response(status=status.HTTP_201_CREATED)
 
     @override

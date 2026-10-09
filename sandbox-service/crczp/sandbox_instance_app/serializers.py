@@ -188,6 +188,16 @@ class PoolCleanupRequestSerializer(serializers.Serializer[Any]):
     reason = serializers.CharField(required=False)
 
 
+class PoolCleanupResultSerializer(serializers.Serializer[Any]):
+    """Result of cleaning up several allocation units of a pool."""
+
+    skipped_unit_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text='Units a forced cleanup skipped because they cannot be cleaned up yet: their '
+        'first stage is running, or their allocation is queued. Retry them later.',
+    )
+
+
 class PoolCleanupRequestFailedSerializer(serializers.Serializer[Any]):
     """Serializer for failed pool cleanup request data."""
 

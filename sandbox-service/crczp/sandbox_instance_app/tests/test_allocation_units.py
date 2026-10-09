@@ -242,8 +242,8 @@ class TestTraineeOwnUnit:
 
     def test_owner_requests_the_cleanup(self, mocker, own_unit, trainee):
         """The owner may tear down their sandbox."""
-        create_cleanup_requests = mocker.patch(
-            'crczp.sandbox_instance_app.views.sandbox_requests.create_cleanup_requests'
+        create_cleanup_request_force = mocker.patch(
+            'crczp.sandbox_instance_app.views.sandbox_requests.create_cleanup_request_force'
         )
 
         response = call(
@@ -251,7 +251,7 @@ class TestTraineeOwnUnit:
         )
 
         assert response.status_code == status.HTTP_201_CREATED
-        create_cleanup_requests.assert_called_once_with([own_unit], True)
+        create_cleanup_request_force.assert_called_once_with(own_unit, delete_pool=False)
 
     def test_owner_reads_the_cleanup(self, own_unit, trainee):
         """The owner may follow the cleanup; without one the answer is 404."""
@@ -261,14 +261,14 @@ class TestTraineeOwnUnit:
 
     def test_other_trainee_cannot_clean_up(self, mocker, own_unit, other_trainee):
         """Another trainee cannot tear down someone's sandbox."""
-        create_cleanup_requests = mocker.patch(
-            'crczp.sandbox_instance_app.views.sandbox_requests.create_cleanup_requests'
+        create_cleanup_request = mocker.patch(
+            'crczp.sandbox_instance_app.views.sandbox_requests.create_cleanup_request'
         )
 
         response = call(SandboxCleanupRequestView, 'post', other_trainee, unit_id=own_unit.id)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        create_cleanup_requests.assert_not_called()
+        create_cleanup_request.assert_not_called()
 
     def test_owner_cannot_delete_the_cleanup_request(self, own_unit, trainee):
         """Deleting cleanup requests stays with organizers."""
