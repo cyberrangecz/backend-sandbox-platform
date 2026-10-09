@@ -12,7 +12,7 @@ from rest_framework.reverse import reverse
 from rest_framework.test import APIRequestFactory
 
 from crczp.cloud_commons import HardwareUsage, exceptions
-from crczp.sandbox_common_lib.exceptions import ApiException, StackError
+from crczp.sandbox_common_lib.exceptions import ApiException, ForbiddenError, StackError
 from crczp.sandbox_common_lib.exceptions import ValidationError as ApiValidationError
 from crczp.sandbox_instance_app.lib import pools, sshconfig
 from crczp.sandbox_instance_app.models import Pool, Sandbox, SandboxAllocationUnit, SandboxLock
@@ -347,6 +347,32 @@ class TestGetUnlockedSandbox:
             pools.get_unlocked_sandbox(pool, created_by)
 
 
+class TestValidateTrainingAccessToken:
+    """Tests for checking a training access token against the pool lock."""
+
+    def test_token_of_the_locking_training_passes(self, pool, pool_lock, training_access_token):  # pylint: disable=unused-argument
+        """Test that the token the pool was locked with is accepted."""
+        pools.validate_training_access_token(pool, training_access_token)
+
+    def test_unlocked_pool_is_validation_error(self, pool, training_access_token):
+        """Test that a pool without a lock is rejected as a bad request."""
+        with pytest.raises(ApiValidationError, match='not locked'):
+            pools.validate_training_access_token(pool, training_access_token)
+
+    def test_lock_without_training_is_forbidden(self, pool, training_access_token):
+        """Test that a pool an organizer locked by hand admits no training token."""
+        pools.lock_pool(pool)
+
+        with pytest.raises(ForbiddenError, match='does not have a training'):
+            pools.validate_training_access_token(pool, training_access_token)
+
+    @pytest.mark.parametrize('token', ['token-5768', '', None])
+    def test_other_token_is_forbidden(self, pool, pool_lock, token):  # pylint: disable=unused-argument
+        """Test that any other token, or none, is rejected."""
+        with pytest.raises(ForbiddenError, match='not valid'):
+            pools.validate_training_access_token(pool, token)
+
+
 class TestPoolCleanupRequestUnlocked:
     """POST pools/{pool_id}/cleanup-unlocked."""
 
@@ -453,18 +479,28 @@ class TestPoolLock:
     ):
         """Test that an incorrect training access token returns 403."""
         request = self.factory.get(
-            f'/pools/{pool.id}/sandboxes/get-and-lock/{training_access_token}'
+            f'/pools/{pool.id}/sandboxes/get-and-lock/{self.wrong_training_access_token}'
         )
-        request.user = AnonymousUser()
 
-        view = SandboxGetAndLockView()
-        view.kwargs = {
-            'training_access_token': self.wrong_training_access_token,
-            'pool_id': pool.id,
-        }
-        response = view.get(request)
+        response = SandboxGetAndLockView.as_view()(
+            request, pool_id=pool.id, training_access_token=self.wrong_training_access_token
+        )
 
         assert response.status_code == 403
+        assert response.data == {'detail': 'Provided training access token is not valid.'}
+
+    def test_sandbox_get_and_lock_view_unlocked_pool(self, pool, sandbox, training_access_token):  # pylint: disable=unused-argument
+        """Test that a pool no training holds answers 400."""
+        request = self.factory.get(
+            f'/pools/{pool.id}/sandboxes/get-and-lock/{training_access_token}'
+        )
+
+        response = SandboxGetAndLockView.as_view()(
+            request, pool_id=pool.id, training_access_token=training_access_token
+        )
+
+        assert response.status_code == 400
+        assert response.data == {'detail': 'The pool is not locked.'}
 
     def test_sandbox_get_and_lock_view_correct_token_full_pool(  # pylint: disable=unused-argument,too-many-arguments,too-many-positional-arguments
         self, mocker, pool, pool_lock, sandbox, training_access_token
