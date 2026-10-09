@@ -203,6 +203,7 @@ class SandboxAllocationUnitSerializer(serializers.ModelSerializer[models.Sandbox
     pool_id = serializers.PrimaryKeyRelatedField(source='pool', read_only=True)
     created_by = serializers.SerializerMethodField()
     locked = serializers.SerializerMethodField()
+    sandbox_id = serializers.SerializerMethodField()
 
     class Meta:  # pylint: disable=too-few-public-methods
         """Meta options for SandboxAllocationUnitSerializer."""
@@ -214,7 +215,10 @@ class SandboxAllocationUnitSerializer(serializers.ModelSerializer[models.Sandbox
             'allocation_request',
             'cleanup_request',
             'created_by',
+            'created_by_sub',
+            'created_at',
             'locked',
+            'sandbox_id',
             'comment',
         )
         read_only_fields = (
@@ -223,7 +227,10 @@ class SandboxAllocationUnitSerializer(serializers.ModelSerializer[models.Sandbox
             'allocation_request',
             'cleanup_request',
             'created_by',
+            'created_by_sub',
+            'created_at',
             'locked',
+            'sandbox_id',
         )
 
     @override
@@ -246,6 +253,12 @@ class SandboxAllocationUnitSerializer(serializers.ModelSerializer[models.Sandbox
     def get_locked(obj: models.SandboxAllocationUnit) -> bool:
         """Return True if the sandbox allocation unit has a lock."""
         return hasattr(obj, 'sandbox') and hasattr(obj.sandbox, 'lock')
+
+    @extend_schema_field(field=serializers.CharField(allow_null=True))
+    @staticmethod
+    def get_sandbox_id(obj: models.SandboxAllocationUnit) -> str | None:
+        """Return the id of the unit's sandbox, or None until the sandbox is created."""
+        return obj.sandbox.id if hasattr(obj, 'sandbox') else None
 
 
 class SandboxAllocationUnitIdListSerializer(serializers.Serializer[Any]):
