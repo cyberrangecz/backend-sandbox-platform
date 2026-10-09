@@ -1,12 +1,27 @@
 """Tests for the sandbox allocation unit API views."""
 
+from typing import Any
+
 import pytest
+from django.contrib.auth import models as auth_models
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
-from crczp.sandbox_instance_app.models import SandboxAllocationUnit
-from crczp.sandbox_instance_app.tests.conftest import authenticate
-from crczp.sandbox_instance_app.views import SandboxAllocationUnitListCreateView
+from crczp.sandbox_instance_app.models import (
+    AllocationRequest,
+    Sandbox,
+    SandboxAllocationUnit,
+    SandboxLock,
+    StackAllocationStage,
+)
+from crczp.sandbox_instance_app.tests.conftest import authenticate, set_stage_failed
+from crczp.sandbox_instance_app.views import (
+    SandboxAllocationUnitByCreatorListView,
+    SandboxAllocationUnitDetailUpdateView,
+    SandboxAllocationUnitListCreateView,
+    SandboxAllocationUnitLockRetrieveCreateDestroyView,
+    SandboxCleanupRequestView,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -160,3 +175,229 @@ class TestTraineeAllocation:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert 'authenticated caller' in response.data['detail']
+
+
+def call(view: Any, method: str, user: Any, path: str = '/', data: Any = None, **kwargs: Any):
+    """Call the view as the user with an authenticated request."""
+    request = getattr(APIRequestFactory(), method)(path, data)
+    authenticate(request, user)
+    return view.as_view()(request, **kwargs)
+
+
+@pytest.fixture(name='own_unit')
+def fixture_own_unit(sandbox_finished, trainee):
+    """A unit the trainee allocated for themselves, with its built sandbox."""
+    unit = sandbox_finished.allocation_unit
+    unit.created_by = trainee
+    unit.created_by_sub = 'trainee-sub'
+    unit.save()
+    return unit
+
+
+@pytest.mark.usefixtures('rest_auth_enabled')
+class TestTraineeOwnUnit:
+    """A trainee may read, clean up and unlock the unit they allocated, and no other."""
+
+    def test_owner_reads_the_unit(self, own_unit, trainee):
+        """The owner gets the unit, with its sandbox id."""
+        response = call(SandboxAllocationUnitDetailUpdateView, 'get', trainee, unit_id=own_unit.id)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['sandbox_id'] == Sandbox.objects.get(allocation_unit=own_unit).id
+
+    def test_other_trainee_cannot_read_the_unit(self, own_unit, other_trainee):
+        """Another trainee of the same training gets nothing."""
+        response = call(
+            SandboxAllocationUnitDetailUpdateView, 'get', other_trainee, unit_id=own_unit.id
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_trainee_cannot_read_an_organizer_unit(self, sandbox, trainee):
+        """A unit an organizer built is not a trainee's, even in a locked pool."""
+        response = call(
+            SandboxAllocationUnitDetailUpdateView,
+            'get',
+            trainee,
+            unit_id=sandbox.allocation_unit.id,
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_organizer_reads_any_unit(self, own_unit, organizer):
+        """Organizers keep their model permissions."""
+        response = call(
+            SandboxAllocationUnitDetailUpdateView, 'get', organizer, unit_id=own_unit.id
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_owner_cannot_edit_the_unit(self, own_unit, trainee):
+        """Editing a unit stays with organizers."""
+        response = call(
+            SandboxAllocationUnitDetailUpdateView, 'patch', trainee, unit_id=own_unit.id
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_owner_requests_the_cleanup(self, mocker, own_unit, trainee):
+        """The owner may tear down their sandbox."""
+        create_cleanup_requests = mocker.patch(
+            'crczp.sandbox_instance_app.views.sandbox_requests.create_cleanup_requests'
+        )
+
+        response = call(
+            SandboxCleanupRequestView, 'post', trainee, '/?force=true', unit_id=own_unit.id
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        create_cleanup_requests.assert_called_once_with([own_unit], True)
+
+    def test_owner_reads_the_cleanup(self, own_unit, trainee):
+        """The owner may follow the cleanup; without one the answer is 404."""
+        response = call(SandboxCleanupRequestView, 'get', trainee, unit_id=own_unit.id)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_other_trainee_cannot_clean_up(self, mocker, own_unit, other_trainee):
+        """Another trainee cannot tear down someone's sandbox."""
+        create_cleanup_requests = mocker.patch(
+            'crczp.sandbox_instance_app.views.sandbox_requests.create_cleanup_requests'
+        )
+
+        response = call(SandboxCleanupRequestView, 'post', other_trainee, unit_id=own_unit.id)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        create_cleanup_requests.assert_not_called()
+
+    def test_owner_cannot_delete_the_cleanup_request(self, own_unit, trainee):
+        """Deleting cleanup requests stays with organizers."""
+        response = call(SandboxCleanupRequestView, 'delete', trainee, unit_id=own_unit.id)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_owner_unlocks_an_unlocked_sandbox(self, own_unit, trainee):
+        """Releasing a trainee's sandbox, which is never locked, succeeds."""
+        response = call(
+            SandboxAllocationUnitLockRetrieveCreateDestroyView,
+            'delete',
+            trainee,
+            unit_id=own_unit.id,
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_trainee_cannot_unlock_an_organizer_sandbox(self, sandbox_lock, trainee):
+        """A sandbox handed out by get-and-lock is released by organizers only."""
+        response = call(
+            SandboxAllocationUnitLockRetrieveCreateDestroyView,
+            'delete',
+            trainee,
+            unit_id=sandbox_lock.sandbox.allocation_unit.id,
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert SandboxLock.objects.filter(pk=sandbox_lock.pk).exists()
+
+    def test_organizer_unlocks_a_sandbox(self, sandbox_lock, organizer):
+        """Unlocking still removes the lock."""
+        response = call(
+            SandboxAllocationUnitLockRetrieveCreateDestroyView,
+            'delete',
+            organizer,
+            unit_id=sandbox_lock.sandbox.allocation_unit.id,
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not SandboxLock.objects.filter(pk=sandbox_lock.pk).exists()
+
+
+@pytest.mark.usefixtures('rest_auth_enabled')
+class TestByCreatorList:
+    """GET sandbox-allocation-units/by-creator."""
+
+    @staticmethod
+    def ids(response: Any) -> set[int]:
+        """The unit ids of a plain-list response."""
+        return {unit['id'] for unit in response.data}
+
+    def test_trainee_lists_their_own_units(self, pool, own_unit, trainee, other_trainee):
+        """Only the caller's units are listed, as a plain list."""
+        SandboxAllocationUnit.objects.create(
+            pool=pool, created_by=other_trainee, created_by_sub='other-trainee-sub'
+        )
+
+        response = call(
+            SandboxAllocationUnitByCreatorListView,
+            'get',
+            trainee,
+            data={'created_by_sub': 'trainee-sub'},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self.ids(response) == {own_unit.id}
+
+    @pytest.mark.parametrize('query', [{'created_by_sub': 'other-trainee-sub'}, {}])
+    def test_trainee_cannot_list_others(self, trainee, query):
+        """Listing another trainee's units, or omitting the sub, is refused."""
+        response = call(SandboxAllocationUnitByCreatorListView, 'get', trainee, data=query)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_same_sub_from_another_issuer_is_not_listed(self, pool, own_unit, trainee):
+        """A unit of another identity provider's user with the same sub is not the caller's."""
+        impostor = auth_models.User.objects.create(username='trainee-sub|https://other-issuer.test')
+        SandboxAllocationUnit.objects.create(
+            pool=pool, created_by=impostor, created_by_sub='trainee-sub'
+        )
+
+        response = call(
+            SandboxAllocationUnitByCreatorListView,
+            'get',
+            trainee,
+            data={'created_by_sub': 'trainee-sub'},
+        )
+
+        assert self.ids(response) == {own_unit.id}
+
+    def test_active_state_skips_failed_units(self, pool, own_unit, trainee):
+        """state=ACTIVE lists only units that hold or are building a sandbox."""
+        failed = SandboxAllocationUnit.objects.create(
+            pool=pool, created_by=trainee, created_by_sub='trainee-sub'
+        )
+        request = AllocationRequest.objects.create(allocation_unit=failed)
+        set_stage_failed(
+            StackAllocationStage.objects.create(
+                allocation_request=request, allocation_request_fk_many=request
+            )
+        )
+        query = {'created_by_sub': 'trainee-sub'}
+
+        everything = call(SandboxAllocationUnitByCreatorListView, 'get', trainee, data=query)
+        active = call(
+            SandboxAllocationUnitByCreatorListView,
+            'get',
+            trainee,
+            data={**query, 'state': 'ACTIVE'},
+        )
+
+        assert self.ids(everything) == {own_unit.id, failed.id}
+        assert self.ids(active) == {own_unit.id}
+
+    def test_organizer_lists_any_trainee(self, own_unit, organizer):
+        """Organizers may look up any trainee's units."""
+        response = call(
+            SandboxAllocationUnitByCreatorListView,
+            'get',
+            organizer,
+            data={'created_by_sub': 'trainee-sub'},
+        )
+
+        assert self.ids(response) == {own_unit.id}
+
+    @pytest.mark.parametrize('query', [{}, {'created_by_sub': 'x', 'state': 'FINISHED'}])
+    def test_invalid_query_is_bad_request(self, organizer, query):
+        """A missing sub or an unknown state is a client error."""
+        response = call(SandboxAllocationUnitByCreatorListView, 'get', organizer, data=query)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

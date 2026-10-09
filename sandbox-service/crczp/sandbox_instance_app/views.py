@@ -27,7 +27,7 @@ from crczp.sandbox_common_lib.utils import get_object_or_404
 from crczp.sandbox_definition_app.lib import definitions
 from crczp.sandbox_definition_app.serializers import DefinitionSerializer
 from crczp.sandbox_instance_app import serializers
-from crczp.sandbox_instance_app.lib import nodes, pools, sandboxes, stage_handlers
+from crczp.sandbox_instance_app.lib import nodes, pools, sandboxes, stage_handlers, unit_filters
 from crczp.sandbox_instance_app.lib import requests as sandbox_requests
 from crczp.sandbox_instance_app.models import (
     AllocationRequest,
@@ -42,8 +42,10 @@ from crczp.sandbox_instance_app.models import (
 from crczp.sandbox_uag.permissions import (
     TRAINING_ACCESS_TOKEN_HEADER,
     AdminPermission,
+    AllocationUnitOwnerPermission,
     DefaultModelPermission,
     OrganizerPermission,
+    OwnCreatorSubQueryPermission,
     TrainingAccessTokenPermission,
     get_caller_sub,
 )
@@ -525,11 +527,13 @@ class SandboxAllocationUnitListCreateView(generics.ListCreateAPIView[Any]):
     },
 )
 class SandboxAllocationUnitDetailUpdateView(generics.RetrieveAPIView[Any]):
-    """get: Retrieve a Sandbox Allocation Unit."""
+    """get: Retrieve a Sandbox Allocation Unit. A trainee may retrieve a unit they allocated."""
 
     serializer_class = serializers.SandboxAllocationUnitSerializer
     queryset = SandboxAllocationUnit.objects.all()
     lookup_url_kwarg = 'unit_id'
+    permission_classes = [DefaultModelPermission | AllocationUnitOwnerPermission]
+    trainee_self_service_methods = frozenset({'GET'})
 
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Partially update a sandbox allocation unit."""
@@ -539,6 +543,45 @@ class SandboxAllocationUnitDetailUpdateView(generics.RetrieveAPIView[Any]):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(
+    parameters=[serializers.AllocationUnitByCreatorQuerySerializer],
+    responses={
+        200: OpenApiResponse(
+            response=serializers.SandboxAllocationUnitSerializer(many=True),
+            description='Allocation units the trainee allocated for themselves',
+        ),
+        **POOL_RESPONSES,
+    },
+)
+class SandboxAllocationUnitByCreatorListView(generics.ListAPIView[Any]):
+    """
+    get: List the allocation units a trainee allocated for themselves, in all pools.
+    A trainee may list only their own; the list is not paginated.
+    """
+
+    serializer_class = serializers.SandboxAllocationUnitSerializer
+    queryset = SandboxAllocationUnit.objects.all()
+    pagination_class = None
+    permission_classes = [DefaultModelPermission | OwnCreatorSubQueryPermission]
+    trainee_self_service_methods = frozenset({'GET'})
+
+    @override
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = serializers.AllocationUnitByCreatorQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        created_by_sub = query.validated_data['created_by_sub']
+        units = self.get_queryset().filter(created_by_sub=created_by_sub)
+        if created_by_sub == get_caller_sub(request):
+            # The same sub from another identity provider is another person.
+            units = units.filter(created_by=request.user)
+        if query.validated_data.get('state') == 'ACTIVE':
+            units = units.filter(unit_filters.active())
+        units = units.select_related(
+            'pool', 'created_by', 'allocation_request', 'cleanup_request', 'sandbox__lock'
+        ).order_by('id')
+        return Response(self.get_serializer(units, many=True).data)
 
 
 @extend_schema(
@@ -620,11 +663,16 @@ class AllocationRequestCancelView(generics.GenericAPIView[Any]):
     },
 )
 class SandboxCleanupRequestView(generics.RetrieveDestroyAPIView[Any], generics.CreateAPIView[Any]):  # pylint: disable=too-many-ancestors
-    """API view to get, create, or delete a sandbox cleanup request."""
+    """API view to get, create, or delete a sandbox cleanup request.
+
+    A trainee may get and create the cleanup request of a unit they allocated themselves.
+    """
 
     queryset = SandboxAllocationUnit.objects.all()
     lookup_url_kwarg = 'unit_id'
     serializer_class = serializers.CleanupRequestSerializer
+    permission_classes = [DefaultModelPermission | AllocationUnitOwnerPermission]
+    trainee_self_service_methods = frozenset({'GET', 'POST'})
 
     @override
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -905,11 +953,14 @@ class SandboxAllocationUnitLockRetrieveCreateDestroyView(
 ):
     """
     post: Create locks for given sandbox allocation unit if its sandbox exists.
-    delete: Destroy locks for given sandbox allocation unit if its sandbox exists."""
+    delete: Destroy locks for given sandbox allocation unit if its sandbox exists.
+        A trainee may unlock a unit they allocated."""
 
     queryset = SandboxAllocationUnit.objects.all()
     lookup_url_kwarg = 'unit_id'
     serializer_class = serializers.SandboxLockSerializer
+    permission_classes = [DefaultModelPermission | AllocationUnitOwnerPermission]
+    trainee_self_service_methods = frozenset({'DELETE'})
 
     @override
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -934,14 +985,13 @@ class SandboxAllocationUnitLockRetrieveCreateDestroyView(
 
     @override
     def delete(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Delete lock of given sandbox allocation unit if it has sandbox."""
+        """Delete lock of given sandbox allocation unit if it has sandbox.
+        Unlocking a sandbox that is not locked succeeds too: a sandbox a trainee allocated
+        for themselves is never locked, and its training releases it the same way."""
         allocation_unit = self.get_object()
         if not hasattr(allocation_unit, 'sandbox'):
             raise Http404(f'Sandbox allocation unit {allocation_unit.id} has no sandbox.')
-        sandbox = allocation_unit.sandbox
-        if not hasattr(sandbox, 'lock'):
-            raise Http404('No SandboxLock matches the given query')
-        SandboxLock.objects.filter(sandbox=sandbox.id).delete()
+        SandboxLock.objects.filter(sandbox=allocation_unit.sandbox.id).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

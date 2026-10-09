@@ -46,6 +46,11 @@ urlpatterns = [
     ),
     # Sandbox allocation units
     path(
+        'sandbox-allocation-units/by-creator',
+        views.SandboxAllocationUnitByCreatorListView.as_view(),
+        name='sandbox-allocation-units-by-creator',
+    ),
+    path(
         'sandbox-allocation-units/<int:unit_id>',
         views.SandboxAllocationUnitDetailUpdateView.as_view(),
         name='sandbox-allocation-unit-detail',

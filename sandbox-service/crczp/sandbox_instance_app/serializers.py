@@ -267,6 +267,20 @@ class SandboxAllocationUnitIdListSerializer(serializers.Serializer[Any]):
     unit_ids = serializers.ListField(child=serializers.IntegerField())
 
 
+class AllocationUnitByCreatorQuerySerializer(serializers.Serializer[Any]):
+    """Query parameters of the listing of allocation units by creator."""
+
+    created_by_sub = serializers.CharField(
+        max_length=255, help_text='OIDC sub of the trainee who allocated the units.'
+    )
+    state = serializers.ChoiceField(
+        choices=['ACTIVE'],
+        required=False,
+        help_text='ACTIVE lists only units that hold or are building a sandbox: their '
+        'allocation has not failed, and they are not cleaned up or their cleanup is running.',
+    )
+
+
 class TerraformAllocationStageSerializer(serializers.ModelSerializer[models.StackAllocationStage]):
     """Serializer for StackAllocationStage model."""
 
