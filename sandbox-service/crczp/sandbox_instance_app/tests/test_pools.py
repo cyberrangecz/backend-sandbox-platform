@@ -15,8 +15,12 @@ from crczp.cloud_commons import HardwareUsage, exceptions
 from crczp.sandbox_common_lib.exceptions import ApiException, StackError
 from crczp.sandbox_common_lib.exceptions import ValidationError as ApiValidationError
 from crczp.sandbox_instance_app.lib import pools, sshconfig
-from crczp.sandbox_instance_app.models import Pool, Sandbox, SandboxAllocationUnit
-from crczp.sandbox_instance_app.views import PoolListCreateView, SandboxGetAndLockView
+from crczp.sandbox_instance_app.models import Pool, Sandbox, SandboxAllocationUnit, SandboxLock
+from crczp.sandbox_instance_app.views import (
+    PoolCleanupRequestUnlockedCreateView,
+    PoolListCreateView,
+    SandboxGetAndLockView,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -312,6 +316,59 @@ class TestGetUnlockedSandbox:
         pool = pools.get_pool(FULL_POOL_ID)
         sb = pools.get_unlocked_sandbox(pool, created_by)
         assert sb is None
+
+    def test_locks_the_sandbox_for_the_user(self, pool, sandbox, created_by):
+        """Test that the free sandbox is locked by the requesting user."""
+        sb = pools.get_unlocked_sandbox(pool, created_by)
+
+        assert sb is not None
+        assert sb.allocation_unit.pk == sandbox.allocation_unit.pk
+        assert SandboxLock.objects.get(sandbox=sandbox).created_by == created_by
+
+    def test_skips_a_sandbox_a_trainee_allocated(self, pool, sandbox):
+        """Test that a trainee's own sandbox is never handed to someone else."""
+        sandbox.allocation_unit.created_by_sub = 'trainee-sub'
+        sandbox.allocation_unit.save()
+
+        assert pools.get_unlocked_sandbox(pool, None) is None
+        assert not SandboxLock.objects.filter(sandbox=sandbox).exists()
+
+    def test_skips_a_locked_sandbox(self, pool, sandbox_lock):
+        """Test that an already locked sandbox is not handed out again."""
+        assert pools.get_unlocked_sandbox(pool, None) is None
+        assert SandboxLock.objects.get(sandbox=sandbox_lock.sandbox) == sandbox_lock
+
+    def test_user_holding_a_sandbox_gets_no_second_one(self, pool, sandbox, created_by):
+        """Test that a user who already holds a sandbox of the pool is refused."""
+        SandboxLock.objects.create(sandbox=sandbox, created_by=created_by)
+        SandboxAllocationUnit.objects.create(pool=pool, created_by=created_by)
+
+        with pytest.raises(exceptions.CrczpException, match='already have a sandbox'):
+            pools.get_unlocked_sandbox(pool, created_by)
+
+
+class TestPoolCleanupRequestUnlocked:
+    """POST pools/{pool_id}/cleanup-unlocked."""
+
+    def test_skips_sandboxes_trainees_allocated(self, mocker, pool, sandbox):
+        """Test that unlocked trainee sandboxes are in use and are not cleaned up."""
+        trainee_unit = SandboxAllocationUnit.objects.create(pool=pool, created_by_sub='trainee')
+        Sandbox.objects.create(
+            id='trainee-sandbox',
+            allocation_unit=trainee_unit,
+            private_user_key='private-key',
+            public_user_key='public-key',
+            ready=True,
+        )
+        create_cleanup_requests = mocker.patch(
+            'crczp.sandbox_instance_app.views.sandbox_requests.create_cleanup_requests'
+        )
+        request = APIRequestFactory().post('/')
+
+        response = PoolCleanupRequestUnlockedCreateView.as_view()(request, pool_id=pool.id)
+
+        assert response.status_code == 201
+        create_cleanup_requests.assert_called_once_with([sandbox.allocation_unit], False)
 
 
 class TestGetManagementSSHAccess:
