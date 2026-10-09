@@ -2,6 +2,8 @@
 
 import enum
 from collections.abc import Iterable
+from dataclasses import dataclass, field
+from datetime import datetime
 from functools import partial
 from typing import Any
 
@@ -291,6 +293,53 @@ def _force_remove_unit(pool_id: int, unit_id: int, kind: StuckUnits) -> bool:
         sandbox_id=sandbox.pk if sandbox is not None else None,
     )
     return True
+
+
+@dataclass
+class TraineeCleanupReport:
+    """What a run of the trainee sandbox cleanup did, as allocation unit ids."""
+
+    cleaned: list[int] = field(default_factory=list)
+    # Their earlier cleanup had failed; it was started again.
+    retried: list[int] = field(default_factory=list)
+    # Not cleanable yet, e.g. their first stage is running; the next run tries again.
+    skipped: list[int] = field(default_factory=list)
+    failed: list[int] = field(default_factory=list)
+
+
+def cleanup_expired_trainee_units(
+    older_than: datetime, *, dry_run: bool = False
+) -> TraineeCleanupReport:
+    """Clean up the sandboxes trainees allocated for themselves before older_than.
+
+    Units whose cleanup is running are left alone. A unit whose cleanup failed is cleaned
+    up again: a successful cleanup removes its unit, so a unit with a finished cleanup has a
+    failed one. With dry_run, only report what would be done.
+    """
+    report = TraineeCleanupReport()
+    units = (
+        SandboxAllocationUnit.objects
+        .filter(created_by_sub__isnull=False, created_at__lt=older_than)
+        .exclude(unit_filters.cleanup_unfinished())
+        .select_related('pool', 'allocation_request', 'cleanup_request')
+        .order_by('id')
+    )
+    for unit in units:
+        done = report.retried if hasattr(unit, 'cleanup_request') else report.cleaned
+        if dry_run:
+            done.append(unit.id)
+            continue
+        try:
+            create_cleanup_request_force(unit, delete_pool=False)
+        except CleanupNotAllowedError:
+            report.skipped.append(unit.id)
+        # One unit failing, e.g. on an unreachable Redis, must not stop the run.
+        except Exception:  # pylint: disable=broad-exception-caught
+            LOG.exception('trainee_sandbox_cleanup_failed', unit_id=unit.id, pool_id=unit.pool.id)
+            report.failed.append(unit.id)
+        else:
+            done.append(unit.id)
+    return report
 
 
 def get_allocation_request_stages_state(request: AllocationRequest) -> list[str]:

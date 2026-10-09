@@ -33,6 +33,7 @@ ANSIBLE_DOCKER_IMAGE = 'ghcr.io/cyberrangecz/crczp-ansible-runner:1.2.0'
 ANSIBLE_DOCKER_NETWORK = 'bridge'
 ANSWERS_STORAGE_API = 'http://answers-storage:8087/answers-storage/api/v1'
 SSL_CA_CERTIFICATE_VERIFY = '/etc/ssl/certs'
+TRAINEE_SANDBOX_CLEANUP_MAX_AGE_HOURS = 24
 DATABASE_ENGINE = 'django.db.backends.postgresql'
 DATABASE_HOST = 'localhost'
 DATABASE_NAME = 'postgres'
@@ -95,6 +96,22 @@ class AnsibleRunnerSettings(Object):
     namespace = Attribute(type=str, default='crczp')
     volumes_path = Attribute(type=str, default=VOLUMES_PATH)
     persistent_volume_claim_name = Attribute(type=str, default=PERSISTENT_VOLUME_CLAIM_NAME)
+
+
+class TraineeSandboxCleanupConfiguration(Object):
+    """Cleanup of the sandboxes trainees allocated for themselves.
+
+    The cleanup_trainee_sandboxes management command does the cleanup; the deployment runs
+    it periodically, e.g. as a Kubernetes CronJob.
+    """
+
+    enabled = Attribute(type=bool, default=False)
+    # How long a trainee keeps their sandbox before the cleanup removes it.
+    max_age_hours = Attribute(
+        type=int,
+        default=TRAINEE_SANDBOX_CLEANUP_MAX_AGE_HOURS,
+        validator=crczp_config_validation.validate_trainee_cleanup_max_age_hours,
+    )
 
 
 class Database(Object):
@@ -343,6 +360,10 @@ class CrczpConfiguration(Object):
     sender_email_password = Attribute(type=str, default=None)
 
     netbird = Attribute(type=NetbirdConfiguration, default=None)
+
+    trainee_sandbox_cleanup = Attribute(
+        type=TraineeSandboxCleanupConfiguration, default=TraineeSandboxCleanupConfiguration()
+    )
 
     def __init__(self, **kwargs: Any) -> None:
         for key, val in kwargs.items():
