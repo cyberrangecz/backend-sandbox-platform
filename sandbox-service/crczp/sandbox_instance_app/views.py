@@ -9,6 +9,7 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.db.models import QuerySet
 from django.http import Http404, HttpResponse
+from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiParameter, OpenApiRequest, OpenApiResponse, extend_schema
 from rest_framework import generics, status
 from rest_framework.request import Request
@@ -38,7 +39,14 @@ from crczp.sandbox_instance_app.models import (
     SandboxLock,
     SandboxNetbirdAccess,
 )
-from crczp.sandbox_uag.permissions import AdminPermission, OrganizerPermission
+from crczp.sandbox_uag.permissions import (
+    TRAINING_ACCESS_TOKEN_HEADER,
+    AdminPermission,
+    DefaultModelPermission,
+    OrganizerPermission,
+    TrainingAccessTokenPermission,
+    get_caller_sub,
+)
 
 LOG = structlog.get_logger()
 
@@ -51,6 +59,18 @@ COMMON_RESPONSE_PATTERNS = {
 
 POOL_RESPONSES = {**COMMON_RESPONSE_PATTERNS, 400: OpenApiResponse(description='Bad Request')}
 SANDBOX_RESPONSES = {**COMMON_RESPONSE_PATTERNS}
+
+
+class GetOnlyPaginationSchema(AutoSchema):
+    """Schema of a list-create view whose POST answers a plain list, not a page.
+
+    drf-spectacular wraps every list response of a view with a pagination_class in the page
+    envelope, whatever the method.
+    """
+
+    @override
+    def _get_paginator(self) -> Any:
+        return super()._get_paginator() if self.method == 'GET' else None
 
 
 @extend_schema(
@@ -383,6 +403,9 @@ class SandboxAllocationUnitListCreateView(generics.ListCreateAPIView[Any]):
     # The pool-detail frontend reuses one pagination object for this list and for the pool's
     # sandbox list, which it sorts by 'allocation_unit_id'.
     sort_field_mapping = {'allocation_unit_id': 'id'}
+    permission_classes = [DefaultModelPermission | TrainingAccessTokenPermission]
+    trainee_self_service_methods = frozenset({'POST'})
+    schema = GetOnlyPaginationSchema()
 
     @override
     def get_queryset(self) -> QuerySet[Any, Any]:
@@ -396,7 +419,16 @@ class SandboxAllocationUnitListCreateView(generics.ListCreateAPIView[Any]):
                 location=OpenApiParameter.QUERY,
                 description='Sandbox count parameter',
                 required=False,
-            )
+            ),
+            OpenApiParameter(
+                name=TRAINING_ACCESS_TOKEN_HEADER,
+                type=str,
+                location=OpenApiParameter.HEADER,
+                description='Access token of the training that holds the pool. With it, the '
+                'caller allocates one sandbox for themselves, which needs no organizer role; '
+                'count must then be 1 or left out.',
+                required=False,
+            ),
         ],
         responses={
             status.HTTP_201_CREATED: OpenApiResponse(
@@ -404,6 +436,15 @@ class SandboxAllocationUnitListCreateView(generics.ListCreateAPIView[Any]):
                 description='Created Sandbox Allocation Units',
             ),
             **POOL_RESPONSES,
+            status.HTTP_403_FORBIDDEN: OpenApiResponse(
+                response=utils.ErrorSerilizer,
+                description='Not allowed, or the training access token is not the one of the '
+                'training holding the pool.',
+            ),
+            status.HTTP_409_CONFLICT: OpenApiResponse(
+                response=utils.ErrorSerilizer,
+                description='The caller already has an active sandbox in the pool.',
+            ),
         },
     )
     @override
@@ -413,6 +454,10 @@ class SandboxAllocationUnitListCreateView(generics.ListCreateAPIView[Any]):
         If count is not specified, builds *max_size - current size*.
         Query Parameters:
         - *count:* How many sandboxes to build. Optional (defaults to max_size - current size).
+        Headers:
+        - *X-Training-Access-Token:* Allocate one sandbox for the caller, e.g. a trainee of a
+          training without pre-allocated sandboxes. The token must be the one of the training
+          that holds the pool, and the caller may have one active sandbox in the pool.
         """
         pool = pools.get_pool(kwargs['pool_id'])
         count_param = request.GET.get('count')
@@ -426,15 +471,36 @@ class SandboxAllocationUnitListCreateView(generics.ListCreateAPIView[Any]):
                 ) from None
 
         created_by = request.user if isinstance(request.user, User) else None
-        units = pools.create_sandboxes_in_pool(pool, created_by, count=count)
-        serializer = self.serializer_class(units, many=True)
-        # DRF's paginate_queryset works on any sized sequence (already-serialized data
-        # included); only the stubs narrow the parameter to QuerySet.
-        page = self.paginate_queryset(serializer.data)  # ty: ignore[invalid-argument-type]
-        if page is not None:
-            return self.get_paginated_response(page)
+        training_access_token = request.headers.get(TRAINING_ACCESS_TOKEN_HEADER)
+        if training_access_token is None:
+            units = pools.create_sandboxes_in_pool(pool, created_by, count=count)
+        else:
+            units = self._allocate_for_caller(request, pool, count, training_access_token)
+        return Response(
+            self.serializer_class(units, many=True).data, status=status.HTTP_201_CREATED
+        )
 
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    @staticmethod
+    def _allocate_for_caller(
+        request: Request, pool: Pool, count: int | None, training_access_token: str
+    ) -> list[SandboxAllocationUnit]:
+        """Allocate one sandbox owned by the caller in a pool their training holds."""
+        if count not in (None, 1):
+            raise exceptions.ValidationError(
+                'Allocating a sandbox for yourself builds exactly one; omit count or set it to 1.'
+            )
+        created_by_sub = get_caller_sub(request)
+        if created_by_sub is None:
+            raise exceptions.ValidationError(
+                'Allocating a sandbox for yourself needs an authenticated caller.'
+            )
+        pools.validate_training_access_token(pool, training_access_token)
+        assert isinstance(request.user, User)  # an authenticated caller has a sub
+        units = pools.create_sandboxes_in_pool(
+            pool, request.user, count=1, created_by_sub=created_by_sub
+        )
+        LOG.info('trainee_allocation_unit_created', pool_id=pool.id, unit_id=units[0].id)
+        return units
 
 
 @extend_schema(

@@ -41,14 +41,19 @@ def restart_allocation_stages(unit: SandboxAllocationUnit) -> SandboxAllocationU
 
 
 def create_allocations_requests(
-    pool: Pool, count: int, created_by: User | None
+    pool: Pool, count: int, created_by: User | None, *, created_by_sub: str | None = None
 ) -> list[SandboxAllocationUnit]:
-    """Batch version of create_allocation_request. Create count Sandbox Requests."""
+    """Batch version of create_allocation_request. Create count Sandbox Requests.
+
+    created_by_sub is the OIDC sub of a trainee allocating a sandbox for themselves.
+    """
 
     with transaction.atomic():
         units = []
         for _ in range(count):
-            unit = SandboxAllocationUnit.objects.create(pool=pool, created_by=created_by)
+            unit = SandboxAllocationUnit.objects.create(
+                pool=pool, created_by=created_by, created_by_sub=created_by_sub
+            )
             # Create the AllocationRequest row synchronously, in the request thread,
             # so the allocation-units listing never returns a freshly created unit
             # with allocation_request=null (the frontend renders that null as
