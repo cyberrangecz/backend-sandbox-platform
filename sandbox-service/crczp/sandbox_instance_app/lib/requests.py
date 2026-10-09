@@ -11,12 +11,14 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 
 from crczp.sandbox_common_lib import exceptions
-from crczp.sandbox_instance_app.lib import netbird, request_handlers, sandboxes
+from crczp.sandbox_instance_app.lib import netbird, request_handlers, sandboxes, unit_filters
 from crczp.sandbox_instance_app.models import (
     AllocationRequest,
     CleanupRequest,
     Pool,
+    Sandbox,
     SandboxAllocationUnit,
+    SandboxLock,
 )
 
 LOG = structlog.get_logger()
@@ -204,6 +206,91 @@ def delete_cleanup_request(request: CleanupRequest) -> None:
             'The cleanup request is not finished. You need to cancel it first.'
         )
     request.delete()
+
+
+class StuckUnits(enum.Enum):
+    """Kinds of allocation units the pool maintenance actions remove."""
+
+    # Allocation not started yet; nothing exists in the cloud.
+    QUEUED = 'queued'
+    # First (stack) stage running, e.g. hung; its cloud resources stay behind.
+    FIRST_STAGE_RUNNING = 'first_stage_running'
+    # Cleanup not finished, e.g. hung; resources it did not remove stay behind.
+    CLEANUP_UNFINISHED = 'cleanup_unfinished'
+
+    def unit_filter(self) -> Any:
+        """The database filter selecting units of this kind."""
+        match self:
+            case StuckUnits.QUEUED:
+                return unit_filters.allocation_queued()
+            case StuckUnits.FIRST_STAGE_RUNNING:
+                return unit_filters.first_stage_running()
+            case StuckUnits.CLEANUP_UNFINISHED:
+                return unit_filters.cleanup_unfinished()
+
+
+def force_remove_units(pool: Pool, kind: StuckUnits) -> int:
+    """Cancel the requests of the pool's units of the given kind and remove the units.
+
+    Only the database records go, and the sandboxes' NetBird resources, whose ids live only
+    there. Cloud resources the units already have are not touched and must be removed by
+    hand. Each unit is checked again under its row lock, so one that has moved on since is
+    left alone.
+
+    :return: The number of removed units.
+    """
+    unit_ids = SandboxAllocationUnit.objects.filter(kind.unit_filter(), pool=pool).values_list(
+        'id', flat=True
+    )
+    return sum(_force_remove_unit(pool.id, unit_id, kind) for unit_id in list(unit_ids))
+
+
+def _force_remove_unit(pool_id: int, unit_id: int, kind: StuckUnits) -> bool:
+    """Cancel the unit's request and remove the unit; return whether it was removed."""
+    with transaction.atomic():
+        unit = (
+            SandboxAllocationUnit.objects
+            .select_for_update()
+            .filter(kind.unit_filter(), pk=unit_id)
+            .first()
+        )
+        if unit is None:
+            return False
+        try:
+            if kind is StuckUnits.CLEANUP_UNFINISHED:
+                cancel_cleanup_request(unit.cleanup_request)
+            elif hasattr(unit, 'allocation_request'):
+                cancel_allocation_request(unit.allocation_request)
+        except (exceptions.ValidationError, ObjectDoesNotExist):
+            pass  # Already finished, or its stages do not exist (yet).
+        try:
+            sandbox = unit.sandbox
+        except ObjectDoesNotExist:
+            sandbox = None
+
+    if sandbox is not None:
+        # Talks to NetBird, so it runs outside any transaction.
+        netbird.destroy_netbird_for_sandbox(sandbox)
+
+    with transaction.atomic():
+        pool = Pool.objects.select_for_update().get(pk=pool_id)
+        if sandbox is not None:
+            sandboxes.clear_cache(sandbox)
+            SandboxLock.objects.filter(sandbox=sandbox).delete()
+            Sandbox.objects.filter(pk=sandbox.pk).delete()
+        if not SandboxAllocationUnit.objects.filter(pk=unit_id).exists():
+            return False
+        SandboxAllocationUnit.objects.filter(pk=unit_id).delete()
+        pool.size = max(pool.size - 1, 0)
+        pool.save()
+    LOG.warning(
+        'allocation_unit_force_removed',
+        unit_id=unit_id,
+        pool_id=pool_id,
+        kind=kind.value,
+        sandbox_id=sandbox.pk if sandbox is not None else None,
+    )
+    return True
 
 
 def get_allocation_request_stages_state(request: AllocationRequest) -> list[str]:

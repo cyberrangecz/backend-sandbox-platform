@@ -10,7 +10,12 @@ from typing import Any
 
 from django.db.models import Exists, OuterRef, Q, QuerySet
 
-from crczp.sandbox_instance_app.models import AllocationStage, CleanupRequest, CleanupStage
+from crczp.sandbox_instance_app.models import (
+    AllocationStage,
+    CleanupRequest,
+    CleanupStage,
+    StackAllocationStage,
+)
 
 
 def _allocation_stages() -> QuerySet[AllocationStage, Any]:
@@ -49,3 +54,21 @@ def active() -> Q:
     still running. A unit whose cleanup failed is not active.
     """
     return ~allocation_failed() & (~has_cleanup() | cleanup_unfinished())
+
+
+def allocation_queued() -> Q:
+    """No allocation stage of the unit has started, and the unit is not being cleaned up.
+
+    Includes a unit whose allocation job has not created the stages yet. A cancelled stage is
+    finished even though it never started, so a cancelled allocation is not queued.
+    """
+    started_or_done = _allocation_stages().filter(Q(start__isnull=False) | Q(finished=True))
+    return ~Exists(started_or_done) & ~has_cleanup()
+
+
+def first_stage_running() -> Q:
+    """The unit's first (stack) stage has started and not finished, and no cleanup exists."""
+    running_stack_stage = StackAllocationStage.objects.filter(
+        allocation_request__allocation_unit=OuterRef('pk'), start__isnull=False, finished=False
+    )
+    return Exists(running_stack_stage) & ~has_cleanup()
