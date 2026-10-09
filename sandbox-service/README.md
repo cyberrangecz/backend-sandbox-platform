@@ -3,6 +3,7 @@
 - [Content](#content)
 - [Sandbox Service](#sandbox-service)
   - [Project Modules](#project-modules)
+  - [Trainee Sandboxes and Pool Maintenance](#trainee-sandboxes-and-pool-maintenance)
   - [Tests](#tests)
   - [Wiki](#wiki)
   - [Deployment](#deployment)
@@ -31,6 +32,21 @@ This Django project is organized as one project-wide settings module, four self-
 - __Sandbox Cloud App__ which exposes OpenStack project quota/image/limit information
 - __Sandbox Service Project__ with the Django project settings, root URL configuration, and WSGI entrypoint
 
+## Trainee Sandboxes and Pool Maintenance
+Trainings that do not pre-allocate a pool can let each trainee allocate a sandbox for themselves. This needs `authenticated_rest_api: true`, because the sandbox belongs to the authenticated caller:
+
+* `POST /pools/{pool_id}/sandbox-allocation-units` with the header `X-Training-Access-Token: <access token of the training holding the pool>` builds one sandbox for the caller (`count` must be 1 or left out). A caller may hold one active sandbox per pool; another request answers 409.
+* The owner may `GET` the unit (`/sandbox-allocation-units/{id}`), `GET` and `POST` its `cleanup-request`, `DELETE` its `lock`, and list their units with `GET /sandbox-allocation-units/by-creator?created_by_sub=<own sub>`, adding `&state=ACTIVE` for the ones that hold or are building a sandbox. Everything else still needs the organizer's model permissions.
+* `get-and-lock` and "delete unlocked" (`cleanup-unlocked`) leave trainee-owned sandboxes alone.
+* `python manage.py cleanup_trainee_sandboxes` cleans up trainee sandboxes older than `trainee_sandbox_cleanup.max_age_hours` (24 by default). It does nothing unless `trainee_sandbox_cleanup.enabled` is set, and runs only when the deployment schedules it (see [Deployment](#deployment)).
+
+When a pool's units get stuck, three actions remove them:
+
+* `POST /pools/{pool_id}/cancel-queued` (organizer or admin) cancels the allocations that have not started yet and removes their units.
+* `POST /pools/{pool_id}/force-cancel-allocation` and `POST /pools/{pool_id}/force-cleanup` (admin only) cancel allocations whose first stage hangs, or cleanups that hang, and remove the units from the database. What those units already have in the cloud stays there and must be removed by hand.
+
+Forced pool cleanups skip the units that cannot be cleaned up yet and answer with their ids (`skipped_unit_ids`).
+
 ## Tests
 
 | File | Type | Covers |
@@ -39,6 +55,8 @@ This Django project is organized as one project-wide settings module, four self-
 | `sandbox_common_lib/tests/test_crczp_config.py` | Unit | CRCZP configuration parsing |
 | `sandbox_common_lib/tests/test_crczp_config_validation.py` | Unit | Configuration attribute validation |
 | `sandbox_common_lib/tests/test_netbird_client.py` | Unit | NetBird management API client |
+| `sandbox_common_lib/tests/test_pagination.py` | Unit | Sorting of paginated lists |
+| `sandbox_common_lib/tests/test_exc_handler.py` | Unit | Status codes of API errors |
 | `sandbox_definition_app/tests/test_definitions.py` | Unit | Create/load/get definitions, topology validation |
 | `sandbox_definition_app/tests/test_definition_providers.py` | Unit | GitLab/GitHub provider URL parsing, ref fetching |
 | `sandbox_definition_app/tests/test_definition_providers.py` (`TestGitIntegration`) | **Integration** | Live Git operations |
@@ -54,6 +72,12 @@ This Django project is organized as one project-wide settings module, four self-
 | `sandbox_instance_app/tests/test_sshconfig.py` | Unit | SSH config generation |
 | `sandbox_instance_app/tests/test_flavor_mapping.py` | Unit | Flavor mapping |
 | `sandbox_instance_app/tests/test_netbird.py` | Unit | NetBird provisioning, teardown, sandbox VPN API view |
+| `sandbox_instance_app/tests/test_jump_proxy_cleanup.py` | Unit | SSH key removal on the jump proxy |
+| `sandbox_instance_app/tests/test_allocation_units.py` | Unit | Allocation unit API views, trainee self-allocation and access |
+| `sandbox_instance_app/tests/test_permissions.py` | Unit | Trainee self-service permissions |
+| `sandbox_instance_app/tests/test_unit_filters.py` | Unit | Allocation unit state filters |
+| `sandbox_instance_app/tests/test_pool_maintenance.py` | Unit | Removing stuck allocation units |
+| `sandbox_instance_app/tests/test_trainee_cleanup.py` | Unit | Cleanup of trainee sandboxes and its command |
 | `sandbox_ansible_app/tests/test_ansible.py` | Unit | Ansible execution |
 | `sandbox_ansible_app/tests/test_inventory.py` | Unit | Ansible inventory building |
 | `sandbox_ansible_app/tests/test_stages.py` | Unit | Ansible stage handling |
@@ -75,3 +99,5 @@ CI/CD runs via GitHub Actions (`.github/workflows/github-actions.yml`):
 * `.github/workflows/security-schedule.yml` rescans `master` twice a week (Monday and Thursday): dependencies, the latest released image, and the full git history (TruffleHog). It opens an issue for each failing scan.
 
 At container startup (`bin/run-sandbox-service.sh`), the service applies database migrations, creates the cache table, creates/refreshes a Django admin account from the `DJANGO_ADMIN_USER`, `DJANGO_ADMIN_EMAIL`, and `DJANGO_ADMIN_PASSWORD` environment variables, registers roles, and starts `gunicorn`.
+
+Nothing in the image cleans up the sandboxes trainees allocate for themselves. To clean them up, set `trainee_sandbox_cleanup.enabled: true` and schedule `python manage.py cleanup_trainee_sandboxes` with the service's image and configuration, e.g. as an hourly Kubernetes CronJob. The command exits non-zero when a sandbox could not be cleaned up.
