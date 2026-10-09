@@ -13,9 +13,13 @@ from crczp.sandbox_instance_app.lib import requests
 from crczp.sandbox_instance_app.models import (
     AllocationRequest,
     CleanupRequest,
+    Pool,
     Sandbox,
     SandboxAllocationUnit,
+    SandboxLock,
+    StackAllocationStage,
 )
+from crczp.sandbox_instance_app.tests.conftest import set_stage_finished
 
 pytestmark = pytest.mark.django_db
 
@@ -252,6 +256,66 @@ class TestCleanupRequest:  # pylint: disable=too-many-public-methods
 
         requests.create_cleanup_requests(list(allocation_units), True)
         self.assert_multiple_cleanup_requests_success(allocation_units)
+
+    @staticmethod
+    def allocated_unit(pool: Pool, sandbox_id: str) -> SandboxAllocationUnit:
+        """Create a unit whose allocation finished, with its sandbox."""
+        unit = SandboxAllocationUnit.objects.create(pool=pool)
+        request = AllocationRequest.objects.create(allocation_unit=unit)
+        set_stage_finished(
+            StackAllocationStage.objects.create(
+                allocation_request=request, allocation_request_fk_many=request
+            )
+        )
+        Sandbox.objects.create(
+            id=sandbox_id,
+            allocation_unit=unit,
+            private_user_key='private-key',
+            public_user_key='public-key',
+            ready=True,
+        )
+        return unit
+
+    def test_force_batch_skips_a_unit_whose_first_stage_runs(
+        self, pool, allocation_stage_stack_started, sandbox
+    ):
+        """Test that a forced batch cleans what it can and reports the rest."""
+        running_unit = allocation_stage_stack_started.allocation_request.allocation_unit
+        finished_unit = self.allocated_unit(pool, 'finished-sandbox')
+
+        skipped = requests.create_cleanup_requests([running_unit, finished_unit], force=True)
+
+        assert skipped == [running_unit.id]
+        self.handler.return_value.enqueue_request.assert_called_once_with(finished_unit)
+        assert Sandbox.objects.filter(pk=sandbox.pk).exists()
+        assert not Sandbox.objects.filter(pk='finished-sandbox').exists()
+
+    def test_force_batch_skips_a_queued_unit(self, pool, allocation_request):
+        """Test that a unit whose allocation job has not created stages yet is skipped."""
+        finished_unit = self.allocated_unit(pool, 'finished-sandbox')
+        queued_unit = allocation_request.allocation_unit
+
+        skipped = requests.create_cleanup_requests([queued_unit, finished_unit], force=True)
+
+        assert skipped == [queued_unit.id]
+        self.handler.return_value.enqueue_request.assert_called_once_with(finished_unit)
+
+    def test_force_cleanup_of_a_running_unit_keeps_its_lock(
+        self, allocation_stage_stack_started, sandbox
+    ):
+        """Test that a refused forced cleanup of one unit changes nothing."""
+        SandboxLock.objects.create(sandbox=sandbox)
+        unit = allocation_stage_stack_started.allocation_request.allocation_unit
+
+        with pytest.raises(requests.CleanupNotAllowedError, match='first stage is running'):
+            requests.create_cleanup_request_force(unit, delete_pool=False)
+        assert SandboxLock.objects.filter(sandbox=sandbox).exists()
+        self.handler.assert_not_called()
+
+    def test_cleanup_of_a_queued_unit_is_a_validation_error(self, allocation_request):
+        """Test that a queued unit without stages answers 400 instead of failing with a 500."""
+        with pytest.raises(api_exceptions.ValidationError, match='queued'):
+            requests.create_cleanup_request(allocation_request.allocation_unit)
 
     def test_cancel_cleanup_request_success(self, cleanup_request_started):
         """Test that cancellation of a cleanup request delegates to the handler."""

@@ -77,14 +77,43 @@ def cancel_allocation_request(alloc_req: AllocationRequest) -> None:
     request_handlers.AllocationRequestHandler().cancel_request(alloc_req)
 
 
+class CleanupNotAllowedError(exceptions.ValidationError):
+    """Raised when a unit cannot be cleaned up yet, not even by force."""
+
+
+def _ensure_cleanup_allowed(allocation_unit: SandboxAllocationUnit) -> None:
+    """Raise CleanupNotAllowedError while the unit's sandbox cannot be torn down.
+
+    That is while the first (stack) stage runs, and while the allocation is queued and its
+    stages do not exist yet: the queued job would still build the sandbox.
+    """
+    try:
+        stack_stage = allocation_unit.allocation_request.stackallocationstage
+    except ObjectDoesNotExist:
+        raise CleanupNotAllowedError(
+            f'The allocation of unit ID={allocation_unit.id} is queued and has not started yet. '
+            'Cancel the queued allocations of the pool, or retry once it starts.'
+        ) from None
+    if stack_stage.start is not None and not (stack_stage.finished or stack_stage.failed):
+        raise CleanupNotAllowedError(
+            'Cleanup while the first stage is running is not allowed. '
+            'Retry once the first stage is finished or fails.'
+        )
+
+
 def create_cleanup_request_force(allocation_unit: SandboxAllocationUnit, delete_pool: bool) -> None:
     """Create cleanup request and enqueue it. Immediately delete sandbox from database.
-    The force parameter forces the deletion."""
+    The force parameter forces the deletion.
+
+    :raises CleanupNotAllowedError: The unit cannot be cleaned up yet.
+    """
     if (
         hasattr(allocation_unit, 'cleanup_request')
         and not allocation_unit.cleanup_request.is_finished
     ):
         return
+
+    _ensure_cleanup_allowed(allocation_unit)
 
     try:
         sandbox = allocation_unit.sandbox
@@ -93,18 +122,6 @@ def create_cleanup_request_force(allocation_unit: SandboxAllocationUnit, delete_
     else:
         if sandbox is not None and hasattr(sandbox, 'lock'):
             sandbox.lock.delete()
-
-    if (
-        not (
-            allocation_unit.allocation_request.stackallocationstage.finished
-            or allocation_unit.allocation_request.stackallocationstage.failed
-        )
-        and allocation_unit.allocation_request.stackallocationstage.start is not None
-    ):
-        raise exceptions.ValidationError(
-            'Cleanup while the first stage is running is not allowed. '
-            'Retry once the first stage is finished or fails.'
-        )
 
     if not allocation_unit.allocation_request.is_finished:
         cancel_allocation_request(allocation_unit.allocation_request)
@@ -128,17 +145,7 @@ def create_cleanup_request(allocation_unit: SandboxAllocationUnit) -> None:
         if hasattr(sandbox, 'lock'):
             raise exceptions.ValidationError(f'Sandbox ID={sandbox.id} is locked. Unlock it first.')
 
-    if (
-        not (
-            allocation_unit.allocation_request.stackallocationstage.finished
-            or allocation_unit.allocation_request.stackallocationstage.failed
-        )
-        and allocation_unit.allocation_request.stackallocationstage.start is not None
-    ):
-        raise exceptions.ValidationError(
-            'Cleanup while the first stage is running is not allowed. '
-            'Retry once the first stage is finished or fails.'
-        )
+    _ensure_cleanup_allowed(allocation_unit)
 
     if not allocation_unit.allocation_request.is_finished:
         raise exceptions.ValidationError(
@@ -164,13 +171,25 @@ def create_cleanup_requests(
     allocation_units: Iterable[SandboxAllocationUnit],
     force: bool = False,
     delete_pool: bool = False,
-) -> None:
-    """Batch version of create_cleanup_request."""
+) -> list[int]:
+    """Batch version of create_cleanup_request.
+
+    With force, a unit that cannot be cleaned up yet is skipped instead of stopping the
+    batch half done.
+
+    :return: IDs of the skipped units.
+    """
+    skipped_unit_ids = []
     for unit in allocation_units:
-        if force:
-            create_cleanup_request_force(unit, delete_pool)
-        else:
+        if not force:
             create_cleanup_request(unit)
+            continue
+        try:
+            create_cleanup_request_force(unit, delete_pool)
+        except CleanupNotAllowedError as exc:
+            LOG.warning('cleanup_unit_skipped', unit_id=unit.id, reason=str(exc))
+            skipped_unit_ids.append(unit.id)
+    return skipped_unit_ids
 
 
 def cancel_cleanup_request(cleanup_req: CleanupRequest) -> None:
