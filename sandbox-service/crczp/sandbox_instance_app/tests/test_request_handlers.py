@@ -177,6 +177,23 @@ class TestAllocationRequestHandlerUnit:
                 call(fake_sandbox, self.handler._create_stage_handlers.return_value)
             ])
 
+    def test_create_allocation_jobs_skips_removed_units(self, pool, mocker):
+        """A unit cancel-queued removed while the job waited is skipped, not built."""
+        self.handler._enqueue_stages = MagicMock()
+        self.handler._create_stage_handlers = MagicMock()
+        fake_sandbox_class = mocker.patch(
+            'crczp.sandbox_instance_app.lib.request_handlers.Sandbox', return_value=MagicMock()
+        )
+        removed, kept = (SandboxAllocationUnit.objects.create(pool=pool) for _ in range(2))
+        SandboxAllocationUnit.objects.filter(pk=removed.pk).delete()
+
+        self.handler._create_allocation_jobs([removed, kept], None)
+
+        fake_sandbox_class.assert_called_once()
+        assert fake_sandbox_class.call_args.kwargs['allocation_unit'] == kept
+        assert not AllocationRequest.objects.filter(allocation_unit_id=removed.pk).exists()
+        self.handler._enqueue_stages.assert_called_once()
+
     def test_enqueue_request(self, allocation_unit, created_by):
         self.handler.queue_default.enqueue = MagicMock()
         self.handler.enqueue_request(allocation_unit, created_by)

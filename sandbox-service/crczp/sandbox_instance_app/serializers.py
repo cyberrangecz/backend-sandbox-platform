@@ -198,6 +198,26 @@ class PoolCleanupResultSerializer(serializers.Serializer[Any]):
     )
 
 
+class CancelledCountSerializer(serializers.Serializer[Any]):
+    """Result of cancelling a pool's queued allocations."""
+
+    cancelled_count = serializers.IntegerField(help_text='Number of removed allocation units.')
+
+
+class ForceCancelledCountSerializer(serializers.Serializer[Any]):
+    """Result of force-cancelling a pool's running allocations."""
+
+    force_cancelled_count = serializers.IntegerField(
+        help_text='Number of removed allocation units.'
+    )
+
+
+class ForceCleanedCountSerializer(serializers.Serializer[Any]):
+    """Result of force-removing a pool's units with an unfinished cleanup."""
+
+    force_cleaned_count = serializers.IntegerField(help_text='Number of removed allocation units.')
+
+
 class PoolCleanupRequestFailedSerializer(serializers.Serializer[Any]):
     """Serializer for failed pool cleanup request data."""
 

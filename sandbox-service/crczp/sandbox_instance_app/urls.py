@@ -38,6 +38,21 @@ urlpatterns = [
         views.PoolCleanupRequestUnlockedCreateView.as_view(),
         name='pool-cleanup-request-unlocked',
     ),
+    path(
+        'pools/<int:pool_id>/cancel-queued',
+        views.PoolCancelQueuedView.as_view(),
+        name='pool-cancel-queued',
+    ),
+    path(
+        'pools/<int:pool_id>/force-cancel-allocation',
+        views.PoolForceCancelAllocationView.as_view(),
+        name='pool-force-cancel-allocation',
+    ),
+    path(
+        'pools/<int:pool_id>/force-cleanup',
+        views.PoolForceCleanupView.as_view(),
+        name='pool-force-cleanup',
+    ),
     path('pools/<int:pool_id>/variables', views.PoolVariablesView.as_view(), name='pool-variables'),
     path(
         'pools/<int:pool_id>/sandbox-allocation-units',

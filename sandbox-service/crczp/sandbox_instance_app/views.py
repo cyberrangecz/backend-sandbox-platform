@@ -1,7 +1,7 @@
 """REST API views for sandbox instance management."""
 
 import shlex
-from typing import Any, override
+from typing import Any, ClassVar, override
 from wsgiref.util import FileWrapper
 
 import structlog
@@ -415,6 +415,69 @@ class PoolCleanupRequestFailedCreateView(APIView):
             serializers.PoolCleanupResultSerializer({'skipped_unit_ids': skipped_unit_ids}).data,
             status=status.HTTP_201_CREATED,
         )
+
+
+class PoolStuckUnitsRemovalView(APIView):
+    """Base of the pool maintenance actions that remove stuck allocation units.
+
+    Subclasses name the kind of units they remove and the key of the count they answer with.
+    """
+
+    stuck_units: ClassVar[sandbox_requests.StuckUnits]
+    count_key: ClassVar[str]
+
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Remove the pool's stuck units of this action's kind; answer how many."""
+        pool = get_object_or_404(Pool, pk=kwargs['pool_id'])
+        removed = sandbox_requests.force_remove_units(pool, self.stuck_units)
+        return Response({self.count_key: removed})
+
+
+@extend_schema(
+    request=None,
+    responses={200: serializers.CancelledCountSerializer, **POOL_RESPONSES},
+)
+class PoolCancelQueuedView(PoolStuckUnitsRemovalView):
+    """
+    post: Cancel the pool's allocations that have not started yet and remove their units.
+    Allocations already building and built sandboxes are left alone.
+    """
+
+    permission_classes = [OrganizerPermission | AdminPermission]
+    stuck_units = sandbox_requests.StuckUnits.QUEUED
+    count_key = 'cancelled_count'
+
+
+@extend_schema(
+    request=None,
+    responses={200: serializers.ForceCancelledCountSerializer, **POOL_RESPONSES},
+)
+class PoolForceCancelAllocationView(PoolStuckUnitsRemovalView):
+    """
+    post: Cancel the pool's allocations whose first (stack) stage is running, e.g. hung, and
+    remove their units from the database. What the stage created in the cloud is NOT
+    removed: an admin must delete the units' stacks by hand.
+    """
+
+    permission_classes = [AdminPermission]
+    stuck_units = sandbox_requests.StuckUnits.FIRST_STAGE_RUNNING
+    count_key = 'force_cancelled_count'
+
+
+@extend_schema(
+    request=None,
+    responses={200: serializers.ForceCleanedCountSerializer, **POOL_RESPONSES},
+)
+class PoolForceCleanupView(PoolStuckUnitsRemovalView):
+    """
+    post: Cancel the pool's unfinished cleanups, e.g. hung, and remove their units from the
+    database. Whatever the cleanups had not removed from the cloud yet stays there: an admin
+    must delete it by hand.
+    """
+
+    permission_classes = [AdminPermission]
+    stuck_units = sandbox_requests.StuckUnits.CLEANUP_UNFINISHED
+    count_key = 'force_cleaned_count'
 
 
 @extend_schema(
