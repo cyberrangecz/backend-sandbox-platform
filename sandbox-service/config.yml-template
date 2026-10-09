@@ -196,6 +196,16 @@ application_configuration:
     # Use in case of self-signed certificates in related services.
     #ssl_ca_certificate_verify: ""
 
+    # Cleanup of the sandboxes trainees allocate for themselves, done by the
+    # `python manage.py cleanup_trainee_sandboxes` command. Schedule the command in the
+    # deployment, e.g. as a Kubernetes CronJob running hourly.
+    # trainee_sandbox_cleanup:
+        # Whether the command removes anything; while false it only logs that it is disabled.
+        #enabled: false
+
+        # How many hours a trainee keeps their sandbox before the cleanup removes it.
+        #max_age_hours: 24
+
     # Configuration for Terraform client
     terraform_configuration:
         # The type of backend that Terraform is using.
