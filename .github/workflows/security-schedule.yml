@@ -11,10 +11,8 @@ name: Scheduled security scans
 
 on:
   schedule:
-    # Nightly: dependency audit and the latest released image.
-    - cron: "23 3 * * *"
-    # Weekly (Monday): full-history secret scan.
-    - cron: "23 4 * * 1"
+    # Monday and Thursday: every scan, so each run reports on all of them.
+    - cron: "23 3 * * 1,4"
   workflow_dispatch:
 
 permissions:
@@ -23,7 +21,6 @@ permissions:
 jobs:
   # Same tox env as the PR audit, without a BASE: every known vulnerability fails.
   audit:
-    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 3 * * *'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -38,7 +35,6 @@ jobs:
   # The newest release, as users run it. Its base image and apt packages gain known
   # vulnerabilities after release, which no build-time scan can see.
   image:
-    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 3 * * *'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -91,7 +87,6 @@ jobs:
   # Every branch, every commit. Only credentials that still work fail the job, so old
   # test keys and long-revoked tokens stay quiet, and a hit always means rotate now.
   secrets-history:
-    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 4 * * 1'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -109,7 +104,7 @@ jobs:
           git file:///repo --results=verified --fail --no-update --github-actions
 
   # One issue per failing scan, reused across runs, so a standing problem is one issue
-  # with a comment per failed night rather than a new issue every day.
+  # with a comment per failed run rather than a new issue every time.
   report:
     needs: [audit, image, secrets-history]
     if: failure()

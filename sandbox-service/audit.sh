@@ -4,8 +4,8 @@
 # library, so this one audit covers the whole workspace.
 #
 # What fails depends on BASE:
-#   unset       Every known vulnerability fails. Local runs, the nightly scheduled run
-#               and the master (release) run. The master run still builds the image, but
+#   unset       Every known vulnerability fails. Local runs, the scheduled run (Monday
+#               and Thursday) and the master (release) run. The master run still builds the image, but
 #               tags it v<version>-staging instead of releasing it.
 #   BASE=<rev>  Only vulnerabilities not already present at <rev> fail; the rest are
 #               inherited, listed but left to their own PR to master. CI sets this for
