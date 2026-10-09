@@ -2,6 +2,7 @@
 Pool Service module for Pool management.
 """
 
+import hmac
 import io
 import zipfile
 from typing import Any
@@ -256,6 +257,23 @@ def lock_pool(pool: Pool, training_access_token: str | None = None) -> PoolLock:
         if hasattr(pool, 'lock'):
             raise exceptions.ValidationError('Pool already locked.')
         return PoolLock.objects.create(pool=pool, training_access_token=training_access_token)
+
+
+def validate_training_access_token(pool: Pool, training_access_token: str | None) -> None:
+    """Check that the pool is locked for a training and the token is that training's.
+
+    :raises ValidationError: The pool is not locked.
+    :raises ForbiddenError: No training holds the pool, or the token is not its one.
+    """
+    if not hasattr(pool, 'lock'):
+        raise exceptions.ValidationError('The pool is not locked.')
+    expected_token = pool.lock.training_access_token
+    if expected_token is None:
+        raise exceptions.ForbiddenError('This pool does not have a training assigned')
+    if training_access_token is None or not hmac.compare_digest(
+        expected_token.encode(), training_access_token.encode()
+    ):
+        raise exceptions.ForbiddenError('Provided training access token is not valid.')
 
 
 def get_management_ssh_access(pool: Pool) -> io.BytesIO:
