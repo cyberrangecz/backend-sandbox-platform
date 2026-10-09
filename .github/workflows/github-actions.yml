@@ -8,9 +8,9 @@
 # Security gating follows one rule: a run fails on what it introduces, and only reports
 # what it inherits. A CVE published against a dependency set the branch did not touch is
 # not the branch's problem - it is fixed in its own PR to master, and the nightly run in
-# security-schedule.yml keeps an issue open until it is. The master run (workflow_dispatch,
-# which builds the versioned image and tags) counts every known vulnerability: it still
-# builds, but then only as v<version>-staging, with no release tag, docs or git tag.
+# security-schedule.yml keeps an issue open until it is. The master run (workflow_dispatch)
+# counts every known vulnerability: it still builds, but then only as v<version>-staging,
+# with no release tag, docs or git tag - as does any master run not confirmed with 'yes'.
 
 name: Sandbox Workspace CI
 
@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       confirm_action:
-        description: "Type 'yes' if you want to create a new tag"
+        description: "Type 'yes' to release (image tag v<version>, docs, git tag); anything else builds v<version>-staging only"
         required: true
         default: "no"
 
@@ -350,9 +350,10 @@ jobs:
   # Tags the scanned digest - the same image index, attestations included, no rebuild.
   # Waits for image-scan so every tagged version has a scan report on its run, but not for
   # its result: the scan is report-only, so even a scan job that errored does not block it.
-  # On master the dependency audit picks the tag. Clean, it is the release v<version>, and
-  # the docs and git tag follow. With known vulnerabilities (or an audit that could not
-  # run), it is v<version>-staging only: deployable for testing, but not a release.
+  # On master, a run confirmed with 'yes' and a clean dependency audit is the release:
+  # v<version>, and the docs and git tag follow. Anything else - not confirmed, known
+  # vulnerabilities, or an audit that could not run - is v<version>-staging only:
+  # deployable for testing, but not a release.
   publish:
     needs: [build, audit, image-scan, get_current_version]
     if: >-
@@ -365,6 +366,7 @@ jobs:
     env:
       VERSION: ${{ needs.get_current_version.outputs.version }}
       AUDIT: ${{ needs.audit.outputs.outcome }}
+      CONFIRM: ${{ github.event.inputs.confirm_action }}
       IMAGE: ${{ needs.build.outputs.image }}
     outputs:
       release: ${{ steps.tag.outputs.release }}
@@ -382,12 +384,15 @@ jobs:
           release=false
           if [ "$GITHUB_REF" != refs/heads/master ]; then
             tag="${VERSION}-dev"
-          elif [ "$AUDIT" = success ]; then
-            tag="$VERSION"
-            release=true
-          else
+          elif [ "$AUDIT" != success ]; then
             tag="${VERSION}-staging"
             echo "::warning title=Not released::The dependency audit found known vulnerabilities, so this build is tagged ${tag} only: no release tag, docs or git tag."
+          elif [ "$CONFIRM" != yes ]; then
+            tag="${VERSION}-staging"
+            echo "::notice title=Not released::Tag creation was not confirmed with 'yes', so this build is tagged ${tag} only: no release tag, docs or git tag."
+          else
+            tag="$VERSION"
+            release=true
           fi
           docker buildx imagetools create --tag "ghcr.io/${GITHUB_REPOSITORY}/sandbox-service:${tag}" "$IMAGE"
           echo "release=$release" >> "$GITHUB_OUTPUT"
