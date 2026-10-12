@@ -17,7 +17,7 @@ from django.core.cache import cache
 from django.db import transaction
 from rest_framework.generics import get_object_or_404
 
-from crczp.cloud_commons import TopologyInstance
+from crczp.cloud_commons import TopologyInstance, UsersRoles
 from crczp.sandbox_common_lib import exceptions, utils
 from crczp.sandbox_definition_app.lib import definitions
 from crczp.sandbox_instance_app.lib.sshconfig import (
@@ -103,15 +103,17 @@ def lock_sandbox(sandbox: Sandbox, created_by: User | None) -> SandboxLock:
         return SandboxLock.objects.create(sandbox=sandbox, created_by=created_by)
 
 
-def get_sandbox_topology(sandbox: Sandbox) -> Topology:
+def get_sandbox_topology(sandbox: Sandbox, users_roles: UsersRoles) -> Topology:
     """Get sandbox topology."""
     ti = get_topology_instance(sandbox)
-    topology = Topology(ti)
+    topology = Topology(ti, users_roles)
     return topology
 
 
 def get_user_sshconfig(
-    sandbox: Sandbox, sandbox_private_key_path: str = '<path_to_sandbox_private_key>'
+    sandbox: Sandbox,
+    users_roles: UsersRoles,
+    sandbox_private_key_path: str = '<path_to_sandbox_private_key>',
 ) -> CrczpUserSSHConfig:
     """Get user SSH config."""
     ti = get_topology_instance(sandbox)
@@ -119,18 +121,23 @@ def get_user_sshconfig(
     stack_name = sandbox.allocation_unit.get_stack_name()
     proxy_jump = settings.CRCZP_CONFIG.proxy_jump_to_man
     return CrczpUserSSHConfig(
-        ti, proxy_jump.Host, stack_name, sandbox_private_key_path, proxy_port=proxy_jump.Port
+        ti,
+        users_roles,
+        proxy_jump.Host,
+        stack_name,
+        sandbox_private_key_path,
+        proxy_port=proxy_jump.Port,
     )
 
 
-def get_user_ssh_access(sandbox: Sandbox) -> io.BytesIO:
+def get_user_ssh_access(sandbox: Sandbox, users_roles: UsersRoles) -> io.BytesIO:
     """Get user SSH access files."""
     ssh_access_name = f'pool-id-{sandbox.allocation_unit.pool.id}-sandbox-id-{sandbox.id}-user'
     ssh_config_name = f'{ssh_access_name}-config'
     private_key_name = f'{ssh_access_name}-key'
     public_key_name = f'{private_key_name}.pub'
 
-    ssh_config = get_user_sshconfig(sandbox, f'~/.ssh/{private_key_name}')
+    ssh_config = get_user_sshconfig(sandbox, users_roles, f'~/.ssh/{private_key_name}')
 
     in_memory_zip_file = io.BytesIO()
     with zipfile.ZipFile(in_memory_zip_file, 'w', zipfile.ZIP_DEFLATED) as zip_file:

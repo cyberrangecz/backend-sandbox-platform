@@ -10,6 +10,7 @@ from rest_framework.test import APIRequestFactory
 
 from crczp.sandbox_cloud_app.lib.projects import get_flavor_catalog
 from crczp.sandbox_cloud_app.views import ProjectFlavorsView
+from crczp.sandbox_uag.auth import UagIdentity
 
 CLOUD_FLAVORS = {
     'b-flavor': {'vcpu': 2, 'ram': 4.0},
@@ -135,7 +136,10 @@ def test_view_admits_designer_organizer_and_admin_only(mocker, roles, expected_s
         'crczp.sandbox_uag.permissions.authenticator_class.get_bearer_token',
         return_value=b'token',
     )
-    mocker.patch('crczp.sandbox_uag.permissions.get_user_roles', return_value=roles)
+    mocker.patch(
+        'crczp.sandbox_uag.permissions.get_uag_identity',
+        return_value=UagIdentity(user_id=1, role_names=roles),
+    )
     mocker.patch(
         'crczp.sandbox_cloud_app.lib.projects.get_flavor_catalog',
         return_value={'flavors': [], 'unmapped_aliases': []},

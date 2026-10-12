@@ -7,6 +7,7 @@ import pytest
 from django.db import IntegrityError
 from django.http import Http404
 
+from crczp.cloud_commons import UNIVERSAL_ROLES
 from crczp.sandbox_common_lib import exceptions
 from crczp.sandbox_instance_app import serializers
 from crczp.sandbox_instance_app.lib import sandboxes, sshconfig
@@ -91,7 +92,7 @@ class TestSandboxesManipulation:
             mock.patch('django.core.cache.cache.set'),
         ):
             mock_cache_get.return_value = None
-            topo = sandboxes.get_sandbox_topology(mocker.Mock())
+            topo = sandboxes.get_sandbox_topology(mocker.Mock(), UNIVERSAL_ROLES)
 
         result = serializers.TopologySerializer(topo).data
 
@@ -104,7 +105,7 @@ class TestSandboxesManipulation:
         sandbox = mocker.MagicMock()
         sandbox.allocation_unit.get_stack_name.return_value = 'stack-name'
 
-        ssh_conf = sandboxes.get_user_sshconfig(sandbox)
+        ssh_conf = sandboxes.get_user_sshconfig(sandbox, UNIVERSAL_ROLES)
         assert ssh_conf.asdict() == user_ssh_config.asdict()
 
     def test_get_user_ssh_access(self, mocker, sandbox, user_ssh_config):
@@ -122,7 +123,7 @@ class TestSandboxesManipulation:
                 identity_file.replace('<path_to_sandbox_private_key>', f'~/.ssh/{private_key}'),
             )
 
-        in_memory_zip_file = sandboxes.get_user_ssh_access(sandbox)
+        in_memory_zip_file = sandboxes.get_user_ssh_access(sandbox, UNIVERSAL_ROLES)
 
         with zipfile.ZipFile(in_memory_zip_file, 'r', zipfile.ZIP_DEFLATED) as zip_file:
             with zip_file.open(ssh_config_name) as file:

@@ -5,7 +5,7 @@ from typing import Any, override
 import structlog
 from ssh_config.client import Host, parse_config  # Don't import SSHConfig unless reading from file
 
-from crczp.cloud_commons import Link, TopologyInstance
+from crczp.cloud_commons import Link, TopologyInstance, UsersRoles
 
 LOG = structlog.getLogger()
 
@@ -139,6 +139,7 @@ class CrczpUserSSHConfig(CrczpSSHConfig):
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         top_ins: TopologyInstance,
+        users_roles: UsersRoles,
         proxy_host: str,
         proxy_user: str,
         sandbox_private_key_path: str = '<path_to_sandbox_private_key>',
@@ -166,7 +167,7 @@ class CrczpUserSSHConfig(CrczpSSHConfig):
 
         # OpenSSH takes the first Host block matching an alias, so a node's main link
         # takes the slot of that node's first entry.
-        user_accessible_links = top_ins.get_links_to_user_accessible_nodes()
+        user_accessible_links = top_ins.get_links_to_user_accessible_nodes(users_roles)
         first_slots: dict[str, int] = {}
         for index, link in enumerate(list(user_accessible_links)):
             first = first_slots.setdefault(link.node.name, index)

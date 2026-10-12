@@ -701,3 +701,23 @@ class SandboxRequestGroup(models.Model):
             )
         finally:
             self.delete()
+
+
+class PoolRoleGrant(models.Model):
+    """Represents one role held by one user-and-group service user in one pool."""
+
+    id: int
+    pool_id: int
+
+    pool = models.ForeignKey(Pool, on_delete=models.CASCADE, related_name='role_grants')
+    user = models.IntegerField(help_text='User id from the user-and-group service.')
+    role = models.CharField(max_length=128, db_index=True)
+
+    class Meta:  # pylint: disable=too-few-public-methods
+        """Meta options for PoolRoleGrant model."""
+
+        unique_together = [('pool', 'user', 'role')]
+
+    @override
+    def __str__(self) -> str:
+        return f'POOL: {self.pool_id}, USER: {self.user}, ROLE: {self.role}'

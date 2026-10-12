@@ -27,3 +27,35 @@ def rename_deprecated_attribute(
             raise YamlizingError(msg)
 
         key_scalars[old_attribute_name].value = new_attribute_name
+
+
+def reject_key_conflict(
+    node_items: Any,
+    key_a: str,
+    key_b: str,
+) -> None:
+    """
+    Raise if a YAML mapping node declares both of two mutually exclusive keys.
+    """
+    key_scalars = {key.value for key, _ in node_items if isinstance(key, ScalarNode)}
+
+    if key_a in key_scalars and key_b in key_scalars:
+        msg = f'Attribute "{key_a}" is mutually exclusive with attribute "{key_b}".'
+        raise YamlizingError(msg)
+
+
+def reject_null_value(
+    node_items: Any,
+    key: str,
+) -> None:
+    """
+    Raise if a YAML mapping node declares the given key with an explicit null value.
+    """
+    for key_node, value_node in node_items:
+        if (
+            isinstance(key_node, ScalarNode)
+            and key_node.value == key
+            and isinstance(value_node, ScalarNode)
+            and value_node.tag == 'tag:yaml.org,2002:null'
+        ):
+            raise YamlizingError(f'Attribute "{key}" must not be null.')
