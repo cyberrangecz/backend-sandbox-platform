@@ -4,6 +4,7 @@ from typing import Any
 
 import structlog
 
+from crczp.cloud_commons import UsersRoles
 from crczp.sandbox_common_lib.common_cloud import list_images
 from crczp.sandbox_instance_app.lib.nodes import find_image_for_node, get_node_image_has_gui_access
 
@@ -17,7 +18,13 @@ class Topology:  # pylint: disable=too-few-public-methods
         """Represents a host node in the topology."""
 
         def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-            self, name: str, os_type: str | None, gui_access: bool, is_accessible: Any, ip: Any
+            self,
+            name: str,
+            os_type: str | None,
+            gui_access: bool,
+            is_accessible: Any,
+            ip: Any,
+            visible_by_roles: list[str] | None,
         ) -> None:
             """
             Initialize a HostNode instance.
@@ -26,12 +33,14 @@ class Topology:  # pylint: disable=too-few-public-methods
             :param os_type: The operating system type, None if the image does not report one
             :param bool gui_access: Whether GUI access is available
             :param str ip: The IP address of the host
+            :param visible_by_roles: The host's own declared visibility roles, None if boolean
             """
             self.name = name
             self.os_type = os_type
             self.gui_access = gui_access
             self.is_accessible = is_accessible
             self.ip = ip
+            self.visible_by_roles = visible_by_roles
 
     class RouterNode(HostNode):  # pylint: disable=too-few-public-methods
         """Represents a router node in the topology."""
@@ -44,6 +53,7 @@ class Topology:  # pylint: disable=too-few-public-methods
             subnets: list['Topology.Subnet'],
             is_accessible: Any,
             ip: Any,
+            visible_by_roles: list[str] | None,
         ) -> None:
             """
             Initialize a RouterNode instance.
@@ -54,14 +64,22 @@ class Topology:  # pylint: disable=too-few-public-methods
             :param subnets: List of subnets connected to this router
             :type subnets: List[Topology.Subnet]
             :param str ip: The IP address of the router
+            :param visible_by_roles: The router's own declared visibility roles, None if boolean
             """
-            super().__init__(name, os_type, gui_access, is_accessible, ip)
+            super().__init__(name, os_type, gui_access, is_accessible, ip, visible_by_roles)
             self.subnets = subnets
 
     class Subnet:  # pylint: disable=too-few-public-methods
         """Represents a subnet in the topology."""
 
-        def __init__(self, name: str, cidr: str, hosts: list['Topology.HostNode']) -> None:
+        def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+            self,
+            name: str,
+            cidr: str,
+            hosts: list['Topology.HostNode'],
+            accessible_by_roles: list[str] | None,
+            visible_by_roles: list[str] | None,
+        ) -> None:
             """
             Initialize a Subnet instance.
 
@@ -69,37 +87,44 @@ class Topology:  # pylint: disable=too-few-public-methods
             :param str cidr: The subnet CIDR mask
             :param hosts: List of hosts in this subnet
             :type hosts: List[Topology.HostNode]
+            :param accessible_by_roles: The network's own declared reach roles, None if boolean
+            :param visible_by_roles: The network's own declared visibility roles, None if boolean
             """
             self.name = name
             self.cidr = cidr
             self.hosts = hosts
+            self.accessible_by_roles = accessible_by_roles
+            self.visible_by_roles = visible_by_roles
 
-    def __init__(self, top_inst: Any) -> None:
+    def __init__(self, top_inst: Any, users_roles: UsersRoles) -> None:
         """
         Initialize a Topology instance.
 
         :param TopologyInstance top_inst: The topology instance to build from
+        :param users_roles: The requesting user's roles
         """
         self.routers: list[Topology.RouterNode] = []
-        self._build_topology(top_inst)
+        self._build_topology(top_inst, users_roles)
 
-    def _build_topology(self, top_inst: Any) -> None:
+    def _build_topology(self, top_inst: Any, users_roles: UsersRoles) -> None:
         """
         Build the complete topology structure from TopologyInstance.
 
         :param TopologyInstance top_inst: The topology instance to build from
+        :param users_roles: The requesting user's roles
         """
         images = list_images()
-        subnets_dict = self._create_subnets_with_hosts(top_inst, images)
-        self._create_routers_with_subnets(top_inst, images, subnets_dict)
+        subnets_dict = self._create_subnets_with_hosts(top_inst, users_roles, images)
+        self._create_routers_with_subnets(top_inst, users_roles, images, subnets_dict)
 
     def _create_subnets_with_hosts(
-        self, top_inst: Any, images: Any
+        self, top_inst: Any, users_roles: UsersRoles, images: Any
     ) -> dict[str, 'Topology.Subnet']:
         """
         Create all subnets and populate them with hosts.
 
         :param TopologyInstance top_inst: The topology instance
+        :param users_roles: The requesting user's roles
         :param images: List of available images
         :type images: list
         :return: Dictionary mapping subnet names to subnet objects
@@ -107,29 +132,42 @@ class Topology:  # pylint: disable=too-few-public-methods
         """
         subnets_dict = {}
 
-        for network in top_inst.get_visible_networks():
+        for network in top_inst.get_visible_networks(users_roles):
             if self._is_wan_network(network):
                 continue
 
-            hosts_in_network = self._get_hosts_for_network(network, top_inst, images)
-            subnet = self.Subnet(name=network.name, cidr=network.cidr, hosts=hosts_in_network)
+            hosts_in_network = self._get_hosts_for_network(network, top_inst, users_roles, images)
+            subnet = self.Subnet(
+                name=network.name,
+                cidr=network.cidr,
+                hosts=hosts_in_network,
+                # network may be the WAN pseudo-network here when _is_wan_network fails to
+                # recognize it by name; the WAN declares neither field.
+                accessible_by_roles=getattr(network, 'accessible_by_roles', None),
+                visible_by_roles=getattr(network, 'visible_by_roles', None),
+            )
             subnets_dict[network.name] = subnet
 
         return subnets_dict
 
     def _create_routers_with_subnets(
-        self, top_inst: Any, images: Any, subnets_dict: dict[str, 'Topology.Subnet']
+        self,
+        top_inst: Any,
+        users_roles: UsersRoles,
+        images: Any,
+        subnets_dict: dict[str, 'Topology.Subnet'],
     ) -> None:
         """
         Create routers and assign their connected subnets.
 
         :param TopologyInstance top_inst: The topology instance
+        :param users_roles: The requesting user's roles
         :param images: List of available images
         :type images: list
         :param subnets_dict: Dictionary mapping subnet names to subnet objects
         :type subnets_dict: dict[str, Topology.Subnet]
         """
-        for router_node in top_inst.get_visible_routers():
+        for router_node in top_inst.get_visible_routers(users_roles):
             router_image = find_image_for_node(router_node, images)
             if router_image is None:
                 continue
@@ -146,6 +184,7 @@ class Topology:  # pylint: disable=too-few-public-methods
                 subnets=router_subnets,
                 is_accessible=True,
                 ip=wan_ip,
+                visible_by_roles=router_node.visible_by_roles,
             )
             self.routers.append(router)
 
@@ -160,13 +199,14 @@ class Topology:  # pylint: disable=too-few-public-methods
         return network.name.lower() == 'wan'
 
     def _get_hosts_for_network(
-        self, network: Any, top_inst: Any, images: Any
+        self, network: Any, top_inst: Any, users_roles: UsersRoles, images: Any
     ) -> list['Topology.HostNode']:
         """
         Get all hosts connected to a specific network.
 
         :param network: The network object
         :param TopologyInstance top_inst: The topology instance
+        :param users_roles: The requesting user's roles
         :param images: List of available images
         :type images: list
         :return: List of host nodes in the network
@@ -174,7 +214,7 @@ class Topology:  # pylint: disable=too-few-public-methods
         """
         hosts_in_network = []
 
-        for link in top_inst.get_network_links(network, top_inst.get_visible_hosts()):
+        for link in top_inst.get_network_links(network, top_inst.get_visible_hosts(users_roles)):
             host_node = link.node
             host_image = find_image_for_node(host_node, images)
 
@@ -185,8 +225,9 @@ class Topology:  # pylint: disable=too-few-public-methods
                 name=host_node.name,
                 os_type=host_image.os_type,
                 gui_access=get_node_image_has_gui_access(host_image),
-                is_accessible=network.accessible_by_user,
+                is_accessible=top_inst.network_has_reach(network, users_roles),
                 ip=link.ip,
+                visible_by_roles=host_node.visible_by_roles,
             )
             hosts_in_network.append(host)
 

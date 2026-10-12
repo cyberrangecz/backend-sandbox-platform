@@ -7,7 +7,7 @@ from django.conf import settings
 from rest_framework import permissions
 from rest_framework.request import Request
 
-from crczp.sandbox_uag.auth import get_user_roles
+from crczp.sandbox_uag.auth import get_uag_identity
 from crczp.sandbox_uag.oidc_jwt import JWTAccessTokenAuthentication
 
 authenticator_class = JWTAccessTokenAuthentication()
@@ -37,9 +37,9 @@ class EndpointPermissionClass(permissions.BasePermission):
             return True
 
         bearer_token = authenticator_class.get_bearer_token(request)
-        users_roles_names = get_user_roles(UAG_SETTINGS['ROLES_ACQUISITION_URL'], bearer_token)
+        identity = get_uag_identity(UAG_SETTINGS['ROLES_ACQUISITION_URL'], bearer_token)
         role_name = EndpointPermissionClass.get_role_string(level)
-        return role_name in users_roles_names
+        return role_name in identity.role_names
 
 
 class TraineePermission(EndpointPermissionClass):

@@ -5,7 +5,7 @@ from django.conf import settings
 
 from crczp.sandbox_ansible_app.lib.ansible import AllocationAnsibleRunner
 from crczp.sandbox_instance_app.lib import sandboxes
-from crczp.sandbox_instance_app.models import Sandbox, SandboxNetbirdResources
+from crczp.sandbox_instance_app.models import Sandbox, SandboxNetbirdResources, SandboxRoleKeypair
 
 pytestmark = pytest.mark.django_db
 
@@ -69,6 +69,83 @@ class TestPrepareInventoryFile:
         vpn_group = result.get_group('vpn_entrypoints')
         assert vpn_group is not None
         assert vpn_group.hosts_vars['server'] == {'netbird_setup_key': 'SK-TEST-123'}
+
+    def test_create_inventory_role_free_omits_public_user_keys_by_role(self, mocker, top_ins):
+        """A role-free sandbox's inventory carries no global_ssh_public_user_keys_by_role."""
+        mocker.patch.object(sandboxes, 'get_topology_instance', return_value=top_ins)
+        dir_path = mocker.MagicMock()
+        sandbox = Sandbox.objects.get(pk=1)
+        sandbox.allocation_unit.pool.get_pool_prefix = mocker.MagicMock(return_value='pool-prefix')
+        sandbox.allocation_unit.get_stack_name = mocker.MagicMock(return_value='stack-name')
+
+        result = AllocationAnsibleRunner(dir_path).create_inventory(sandbox)
+
+        assert 'global_ssh_public_user_keys_by_role' not in result.to_dict()['all']['vars']
+
+    def test_create_inventory_carries_public_user_keys_by_role(self, mocker, top_ins):
+        """A role-declaring sandbox's inventory names each role's public-key container path."""
+        mocker.patch.object(sandboxes, 'get_topology_instance', return_value=top_ins)
+        dir_path = mocker.MagicMock()
+        sandbox = Sandbox.objects.get(pk=1)
+        sandbox.allocation_unit.pool.get_pool_prefix = mocker.MagicMock(return_value='pool-prefix')
+        sandbox.allocation_unit.get_stack_name = mocker.MagicMock(return_value='stack-name')
+        SandboxRoleKeypair.objects.create(
+            sandbox=sandbox, role='red-team', private_key='priv-red', public_key='pub-red'
+        )
+        SandboxRoleKeypair.objects.create(
+            sandbox=sandbox, role='blue-team', private_key='priv-blue', public_key='pub-blue'
+        )
+
+        runner = AllocationAnsibleRunner(dir_path)
+        result = runner.create_inventory(sandbox)
+
+        assert result.to_dict()['all']['vars']['global_ssh_public_user_keys_by_role'] == {
+            'red-team': runner.container_ssh_path('user_key_red-team.pub'),
+            'blue-team': runner.container_ssh_path('user_key_blue-team.pub'),
+        }
+
+
+class TestPrepareSshDir:
+    """Tests for SSH directory preparation, role-scoped public-key files included."""
+
+    def test_prepare_ssh_dir_writes_one_file_per_role(self, mocker):
+        """Each declared role's public key is written alongside the flat one."""
+        save_file = mocker.patch('crczp.sandbox_ansible_app.lib.ansible.AnsibleRunner.save_file')
+        mocker.patch('crczp.sandbox_ansible_app.lib.ansible.AnsibleRunner._prepare_ssh_dir')
+        mocker.patch.object(sandboxes, 'get_ansible_sshconfig', return_value='config')
+
+        sandbox = Sandbox.objects.get(pk=1)
+        SandboxRoleKeypair.objects.create(
+            sandbox=sandbox, role='red-team', private_key='priv-red', public_key='pub-red'
+        )
+
+        runner = AllocationAnsibleRunner('/tmp')  # nosec B108
+        runner.prepare_ssh_dir(sandbox.allocation_unit.pool, sandbox)
+
+        written_paths = {call.args[0] for call in save_file.call_args_list}
+        assert runner.host_ssh_path('user_key_red-team.pub') in written_paths
+        role_file_contents = {
+            call.args[0]: call.args[1]
+            for call in save_file.call_args_list
+            if call.args[0] == runner.host_ssh_path('user_key_red-team.pub')
+        }
+        assert role_file_contents[runner.host_ssh_path('user_key_red-team.pub')] == 'pub-red'
+
+    def test_prepare_ssh_dir_role_free_writes_no_role_files(self, mocker):
+        """A role-free sandbox writes only the flat public-key file, nothing role-scoped."""
+        save_file = mocker.patch('crczp.sandbox_ansible_app.lib.ansible.AnsibleRunner.save_file')
+        mocker.patch('crczp.sandbox_ansible_app.lib.ansible.AnsibleRunner._prepare_ssh_dir')
+        mocker.patch.object(sandboxes, 'get_ansible_sshconfig', return_value='config')
+
+        sandbox = Sandbox.objects.get(pk=1)
+        runner = AllocationAnsibleRunner('/tmp')  # nosec B108
+        runner.prepare_ssh_dir(sandbox.allocation_unit.pool, sandbox)
+
+        written_paths = [call.args[0] for call in save_file.call_args_list]
+        assert not any(
+            'user_key_' in path and path != runner.host_ssh_path('user_key.pub')
+            for path in written_paths
+        )
 
 
 class TestGenerateDockerfiles:

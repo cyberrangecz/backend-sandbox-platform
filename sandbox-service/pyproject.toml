@@ -1,6 +1,6 @@
 [project]
 name = "crczp-sandbox-service"
-version = "4.0.1"
+version = "4.0.2"
 description = "simplifies manipulation of OpenStack cloud platform for CyberRangeCZ Platform purposes"
 readme = "README.md"
 license = "MIT"
@@ -171,4 +171,5 @@ testpaths = [
     "crczp/sandbox_definition_app/tests",
     "crczp/sandbox_instance_app/tests",
     "crczp/sandbox_service_project/tests",
+    "crczp/sandbox_uag/tests",
 ]

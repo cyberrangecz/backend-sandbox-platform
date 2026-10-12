@@ -11,6 +11,11 @@
     - change_pool
     - delete_pool
 
+    - view_poolrolegrant
+    - add_poolrolegrant
+    - change_poolrolegrant
+    - delete_poolrolegrant
+
     - view_sandboxallocationunit
     - add_sandboxallocationunit
     - change_sandboxallocationunit
@@ -120,6 +125,11 @@
     - add_pool
     - change_pool
     - delete_pool
+
+    - view_poolrolegrant
+    - add_poolrolegrant
+    - change_poolrolegrant
+    - delete_poolrolegrant
 
     - view_sandboxallocationunit
     - add_sandboxallocationunit
