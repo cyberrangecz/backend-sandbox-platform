@@ -910,7 +910,7 @@ test = [
 
 [[package]]
 name = "crczp-sandbox-service"
-version = "4.0.1"
+version = "4.1.0"
 source = { editable = "sandbox-service" }
 dependencies = [
     { name = "better-profanity" },

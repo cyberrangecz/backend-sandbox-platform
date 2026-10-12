@@ -55,3 +55,12 @@ def validate_netbird_key_expiry(obj: object, key_expiry_seconds: int) -> bool:
         )
 
     return True
+
+
+def validate_trainee_cleanup_max_age_hours(obj: object, max_age_hours: int) -> bool:
+    """Validate that trainee sandboxes are kept for at least an hour before the cleanup."""
+    if max_age_hours < 1:
+        _msg = 'Cannot set {}.max_age_hours to {}. It must be at least 1 hour.'
+        raise ValueError(_msg.format(obj.__class__.__name__, max_age_hours))
+
+    return True

@@ -3,12 +3,17 @@ Module containing exceptions.
 All exceptions inherit from the ApiException class.
 """
 
+from typing import ClassVar
+
 
 class ApiException(Exception):
     """
     Base exception class for this project.
     All other exceptions inherit form it.
     """
+
+    # HTTP status of the error response the exception handler turns the exception into.
+    status_code: ClassVar[int] = 400
 
 
 class DockerError(ApiException):
@@ -21,6 +26,22 @@ class ValidationError(ApiException):
     """
     Raised when request contains invalid values.
     """
+
+
+class ForbiddenError(ApiException):
+    """
+    Raised when the caller may not do what the request asks, e.g. with a wrong access token.
+    """
+
+    status_code = 403
+
+
+class ConflictError(ApiException):
+    """
+    Raised when the request conflicts with the current state, e.g. a duplicate sandbox.
+    """
+
+    status_code = 409
 
 
 class LimitExceededError(ApiException):

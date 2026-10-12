@@ -3,15 +3,19 @@
 # pylint: disable=redefined-outer-name
 import io
 import os
-from typing import Any
+from typing import Any, cast
 from unittest import mock
 
 import fakeredis
 import pytest
 import yaml
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth import models as auth_models
+from django.contrib.auth.models import Group
 from django.core.management import call_command
 from django.utils import timezone
+from rest_framework.test import force_authenticate
 from ruamel.yaml import YAML
 
 from crczp.cloud_commons import Image, TopologyInstance, TransformationConfiguration
@@ -40,9 +44,12 @@ from crczp.sandbox_instance_app.models import (
     StackCleanupStage,
     TerraformStack,
 )
+from crczp.sandbox_uag.auth import create_roles, get_unique_username
+from crczp.sandbox_uag.permissions import EndpointPermissionClass
 from crczp.topology_definition.models import TopologyDefinition
 
 User = get_user_model()
+AccessLevel = EndpointPermissionClass.AccessLevel
 
 TESTING_DATA_DIR = 'assets'
 
@@ -623,3 +630,65 @@ def patch_fakeredis_client_list(monkeypatch):
         ]
 
     monkeypatch.setattr(fakeredis.FakeRedis, 'client_list', _patched)
+
+
+# Authenticated requests, as the OIDC authentication sets them up: the user named
+# '<sub>|<issuer>' with role groups synced from UAG, and the userinfo as request.auth.
+
+TEST_OIDC_ISSUER = 'https://oidc.example.test'
+ROLES_DEFINITION = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+    'sandbox_service_project',
+    'permissions',
+    'roles.yml',
+)
+
+
+@pytest.fixture
+def rest_auth_enabled(mocker):
+    """Turn REST API authentication on, as deployments run."""
+    mocker.patch.object(
+        settings,
+        'CRCZP_SERVICE_CONFIG',
+        mock.Mock(authentication=mock.Mock(authenticated_rest_api=True)),
+    )
+
+
+@pytest.fixture
+def role_groups():
+    """Create the role groups with the model permissions roles.yml grants them."""
+    create_roles(ROLES_DEFINITION)
+
+
+def make_user(sub: str, *levels: EndpointPermissionClass.AccessLevel) -> auth_models.User:
+    """Create a user the way OIDC authentication does, in the given role groups."""
+    user = auth_models.User.objects.create(username=get_unique_username(sub, TEST_OIDC_ISSUER))
+    role_names = [EndpointPermissionClass.get_role_string(level) for level in levels]
+    user.groups.set(Group.objects.filter(name__in=role_names))
+    return user
+
+
+def authenticate(request: Any, user: Any) -> Any:
+    """Authenticate a factory request as the user, with their userinfo as request.auth."""
+    userinfo = {'sub': user.get_username().rpartition('|')[0]}
+    # request.auth is whatever the authenticator returns; the stubs narrow it to DRF's Token.
+    force_authenticate(request, user=user, token=cast(Any, userinfo))
+    return request
+
+
+@pytest.fixture
+def trainee(role_groups):  # pylint: disable=unused-argument,redefined-outer-name
+    """A user with only the trainee role."""
+    return make_user('trainee-sub', AccessLevel.TRAINEE)
+
+
+@pytest.fixture
+def other_trainee(role_groups):  # pylint: disable=unused-argument,redefined-outer-name
+    """A second user with only the trainee role."""
+    return make_user('other-trainee-sub', AccessLevel.TRAINEE)
+
+
+@pytest.fixture
+def organizer(role_groups):  # pylint: disable=unused-argument,redefined-outer-name
+    """A user with the organizer role, who is a trainee too, as every user is."""
+    return make_user('organizer-sub', AccessLevel.TRAINEE, AccessLevel.ORGANIZER)

@@ -240,23 +240,32 @@ class AllocationRequestHandler(RequestHandler):
             allocation_group = None
 
         for unit in units:
-            LOG.info('Creating sandbox for allocation unit: %s', unit.id)
-            # The AllocationRequest is normally pre-created synchronously in the
-            # request thread (see requests.create_allocations_requests) so the
-            # listing endpoint never serves a unit with allocation_request=null;
-            # reuse it here. get_or_create keeps callers that enqueue without
-            # pre-creating the request (e.g. tests, restart) working unchanged.
-            self.request, _ = AllocationRequest.objects.get_or_create(allocation_unit=unit)
-            pri_key, pub_key = utils.generate_ssh_keypair()
-            sandbox = Sandbox(
-                id=sandboxes.generate_new_sandbox_uuid(),
-                allocation_unit=unit,
-                private_user_key=pri_key,
-                public_user_key=pub_key,
-            )
-            sandbox.save()
-            stage_handlers = self._create_stage_handlers(sandbox, allocation_group)
-            self._enqueue_stages(sandbox, stage_handlers)
+            with transaction.atomic():
+                # Locked so that the pool's cancel-queued action and this job do not
+                # interleave; it may have removed the unit while this job waited in the queue.
+                if (
+                    SandboxAllocationUnit.objects.select_for_update().filter(pk=unit.id).first()
+                    is None
+                ):
+                    LOG.info('allocation_unit_removed_before_build', unit_id=unit.id)
+                    continue
+                LOG.info('Creating sandbox for allocation unit: %s', unit.id)
+                # The AllocationRequest is normally pre-created synchronously in the
+                # request thread (see requests.create_allocations_requests) so the
+                # listing endpoint never serves a unit with allocation_request=null;
+                # reuse it here. get_or_create keeps callers that enqueue without
+                # pre-creating the request (e.g. tests, restart) working unchanged.
+                self.request, _ = AllocationRequest.objects.get_or_create(allocation_unit=unit)
+                pri_key, pub_key = utils.generate_ssh_keypair()
+                sandbox = Sandbox(
+                    id=sandboxes.generate_new_sandbox_uuid(),
+                    allocation_unit=unit,
+                    private_user_key=pri_key,
+                    public_user_key=pub_key,
+                )
+                sandbox.save()
+                stage_handlers = self._create_stage_handlers(sandbox, allocation_group)
+                self._enqueue_stages(sandbox, stage_handlers)
 
     @override
     def enqueue_request(  # pylint: disable=arguments-differ

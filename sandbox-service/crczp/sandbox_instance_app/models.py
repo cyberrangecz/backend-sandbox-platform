@@ -125,9 +125,25 @@ class SandboxAllocationUnit(models.Model):
         null=True,
         help_text='The user that created this sandbox allocation unit.',
     )
+    created_by_sub = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        default=None,
+        help_text='OIDC sub of the trainee who allocated this unit for themselves; '
+        'null for units built by an organizer.',
+    )
+    created_at = models.DateTimeField(
+        default=timezone.now, help_text='When this allocation unit was created.'
+    )
     comment = models.CharField(
         default='', blank=True, max_length=256, help_text='Comment about specifics of this sandbox'
     )
+
+    class Meta:  # pylint: disable=too-few-public-methods
+        """Meta options for SandboxAllocationUnit."""
+
+        indexes = [models.Index(fields=['created_by_sub'], name='sau_created_by_sub_idx')]
 
     def get_stack_name(self) -> str:
         """Returns a name of the stack for this sandbox"""

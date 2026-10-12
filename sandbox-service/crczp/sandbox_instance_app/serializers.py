@@ -188,6 +188,36 @@ class PoolCleanupRequestSerializer(serializers.Serializer[Any]):
     reason = serializers.CharField(required=False)
 
 
+class PoolCleanupResultSerializer(serializers.Serializer[Any]):
+    """Result of cleaning up several allocation units of a pool."""
+
+    skipped_unit_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text='Units a forced cleanup skipped because they cannot be cleaned up yet: their '
+        'first stage is running, or their allocation is queued. Retry them later.',
+    )
+
+
+class CancelledCountSerializer(serializers.Serializer[Any]):
+    """Result of cancelling a pool's queued allocations."""
+
+    cancelled_count = serializers.IntegerField(help_text='Number of removed allocation units.')
+
+
+class ForceCancelledCountSerializer(serializers.Serializer[Any]):
+    """Result of force-cancelling a pool's running allocations."""
+
+    force_cancelled_count = serializers.IntegerField(
+        help_text='Number of removed allocation units.'
+    )
+
+
+class ForceCleanedCountSerializer(serializers.Serializer[Any]):
+    """Result of force-removing a pool's units with an unfinished cleanup."""
+
+    force_cleaned_count = serializers.IntegerField(help_text='Number of removed allocation units.')
+
+
 class PoolCleanupRequestFailedSerializer(serializers.Serializer[Any]):
     """Serializer for failed pool cleanup request data."""
 
@@ -203,6 +233,7 @@ class SandboxAllocationUnitSerializer(serializers.ModelSerializer[models.Sandbox
     pool_id = serializers.PrimaryKeyRelatedField(source='pool', read_only=True)
     created_by = serializers.SerializerMethodField()
     locked = serializers.SerializerMethodField()
+    sandbox_id = serializers.SerializerMethodField()
 
     class Meta:  # pylint: disable=too-few-public-methods
         """Meta options for SandboxAllocationUnitSerializer."""
@@ -214,7 +245,10 @@ class SandboxAllocationUnitSerializer(serializers.ModelSerializer[models.Sandbox
             'allocation_request',
             'cleanup_request',
             'created_by',
+            'created_by_sub',
+            'created_at',
             'locked',
+            'sandbox_id',
             'comment',
         )
         read_only_fields = (
@@ -223,7 +257,10 @@ class SandboxAllocationUnitSerializer(serializers.ModelSerializer[models.Sandbox
             'allocation_request',
             'cleanup_request',
             'created_by',
+            'created_by_sub',
+            'created_at',
             'locked',
+            'sandbox_id',
         )
 
     @override
@@ -247,11 +284,31 @@ class SandboxAllocationUnitSerializer(serializers.ModelSerializer[models.Sandbox
         """Return True if the sandbox allocation unit has a lock."""
         return hasattr(obj, 'sandbox') and hasattr(obj.sandbox, 'lock')
 
+    @extend_schema_field(field=serializers.CharField(allow_null=True))
+    @staticmethod
+    def get_sandbox_id(obj: models.SandboxAllocationUnit) -> str | None:
+        """Return the id of the unit's sandbox, or None until the sandbox is created."""
+        return obj.sandbox.id if hasattr(obj, 'sandbox') else None
+
 
 class SandboxAllocationUnitIdListSerializer(serializers.Serializer[Any]):
     """Serializer for a list of sandbox allocation unit IDs."""
 
     unit_ids = serializers.ListField(child=serializers.IntegerField())
+
+
+class AllocationUnitByCreatorQuerySerializer(serializers.Serializer[Any]):
+    """Query parameters of the listing of allocation units by creator."""
+
+    created_by_sub = serializers.CharField(
+        max_length=255, help_text='OIDC sub of the trainee who allocated the units.'
+    )
+    state = serializers.ChoiceField(
+        choices=['ACTIVE'],
+        required=False,
+        help_text='ACTIVE lists only units that hold or are building a sandbox: their '
+        'allocation has not failed, and they are not cleaned up or their cleanup is running.',
+    )
 
 
 class TerraformAllocationStageSerializer(serializers.ModelSerializer[models.StackAllocationStage]):

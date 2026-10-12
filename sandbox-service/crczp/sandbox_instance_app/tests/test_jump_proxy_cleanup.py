@@ -2,6 +2,7 @@
 
 import shlex
 
+import paramiko
 import pytest
 
 from crczp.sandbox_instance_app.lib import jump_proxy_cleanup
@@ -50,3 +51,61 @@ class TestDeleteJumpSshKey:
             '-rf',
             '/home/$(id) x-p0000000001-s0000000002',
         ]
+
+
+class TestConnectToJumpWithRetry:
+    """Tests for retrying the jump proxy connection."""
+
+    @pytest.fixture
+    def sleep(self, mocker):
+        """Do not actually wait between attempts."""
+        return mocker.patch.object(jump_proxy_cleanup.time, 'sleep')
+
+    def test_retries_connection_errors_then_connects(self, mocker, sleep):
+        """Test that refused connections are retried until the jump host answers."""
+        ssh = mocker.MagicMock()
+        refused = paramiko.ssh_exception.NoValidConnectionsError({
+            ('127.0.0.1', 22): ConnectionRefusedError()
+        })
+        connect = mocker.patch.object(
+            jump_proxy_cleanup, 'connect_to_jump', side_effect=[refused, TimeoutError(), ssh]
+        )
+
+        assert jump_proxy_cleanup.connect_to_jump_with_retry() is ssh
+        assert connect.call_count == 3
+        assert sleep.call_count == 2
+
+    def test_gives_up_after_the_last_attempt(self, mocker, sleep):
+        """Test that the last connection error is raised once every attempt failed."""
+        errors = [OSError(f'attempt {i}') for i in range(jump_proxy_cleanup.CONNECT_ATTEMPTS)]
+        connect = mocker.patch.object(jump_proxy_cleanup, 'connect_to_jump', side_effect=errors)
+
+        with pytest.raises(OSError, match='attempt 4'):
+            jump_proxy_cleanup.connect_to_jump_with_retry()
+        assert connect.call_count == jump_proxy_cleanup.CONNECT_ATTEMPTS
+        assert sleep.call_count == jump_proxy_cleanup.CONNECT_ATTEMPTS - 1
+
+    def test_authentication_error_is_not_retried(self, mocker, sleep):
+        """Test that a rejected key fails at once instead of hammering the jump host."""
+        connect = mocker.patch.object(
+            jump_proxy_cleanup,
+            'connect_to_jump',
+            side_effect=paramiko.AuthenticationException('rejected'),
+        )
+
+        with pytest.raises(paramiko.AuthenticationException):
+            jump_proxy_cleanup.connect_to_jump_with_retry()
+        assert connect.call_count == 1
+        sleep.assert_not_called()
+
+
+def test_ssh_connect_closes_the_client_when_connecting_fails(mocker):
+    """Test that a failed connection attempt does not leak the SSH client."""
+    client = mocker.MagicMock()
+    client.connect.side_effect = TimeoutError()
+    mocker.patch.object(jump_proxy_cleanup.paramiko, 'SSHClient', return_value=client)
+    mocker.patch.object(jump_proxy_cleanup, 'load_private_key')
+
+    with pytest.raises(TimeoutError):
+        jump_proxy_cleanup.ssh_connect('jump', 22, 'user', '/key')
+    client.close.assert_called_once()
