@@ -123,11 +123,12 @@ def _provision_access(
 ) -> None:
     """Populate one role's (or the sandbox's flat) access group and setup key onto ``access``.
 
-    Every entrypoint reachable by ``access``'s role sources its policy and routes
-    from this access group; the setup key is what a client resolving to this role
-    is issued via the VPN API endpoint. ``flat_group_id``, when given, is also named
-    on the key so its holder stays able to reach entrypoints sourced from the flat
-    role alone, homologous to a Network's accessible_by_user: True fallback.
+    Every entrypoint reachable by ``access``'s role sources its policy from this
+    access group and distributes its routes to it; the setup key is what a client
+    resolving to this role is issued via the VPN API endpoint. ``flat_group_id``,
+    when given, is also named on the key so its holder stays able to reach
+    entrypoints sourced from the flat role alone, homologous to a Network's
+    accessible_by_user: True fallback.
     """
     access_group_id = client.create_group(access_name)
     access.access_group_id = access_group_id
@@ -184,18 +185,23 @@ def _provision_dns(
 
 def _provision_single_entrypoint(
     client: NetbirdClient,
-    sandbox: Sandbox,
+    nbr: SandboxNetbirdResources,
     stack_name: str,
-    host_name: str,
     routes: list[str],
     key_expiry_seconds: int,
     access_group_ids: list[str],
     source_roles: list[str],
-) -> SandboxNetbirdResources:
+) -> None:
+    """Create the entrypoint's host group, host setup key, policy and routes on ``nbr``.
+
+    With no access group to source from, only the host group and key are created.
+    The policy comes before the routes because NetBird gives a route only to
+    clients that a policy connects to its routing peer: a route without its
+    policy would be advertised by the VPN view yet reach no client.
+    ``route_cidrs``, which the view advertises, is recorded last.
+    """
     # pylint: disable=too-many-arguments,too-many-positional-arguments
-    nbr, _ = SandboxNetbirdResources.objects.get_or_create(
-        sandbox=sandbox, entrypoint_host_name=host_name
-    )
+    host_name = nbr.entrypoint_host_name
     nbr.set_source_role_list(source_roles)
     nbr.save()
 
@@ -218,8 +224,15 @@ def _provision_single_entrypoint(
         # route or policy sourced from no group is rejected by Netbird, so none
         # is created, and the entrypoint stays reachable by nobody rather than
         # half-provisioned.
-        LOG.warning('netbird_entrypoint_unreachable', sandbox_id=sandbox.id, host=host_name)
-        return nbr
+        LOG.warning('netbird_entrypoint_unreachable', sandbox_id=nbr.sandbox_id, host=host_name)
+        return
+
+    nbr.policy_id = client.create_policy(
+        name=f'{stack_name}-{host_name}-policy',
+        source_group_ids=access_group_ids,
+        destination_group_ids=[host_group_id],
+    )
+    nbr.save()
 
     route_ids = []
     for cidr in routes:
@@ -231,19 +244,38 @@ def _provision_single_entrypoint(
             description=f'{stack_name} {host_name} route {cidr}',
         )
         route_ids.append(route_id)
-    nbr.set_route_id_list(route_ids)
+        # Saved per route so a failure part-way still records every route
+        # created so far for the teardown.
+        nbr.set_route_id_list(route_ids)
+        nbr.save()
     nbr.set_route_cidr_list(routes)
     nbr.save()
 
-    policy_id = client.create_policy(
-        name=f'{stack_name}-{host_name}-policy',
-        source_group_ids=access_group_ids,
-        destination_group_ids=[host_group_id],
-    )
-    nbr.policy_id = policy_id
-    nbr.save()
 
-    return nbr
+def _discard_failed_entrypoint(
+    client: NetbirdClient, nbr: SandboxNetbirdResources, log: Any
+) -> bool:
+    """Tear down what a failed entrypoint created; return whether its row is kept.
+
+    A failed entrypoint is discarded entirely. The row is kept only when the
+    teardown does not finish (e.g. NetBird is down or the PAT was revoked
+    mid-run), so the sandbox teardown can retry with the IDs it holds. Its setup
+    key value and route CIDRs are dropped first, so that ansible skips the
+    entrypoint VM and the VPN view advertises none of its routes even if the
+    teardown raises.
+    """
+    nbr.host_setup_key_value = None
+    nbr.set_route_cidr_list([])
+    try:
+        if _destroy_single_entrypoint(client, nbr, keep_record_on_error=True):
+            return False
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        log.warning('netbird_provision_cleanup_failed', error=str(exc))
+    try:
+        nbr.save()
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        log.warning('netbird_provision_cleanup_failed', error=str(exc))
+    return True
 
 
 def _provision_role_access(
@@ -255,10 +287,9 @@ def _provision_role_access(
 ) -> dict[str, SandboxNetbirdAccess]:
     """Provision the sandbox's flat access group/key (role='') and one per declared role.
 
-    A failure on one role is caught and logged like a per-entrypoint failure: the
-    row is kept in the returned mapping (for the end guard or a later teardown to
-    find) even without a Netbird group, and that role is simply absent from what
-    an entrypoint can source from.
+    A failure on one role is caught and logged: the row is kept in the returned
+    mapping (for the end guard or a later teardown to find) even without a Netbird
+    group, and that role is simply absent from what an entrypoint can source from.
 
     Every role's key also names the flat access group (provisioned first, role=''),
     so a role holder stays able to reach entrypoints sourced from the flat role alone.
@@ -473,7 +504,7 @@ def _provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
 
     # Both the flat access group + key (role='') and one further group + key per
     # declared role must exist before the entrypoint loop, which sources each
-    # entrypoint's policy and routes from one or more of them.
+    # entrypoint's policy from one or more of them and distributes its routes to them.
     access_rows = _provision_role_access(
         client, sandbox, stack_name, declared_roles, key_expiry_seconds
     )
@@ -493,12 +524,15 @@ def _provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
             source_roles = _source_roles(ep_roles, access_rows)
             access_group_ids = _source_group_ids(source_roles, access_rows)
 
+            nbr: SandboxNetbirdResources | None = None
             try:
-                nbr = _provision_single_entrypoint(
+                nbr, _ = SandboxNetbirdResources.objects.get_or_create(
+                    sandbox=sandbox, entrypoint_host_name=host_name
+                )
+                _provision_single_entrypoint(
                     client,
-                    sandbox,
+                    nbr,
                     stack_name,
-                    host_name,
                     routes,
                     key_expiry_seconds,
                     access_group_ids,
@@ -508,25 +542,19 @@ def _provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
                 log.info('netbird_provisioned', policy_id=nbr.policy_id)
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 # NetbirdApiError is the expected failure; any other exception
-                # (e.g. an IntegrityError from a concurrent sandbox.delete() cascade
-                # inside _provision_single_entrypoint) is also caught so the loop
-                # continues to the end guard instead of crashing the worker.
+                # (e.g. an IntegrityError from a concurrent sandbox.delete() cascade)
+                # is also caught so the loop continues to the end guard instead of
+                # crashing the worker.
                 event = (
                     'netbird_provision_failed'
                     if isinstance(exc, NetbirdApiError)
                     else 'netbird_provision_entrypoint_error'
                 )
                 log.warning(event, error=str(exc))
-                # Pick up the partially-created row (already persisted before the
-                # first API call) so the end guard can tear it down if the sandbox
-                # was deleted mid-provision.
-                try:
-                    partial_nbr = SandboxNetbirdResources.objects.get(
-                        sandbox=sandbox, entrypoint_host_name=host_name
-                    )
-                    created.append(partial_nbr)
-                except SandboxNetbirdResources.DoesNotExist:
-                    pass
+                # The in-memory handle still holds every ID created so far, even
+                # if a cascade has already deleted the row.
+                if nbr is not None and _discard_failed_entrypoint(client, nbr, log):
+                    created.append(nbr)
 
     # End guard: if the sandbox was deleted while we were provisioning, tear down
     # every cloud object we already created so we don't leave orphans behind.
@@ -564,8 +592,18 @@ def _delete_group_peers(
 
 
 def _destroy_single_entrypoint(
-    client: NetbirdClient, nbr: SandboxNetbirdResources, deadline: float | None = None
-) -> None:
+    client: NetbirdClient,
+    nbr: SandboxNetbirdResources,
+    deadline: float | None = None,
+    *,
+    keep_record_on_error: bool = False,
+) -> bool:
+    """Delete the entrypoint's NetBird objects, then its row; return whether the row was deleted.
+
+    With ``keep_record_on_error`` a failed delete keeps the row, so a later
+    teardown can retry with the IDs it holds. Failed peer deletes do not count:
+    the row records no peer IDs, so keeping it could not help retry them.
+    """
     # `deadline` bounds the teardown time (used by destroy_netbird_for_sandbox,
     # which runs in the web-request thread); it is checked before every cloud
     # call so a single entrypoint with many routes/peers cannot overrun. The
@@ -573,48 +611,58 @@ def _destroy_single_entrypoint(
     log = LOG.bind(sandbox_id=nbr.sandbox_id, entrypoint_host=nbr.entrypoint_host_name)
 
     if _expired(deadline):
-        return
+        return False
+
+    failed = False
 
     if nbr.policy_id:
         try:
             client.delete_policy(nbr.policy_id)
             log.info('netbird_policy_deleted', policy_id=nbr.policy_id)
         except NetbirdApiError as exc:
+            failed = True
             log.warning('netbird_delete_policy_failed', error=str(exc))
 
     for route_id in nbr.get_route_id_list():
         if _expired(deadline):
-            return
+            return False
         try:
             client.delete_route(route_id)
             log.info('netbird_route_deleted', route_id=route_id)
         except NetbirdApiError as exc:
+            failed = True
             log.warning('netbird_delete_route_failed', route_id=route_id, error=str(exc))
 
     if _expired(deadline):
-        return
+        return False
 
     if nbr.host_setup_key_id:
         try:
             client.delete_setup_key(nbr.host_setup_key_id)
             log.info('netbird_host_key_deleted', key_id=nbr.host_setup_key_id)
         except NetbirdApiError as exc:
+            failed = True
             log.warning('netbird_delete_host_key_failed', error=str(exc))
 
     _delete_group_peers(client, nbr.host_group_id, log, deadline)
 
     if _expired(deadline):
-        return
+        return False
 
     if nbr.host_group_id:
         try:
             client.delete_group(nbr.host_group_id)
             log.info('netbird_host_group_deleted', group_id=nbr.host_group_id)
         except NetbirdApiError as exc:
+            failed = True
             log.warning('netbird_delete_host_group_failed', error=str(exc))
+
+    if failed and keep_record_on_error:
+        return False
 
     nbr.delete()
     log.info('netbird_resources_record_deleted')
+    return True
 
 
 def _destroy_access(

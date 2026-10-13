@@ -611,6 +611,11 @@ class SandboxNetbirdResources(models.Model):
     Stores IDs of Netbird control-plane objects created for one VPN entrypoint
     within a sandbox. One row per entrypoint.
 
+    The routes only decide which clients are offered them (they are distributed
+    to the access groups the entrypoint is sourced from); reach is granted by the
+    policy, and without it NetBird gives the routes to no client. Provisioning
+    therefore creates the policy before the routes.
+
     All fields are nullable so that a partial-failure state can be persisted:
     the cleanup path tolerates nulls and issues 404-tolerant deletes.
     """
