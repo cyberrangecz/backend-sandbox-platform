@@ -17,6 +17,7 @@ from rest_framework.views import APIView
 
 from crczp.sandbox_common_lib import exceptions, stage_outputs, utils
 from crczp.sandbox_common_lib.netbird_client import get_client_management_url
+from crczp.sandbox_common_lib.pagination import SortableViewMixin
 from crczp.sandbox_common_lib.swagger_typing import (
     PoolRequestSerializer,
     PoolResponseSerializer,
@@ -51,6 +52,7 @@ COMMON_RESPONSE_PATTERNS = {
 
 POOL_RESPONSES = {**COMMON_RESPONSE_PATTERNS, 400: OpenApiResponse(description='Bad Request')}
 SANDBOX_RESPONSES = {**COMMON_RESPONSE_PATTERNS}
+SANDBOX_REQUEST_SORTABLE_FIELDS = ('id', 'allocation_unit_id', 'created')
 
 
 @extend_schema(
@@ -62,13 +64,25 @@ SANDBOX_RESPONSES = {**COMMON_RESPONSE_PATTERNS}
         **{k: v for k, v in utils.ERROR_RESPONSES.items() if k in [401, 403, 500]},
     },
 )
-class PoolListCreateView(generics.ListCreateAPIView[Any]):
+class PoolListCreateView(SortableViewMixin, generics.ListCreateAPIView[Any]):
     """
     get: Get a list of pools.
     """
 
     queryset = Pool.objects.all()
     serializer_class = serializers.PoolSerializer
+    sortable_fields = (
+        'id',
+        'definition_id',
+        'created_by_id',
+        'size',
+        'max_size',
+        'rev',
+        'rev_sha',
+        'comment',
+        'visible',
+        'send_emails',
+    )
 
     @extend_schema(
         request=OpenApiRequest(PoolRequestSerializer),
@@ -177,12 +191,13 @@ class PoolDefinitionView(generics.RetrieveAPIView[Any]):
         **POOL_RESPONSES,
     },
 )
-class PoolLockListCreateView(generics.ListCreateAPIView[Any]):
+class PoolLockListCreateView(SortableViewMixin, generics.ListCreateAPIView[Any]):
     """
     get: List locks for given pool.
     """
 
     serializer_class = serializers.PoolLockSerializer
+    sortable_fields = ('id', 'pool_id')
 
     @override
     def get_queryset(self) -> QuerySet[Any, Any]:
@@ -228,12 +243,13 @@ class PoolLockDetailDeleteView(generics.RetrieveDestroyAPIView[Any]):
         **SANDBOX_RESPONSES,
     },
 )
-class PoolAllocationRequestListView(generics.ListAPIView[Any]):
+class PoolAllocationRequestListView(SortableViewMixin, generics.ListAPIView[Any]):
     """
     get: List Allocation Request for this pool.
     """
 
     serializer_class = serializers.AllocationRequestSerializer
+    sortable_fields = SANDBOX_REQUEST_SORTABLE_FIELDS
 
     @override
     def get_queryset(self) -> QuerySet[Any, Any]:
@@ -270,12 +286,13 @@ class PoolAllocationRequestListView(generics.ListAPIView[Any]):
         **POOL_RESPONSES,
     },
 )
-class PoolCleanupRequestsListCreateView(generics.ListCreateAPIView[Any]):
+class PoolCleanupRequestsListCreateView(SortableViewMixin, generics.ListCreateAPIView[Any]):
     """
     get: List Cleanup Requests for this pool.
     """
 
     serializer_class = serializers.CleanupRequestSerializer
+    sortable_fields = SANDBOX_REQUEST_SORTABLE_FIELDS
 
     @override
     def get_queryset(self) -> QuerySet[Any, Any]:
@@ -371,12 +388,13 @@ class PoolCleanupRequestFailedCreateView(APIView):
         **SANDBOX_RESPONSES,
     }
 )
-class SandboxAllocationUnitListCreateView(generics.ListCreateAPIView[Any]):
+class SandboxAllocationUnitListCreateView(SortableViewMixin, generics.ListCreateAPIView[Any]):
     """
     get: Get a list of Sandbox Allocation Units.
     """
 
     serializer_class = serializers.SandboxAllocationUnitSerializer
+    sortable_fields = ('id', 'pool_id', 'created_by_id', 'comment')
 
     @override
     def get_queryset(self) -> QuerySet[Any, Any]:
@@ -738,11 +756,12 @@ class TerraformCleanupStageOutputListView(stage_outputs.StageOutputView):
         **SANDBOX_RESPONSES,
     },
 )
-class PoolSandboxListView(generics.ListAPIView[Any]):
+class PoolSandboxListView(SortableViewMixin, generics.ListAPIView[Any]):
     """API view to list all ready sandboxes in a pool."""
 
     serializer_class = serializers.SandboxSerializer
     permission_classes = [OrganizerPermission | AdminPermission]
+    sortable_fields = ('id', 'allocation_unit_id', 'ready')
 
     @override
     def get_queryset(self) -> QuerySet[Any, Any]:

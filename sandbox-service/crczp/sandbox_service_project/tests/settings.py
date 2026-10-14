@@ -155,6 +155,7 @@ REST_FRAMEWORK = {
         'crczp.sandbox_common_lib.pagination.PageNumberWithPageSizePagination'
     ),
     'PAGE_SIZE': 50,
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 CACHES = {

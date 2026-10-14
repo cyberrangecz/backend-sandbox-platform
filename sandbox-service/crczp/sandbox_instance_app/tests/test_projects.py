@@ -1,5 +1,6 @@
 """Tests for image listing and caching via common_cloud."""
 
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -7,12 +8,15 @@ from django.core.cache import cache
 
 from crczp.sandbox_common_lib.common_cloud import list_images
 
+IMAGES = [SimpleNamespace(name=f'image{index}', created_at=None) for index in range(1, 4)]
+OTHER_IMAGES = [SimpleNamespace(name=f'image{index}', created_at=None) for index in range(4, 6)]
+
 
 @pytest.fixture
 def mock_terraform_client():
     """Create a mock Terraform client that returns a fixed image list."""
     client = mock.Mock()
-    client.list_images.return_value = ['image1', 'image2', 'image3']
+    client.list_images.return_value = IMAGES
     return client
 
 
@@ -33,12 +37,12 @@ def test_list_images_cached(  # pylint: disable=unused-argument,redefined-outer-
         'crczp.sandbox_common_lib.utils.get_terraform_client', return_value=mock_terraform_client
     ):
         images = list_images(cached=True)
-        assert images == ['image1', 'image2', 'image3']
+        assert images == IMAGES
 
-        mock_terraform_client.list_images.return_value = ['image4', 'image5']
+        mock_terraform_client.list_images.return_value = OTHER_IMAGES
 
         images = list_images(cached=True)
-        assert images == ['image1', 'image2', 'image3']
+        assert images == IMAGES
 
 
 @pytest.mark.django_db
@@ -50,9 +54,9 @@ def test_list_images_not_cached(  # pylint: disable=unused-argument,redefined-ou
         'crczp.sandbox_common_lib.utils.get_terraform_client', return_value=mock_terraform_client
     ):
         images = list_images(cached=False)
-        assert images == ['image1', 'image2', 'image3']
+        assert images == IMAGES
 
-        mock_terraform_client.list_images.return_value = ['image4', 'image5']
+        mock_terraform_client.list_images.return_value = OTHER_IMAGES
 
         images = list_images(cached=False)
-        assert images == ['image4', 'image5']
+        assert images == OTHER_IMAGES

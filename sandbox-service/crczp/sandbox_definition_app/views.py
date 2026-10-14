@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from crczp.sandbox_common_lib import exceptions, utils
+from crczp.sandbox_common_lib.pagination import SortableViewMixin
 from crczp.sandbox_common_lib.swagger_typing import (
     DefinitionRequestSerializer,
     SandboxDefinitionSerializer,
@@ -44,13 +45,14 @@ COMMON_RESPONSE_PATTERNS = {
         **{k: v for k, v in utils.ERROR_RESPONSES.items() if k in [401, 403, 500]},
     },
 )
-class DefinitionListCreateView(generics.ListCreateAPIView[Definition]):
+class DefinitionListCreateView(SortableViewMixin, generics.ListCreateAPIView[Definition]):
     """
     get: Retrieve a list of sandbox definitions.
     """
 
     queryset = Definition.objects.all()
     serializer_class = serializers.DefinitionSerializer
+    sortable_fields = ('id', 'name', 'url', 'rev', 'created_by_id')
 
     @extend_schema(
         request=OpenApiRequest(DefinitionRequestSerializer),
@@ -98,13 +100,15 @@ class DefinitionDetailDeleteView(generics.RetrieveDestroyAPIView[Definition]):
         **COMMON_RESPONSE_PATTERNS,
     },
 )
-class DefinitionRefsListView(generics.ListAPIView[Any]):
+class DefinitionRefsListView(SortableViewMixin, generics.ListAPIView[Any]):
     """
     get: Retrieve a list of definition refs (branches and tags).
     """
 
     queryset = Definition.objects.none()
     serializer_class = serializers.DefinitionRevSerializer
+    sortable_fields = ('name',)
+    sort_by_default_param = 'name'
 
     @override
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -156,6 +160,7 @@ class LocalSandboxVariablesView(generics.CreateAPIView[Any]):
     queryset = Definition.objects.all()
     lookup_url_kwarg = 'definition_id'
     serializer_class = serializers.LocalSandboxVariablesSerializer
+    pagination_class = None
 
     @override
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:

@@ -42,6 +42,7 @@ class AnsibleAllocationStage(AllocationStage):
         """Meta options for AnsibleAllocationStage."""
 
         abstract = True
+        ordering = ['id']
 
     @override
     def __str__(self) -> str:
@@ -81,6 +82,7 @@ class AnsibleCleanupStage(CleanupStage):
         """Meta options for AnsibleCleanupStage."""
 
         abstract = True
+        ordering = ['id']
 
 
 AnsibleStage = AnsibleAllocationStage | AnsibleCleanupStage
