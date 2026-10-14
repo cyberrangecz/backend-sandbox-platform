@@ -1,6 +1,6 @@
 [project]
 name = "crczp-sandbox-service"
-version = "4.2.1"
+version = "4.3.0"
 description = "simplifies manipulation of OpenStack cloud platform for CyberRangeCZ Platform purposes"
 readme = "README.md"
 license = "MIT"
@@ -19,15 +19,10 @@ dependencies = [
     "better-profanity ==0.6.1",
     "django ~=5.0",
     "djangorestframework ==3.17.2",
-    "coreapi ~=2.3.3",
     "structlog ~=26.1.0",
-    "colorama ~=0.4.6",
-    "djangorestframework-yaml ~=2.0.0",
     "pyyaml ~=6.0.3",
     "ruamel.yaml <0.18.0",
-    "gitpython ~=3.1.59",
     "requests ~=2.34.2",
-    "django-model-utils ~=5.0.0",
     "rq ~=2.12.0",
     "django-rq ~=4.2.0",
     "redis ==6.4.0",
@@ -38,12 +33,9 @@ dependencies = [
     "jinja2 ~=3.1.6",
     "django-cors-headers ~=4.9.0",
     "psycopg2-binary ~=2.9.12",
-    "packaging ~=26.3",
-    "six ~=1.17.0",
     "drf-spectacular ~=0.30.0",
     # security-sensitive: pinned exactly rather than compatible-release
     "cryptography ==50.0.0",
-    "pyparsing ~=3.3.2",
     "kubernetes ~=36.0.3",
     # security-sensitive: pinned exactly rather than compatible-release
     "paramiko ==5.0.0",
