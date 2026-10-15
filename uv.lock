@@ -167,19 +167,6 @@ wheels = [
 ]
 
 [[package]]
-name = "authlib"
-version = "1.7.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "cryptography" },
-    { name = "joserfc" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/36/98/7d93f30d029643c0275dbc0bd6d5a6f670661ee6c9a94d93af7ab4887600/authlib-1.7.2.tar.gz", hash = "sha256:2cea25fefcd4e7173bdf1372c0afc265c8034b23a8cd5dcb6a9164b826c64231", size = 176511, upload-time = "2026-05-06T08:10:23.116Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fb/95/adcb68e20c34162e9135f370d6e31737719c2b6f94bc953fe7ed1f10fe21/authlib-1.7.2-py2.py3-none-any.whl", hash = "sha256:3e1faedc9d87e7d56a164eca3ccb6ace0d61b94abe83e92242f8dc8bba9b4a9f", size = 259548, upload-time = "2026-05-06T08:10:21.436Z" },
-]
-
-[[package]]
 name = "autopage"
 version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -880,7 +867,7 @@ requires-dist = [
     { name = "django-rq", specifier = "~=4.2.0" },
     { name = "djangorestframework", specifier = "==3.18.3" },
     { name = "docker", specifier = "~=7.2.0" },
-    { name = "drf-oidc-auth", specifier = "~=3.0.0" },
+    { name = "drf-oidc-auth", specifier = "~=4.0.0" },
     { name = "drf-spectacular", specifier = "~=0.30.0" },
     { name = "gunicorn", specifier = "~=26.2.0" },
     { name = "hiredis", specifier = "~=3.4.1" },
@@ -1267,18 +1254,17 @@ wheels = [
 
 [[package]]
 name = "drf-oidc-auth"
-version = "3.0.0"
+version = "4.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "authlib" },
-    { name = "cryptography" },
     { name = "django" },
     { name = "djangorestframework" },
+    { name = "joserfc" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/60/3b/b2beb684a260651909500d1462f465dde560ab8b955a8af8c2c653283044/drf-oidc-auth-3.0.0.tar.gz", hash = "sha256:9b3ee051e86709f2bb8bb9a7e9bb975b7d9a1cf2c55cadcdd5b6889454f99075", size = 7298, upload-time = "2022-09-20T14:25:04.937Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/65/e59dd440af1c914b3447e09bbe0e459db8fbf245ae23d9e53d5e40fe7e39/drf_oidc_auth-4.0.0.tar.gz", hash = "sha256:1a34f01427e5a14f5113976c003f45a4f39e82e578be6bf0dbcc4fe25d7c33a8", size = 10042, upload-time = "2026-10-08T06:21:30.645Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c2/28/6151edfd9c1101f62566abe42d8e0d5b863df70dc8c9630776190cd40dbc/drf_oidc_auth-3.0.0-py2.py3-none-any.whl", hash = "sha256:243b44ffaf9bbb4a26445370616ab6b666a541479649e6bd3319ede502ea723b", size = 7099, upload-time = "2022-09-20T14:25:03.698Z" },
+    { url = "https://files.pythonhosted.org/packages/58/dc/e936622df1c6a515484b6279cb760cdcf3ec237da85a439367a0ba480bed/drf_oidc_auth-4.0.0-py3-none-any.whl", hash = "sha256:f6c1a9190dccd261595b037cb0284b76ab12c49fc465b46d395913d8fa8ec92c", size = 7110, upload-time = "2026-10-08T06:21:29.465Z" },
 ]
 
 [[package]]
@@ -2871,7 +2857,7 @@ wheels = [
 
 [[package]]
 name = "python-neutronclient"
-version = "13.0.0"
+version = "14.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cliff" },
@@ -2888,9 +2874,9 @@ dependencies = [
     { name = "python-keystoneclient" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/27/c4/e4eb2270cc288875f63339e32be98ac47bcb86e7913232149a9d483e7dbc/python_neutronclient-13.0.0.tar.gz", hash = "sha256:c5fd856adf3dc02cc5f31f9a76f4591d50af48cdfaad25b6e99b1291b543f95a", size = 179680, upload-time = "2026-07-09T08:41:21.028Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/5b/1af04d85cf6c3340686d058eb5580e2bbc3249084cdbe60391bbfa57a2a6/python_neutronclient-14.0.0.tar.gz", hash = "sha256:9f7ba93e6845e381b833eb54c8fd143160b8fa026c383078f9ac39de7f3c5d19", size = 165833, upload-time = "2026-08-26T12:18:45.554Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/27/f37c6ef70518438f6f1a9f28430c71616c2289024011b7d2b0ade69c205d/python_neutronclient-13.0.0-py3-none-any.whl", hash = "sha256:b1a64ef5f274a1fdbf5acf96b981847ed31ec8ada022e137a5953efa91bf4af9", size = 235780, upload-time = "2026-07-09T08:41:19.757Z" },
+    { url = "https://files.pythonhosted.org/packages/45/ff/c8d794ce4bceff1c8c267fe74573ea8d8912fa827d9be36d822f75998516/python_neutronclient-14.0.0-py3-none-any.whl", hash = "sha256:1c97137036315a4cd31f77155d77317a336d8aa7fd4f0c9a1b61437add4fef66", size = 202730, upload-time = "2026-08-26T12:18:44.404Z" },
 ]
 
 [[package]]
