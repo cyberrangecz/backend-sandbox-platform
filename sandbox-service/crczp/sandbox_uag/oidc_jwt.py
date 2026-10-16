@@ -1,6 +1,7 @@
 """OIDC JWT authentication utilities for sandbox UAG."""
 
 import base64
+import hashlib
 import json
 from typing import Any, cast
 from urllib.parse import urlparse
@@ -18,15 +19,15 @@ from rest_framework.exceptions import AuthenticationFailed
 LOG = structlog.get_logger()
 WELL_KNOWN_CONFIG_CACHE_TTL = oidc_auth_settings.OIDC_BEARER_TOKEN_EXPIRATION_TIME
 CACHE = caches['default']
-OIDC_SUB_PREFIX = 'oidc-sub-'
+OIDC_USERINFO_PREFIX = 'oidc-userinfo-'
 
 
 def _decode_payload(token: str | bytes) -> dict[str, Any]:
     """
     Decode the payload of a JWT without verifying its signature.
 
-    The claims only pick the OIDC provider and key the userinfo cache; the token
-    itself is verified by the provider's userinfo endpoint.
+    The claims only pick the OIDC provider; the token itself is verified by the
+    provider's userinfo endpoint.
 
     :raises AuthenticationFailed: When the token is not a JWT with a JSON object payload.
     """
@@ -90,21 +91,17 @@ class JWTAccessTokenAuthentication(BearerTokenAuthentication):
         return cast(dict[str, Any], response.json())
 
     def get_userinfo(self, token: bytes) -> dict[str, Any]:
-        sub = _decode_payload(token).get('sub')
-        cache_key = OIDC_SUB_PREFIX + sub if isinstance(sub, str) and sub else None
-        userinfo = CACHE.get(cache_key) if cache_key else None
+        # Keyed by the whole token, so the cache only answers for a token the provider
+        # has already accepted. A key built from an unverified claim such as `sub` would
+        # hand a cached user's info to any forged token carrying that claim.
+        cache_key = OIDC_USERINFO_PREFIX + hashlib.sha256(token).hexdigest()
+        userinfo = CACHE.get(cache_key)
 
         if not userinfo:
             userinfo = self._get_userinfo(token)
-            if cache_key:
-                CACHE.set(
-                    cache_key,
-                    userinfo,
-                    oidc_auth_settings.OIDC_BEARER_TOKEN_EXPIRATION_TIME,
-                )
-            else:
-                LOG.warn(
-                    'Sub was not found in the token, the result of this authentication'
-                    ' will not be cached'
-                )
+            CACHE.set(
+                cache_key,
+                userinfo,
+                oidc_auth_settings.OIDC_BEARER_TOKEN_EXPIRATION_TIME,
+            )
         return userinfo

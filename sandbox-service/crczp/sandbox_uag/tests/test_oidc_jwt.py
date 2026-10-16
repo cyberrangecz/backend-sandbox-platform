@@ -2,6 +2,7 @@
 
 # pylint: disable=redefined-outer-name
 import base64
+import hashlib
 import json
 
 import pytest
@@ -23,10 +24,19 @@ def make_token(payload: object) -> bytes:
     return f'{_segment({"alg": "RS256", "typ": "JWT"})}.{_segment(payload)}.signature'.encode()
 
 
+def cache_key(token: bytes) -> str:
+    """The userinfo cache key of a token."""
+    return 'oidc-userinfo-' + hashlib.sha256(token).hexdigest()
+
+
 @pytest.fixture
 def userinfo_cache(mocker):
-    """Replace the userinfo cache with a mock."""
-    return mocker.patch.object(oidc_jwt, 'CACHE')
+    """Replace the userinfo cache with a mock backed by a dict."""
+    store: dict[str, object] = {}
+    cache = mocker.patch.object(oidc_jwt, 'CACHE')
+    cache.get.side_effect = store.get
+    cache.set.side_effect = lambda key, value, _timeout: store.__setitem__(key, value)
+    return cache
 
 
 @pytest.mark.parametrize('as_text', [False, True])
@@ -70,42 +80,54 @@ def test_authenticate_rejects_opaque_token():
         JWTAccessTokenAuthentication().authenticate(request)
 
 
-def test_get_userinfo_returns_cached_entry(userinfo_cache, mocker):
-    """A cached userinfo for the token's `sub` is returned without asking the provider."""
-    userinfo_cache.get.return_value = {'sub': 'user-1'}
-    fetch = mocker.patch.object(JWTAccessTokenAuthentication, '_get_userinfo')
-
-    userinfo = JWTAccessTokenAuthentication().get_userinfo(make_token({'sub': 'user-1'}))
-
-    assert userinfo == {'sub': 'user-1'}
-    userinfo_cache.get.assert_called_once_with('oidc-sub-user-1')
-    fetch.assert_not_called()
-
-
 def test_get_userinfo_fetches_and_caches_on_miss(userinfo_cache, mocker):
-    """On a cache miss the userinfo is fetched and cached under the token's `sub`."""
-    userinfo_cache.get.return_value = None
+    """On a cache miss the userinfo is fetched and cached under the token's hash."""
     fetch = mocker.patch.object(
         JWTAccessTokenAuthentication, '_get_userinfo', return_value={'sub': 'user-1'}
     )
-    token = make_token({'sub': 'user-1'})
+    token = make_token({'iss': ISSUER, 'sub': 'user-1'})
 
     userinfo = JWTAccessTokenAuthentication().get_userinfo(token)
 
     assert userinfo == {'sub': 'user-1'}
     fetch.assert_called_once_with(token)
     userinfo_cache.set.assert_called_once_with(
-        'oidc-sub-user-1',
+        cache_key(token),
         {'sub': 'user-1'},
         oidc_jwt.oidc_auth_settings.OIDC_BEARER_TOKEN_EXPIRATION_TIME,
     )
 
 
-def test_get_userinfo_without_sub_is_not_cached(userinfo_cache, mocker):
-    """Without a `sub` claim the userinfo is fetched every time and never cached."""
-    mocker.patch.object(JWTAccessTokenAuthentication, '_get_userinfo', return_value={})
+@pytest.mark.usefixtures('userinfo_cache')
+def test_get_userinfo_answers_the_same_token_from_cache(mocker):
+    """Presenting an accepted token again does not ask the provider again."""
+    fetch = mocker.patch.object(
+        JWTAccessTokenAuthentication, '_get_userinfo', return_value={'sub': 'user-1'}
+    )
+    token = make_token({'iss': ISSUER, 'sub': 'user-1'})
+    authenticator = JWTAccessTokenAuthentication()
 
-    JWTAccessTokenAuthentication().get_userinfo(make_token({'iss': ISSUER}))
+    authenticator.get_userinfo(token)
+    userinfo = authenticator.get_userinfo(token)
 
-    userinfo_cache.get.assert_not_called()
-    userinfo_cache.set.assert_not_called()
+    assert userinfo == {'sub': 'user-1'}
+    fetch.assert_called_once_with(token)
+
+
+@pytest.mark.usefixtures('userinfo_cache')
+def test_get_userinfo_does_not_answer_a_forged_token_from_cache(mocker):
+    """A forged token claiming a cached user's `sub` is still checked by the provider."""
+    genuine = make_token({'iss': ISSUER, 'sub': 'user-1'})
+    forged = genuine.rsplit(b'.', 1)[0] + b'.forged-signature'
+    fetch = mocker.patch.object(
+        JWTAccessTokenAuthentication,
+        '_get_userinfo',
+        side_effect=[{'sub': 'user-1'}, AuthenticationFailed('Token rejected by the provider.')],
+    )
+    authenticator = JWTAccessTokenAuthentication()
+    authenticator.get_userinfo(genuine)
+
+    with pytest.raises(AuthenticationFailed):
+        authenticator.get_userinfo(forged)
+
+    assert fetch.call_count == 2
