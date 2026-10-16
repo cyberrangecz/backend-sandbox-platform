@@ -13,7 +13,6 @@ dependencies = [
     "crczp-aws-lib",
     "crczp-topology-definition",
     "drf-oidc-auth ~=4.0.0",
-    "pyjwkest ~=1.4.4",
     "crczp-automated-problem-generation-lib",
     # https://github.com/snguyenthanh/better_profanity/issues/19
     "better-profanity ==0.6.1",
