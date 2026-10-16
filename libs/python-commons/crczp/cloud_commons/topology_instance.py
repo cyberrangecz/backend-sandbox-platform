@@ -19,7 +19,6 @@ from crczp.topology_definition.models import (
     RouterMappingList,
     TopologyDefinition,
 )
-from netaddr import IPNetwork, IPSet
 
 from crczp.cloud_commons.exceptions import CrczpException, InvalidTopologyDefinition
 from crczp.cloud_commons.topology_elements import (
@@ -562,32 +561,6 @@ class TopologyInstance:
             # dynamic attribute: Network declares no default_gateway, but yamlize Objects
             # carry a __dict__, so the assignment is valid and callers may read it back.
             host_network.default_gateway = router.name  # ty: ignore[unresolved-attribute]
-
-    def _get_free_ip_address(self, network: Network) -> str:
-        """
-        Return a free IP address from given network.
-        """
-        ip_network = IPNetwork(network.cidr)
-        ip_set = IPSet([network.cidr])
-
-        # remove network IP
-        ip_set.remove(ip_network[0])
-        # remove broadcast IP
-        ip_set.remove(ip_network[-1])
-        for link in [link for link in self.links.values() if link.network == network and link.ip]:
-            ip_set.remove(link.ip)
-
-        ip_list = list(ip_set)
-        # one of first IP addresses in range of straight sequence of IP addresses is taken by DHCP
-        # backward iteration so that picking free IP address will not
-        #   unnecessarily divide range of straight sequence of IP addresses
-        # strict=False is deliberate: the two iterables differ in length by one by
-        # construction, which is what makes each pair a consecutive (lower, upper).
-        for lower, upper in zip(reversed(ip_list[:-1]), reversed(ip_list), strict=False):
-            if lower + 1 == upper:
-                return str(upper)
-
-        raise CrczpException(f'no free IP address in network {network.name}')
 
     def _add_link(
         self,

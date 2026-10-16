@@ -6,9 +6,7 @@ import keystoneauth1.session
 import pytest
 from novaclient.v2 import client as nova_client
 
-from crczp.cloud_commons import CrczpException, TopologyInstance
 from crczp.openstack_driver import utils
-from crczp.topology_definition.models import BaseBox, Host, Network, NetworkMapping
 
 
 class TestUtils:
@@ -49,40 +47,3 @@ class TestUtils:
         """Test that get_session returns a valid Session."""
         session = utils.get_session('testUrl', 'testId', 'testSecret')
         assert isinstance(session, keystoneauth1.session.Session)
-
-
-class TestValidateTopologyInstanceNetworks:
-    """Tests for validate_topology_instance_networks."""
-
-    def test_validate_topology_instance_networks_success(self, empty_topology_definition, trc):
-        """Test validation passes for non-overlapping networks."""
-        empty_topology_definition.networks.append(Network('net1', '10.10.0.0/24', True, False))
-        empty_topology_definition.networks.append(Network('net2', '147.251.0.0/16', True, False))
-
-        topology_instance = TopologyInstance(empty_topology_definition, trc)
-        utils.validate_topology_instance_networks(topology_instance)
-
-    def test_validate_topology_instance_networks_collision(self, empty_topology_definition, trc):
-        """Test validation raises on overlapping networks."""
-        empty_topology_definition.networks.append(Network('net1', '147.251.0.0/16', True, False))
-        empty_topology_definition.networks.append(Network('net2', '147.251.0.0/16', True, False))
-
-        topology_instance = TopologyInstance(empty_topology_definition, trc)
-
-        with pytest.raises(CrczpException):
-            utils.validate_topology_instance_networks(topology_instance)
-
-    def test_validate_topology_instance_networks_range(self, empty_topology_definition, trc):
-        """Test validation raises when IP is outside network range."""
-        empty_topology_definition.networks.append(Network('net1', '147.251.0.0/16', True, False))
-        base_box = BaseBox()
-        base_box.image = ''
-        empty_topology_definition.hosts.append(Host('host1', base_box, '', False, False, None))
-        empty_topology_definition.net_mappings.append(
-            NetworkMapping('host1', 'net1', '147.250.0.0')
-        )
-
-        topology_instance = TopologyInstance(empty_topology_definition, trc)
-
-        with pytest.raises(CrczpException):
-            utils.validate_topology_instance_networks(topology_instance)

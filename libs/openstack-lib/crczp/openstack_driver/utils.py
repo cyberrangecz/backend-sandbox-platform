@@ -1,16 +1,13 @@
-"""Utility functions for OpenStack client and network validation."""
+"""Utility functions for OpenStack clients."""
 
 from typing import Literal, overload
 
 import keystoneauth1.identity
 import keystoneauth1.session
 from glanceclient.v2 import client as glance_client
-from netaddr import AddrFormatError, IPAddress, IPNetwork, IPSet
 from neutronclient.v2_0 import client as neutron_client
 from novaclient import client as nova_client
 from novaclient.v2 import client as nova_v2_client
-
-from crczp.cloud_commons import CrczpException, TopologyInstance
 
 NOVA_CLIENT_VERSION = '2.10'
 HEAT_CLIENT_VERSION = 1
@@ -97,41 +94,3 @@ def get_client(client_type: str, session: keystoneauth1.session.Session) -> Open
         raise ValueError(f'Unknown client type: {client_type}')
 
     return client
-
-
-def validate_topology_instance_networks(topology_instance: TopologyInstance) -> None:
-    """
-    Validates that networks do not overlap and IP addresses belongs to network.
-
-    Compared to topology definition validation, it also validates
-    that networks do not overlap with management networks.
-
-    :param topology_instance: TopologyInstance for which networks are validated.
-    :return: None
-    :raise: CrczpException if networks are not valid
-    """
-    try:
-        all_net_ip_pool = IPSet()
-
-        for network in topology_instance.get_networks():
-            ip_network = IPNetwork(network.cidr)
-
-            if ip_network in all_net_ip_pool:
-                raise CrczpException(f'network collision: {network.cidr}')
-
-            all_net_ip_pool.add(ip_network)
-
-            for link in topology_instance.get_network_links(network):
-                if link.ip:
-                    ip = IPAddress(link.ip)
-
-                    if ip not in ip_network:
-                        msg = (
-                            f'Hosts IP not in network range. Host: {link.node.name}, {link.ip},'
-                            f' Network: {network.name, network.cidr}'
-                        )
-                        raise CrczpException(msg)
-
-    # can be raise if ip or cidr is not in valid ip addr format
-    except AddrFormatError as e:
-        raise CrczpException(e) from e
