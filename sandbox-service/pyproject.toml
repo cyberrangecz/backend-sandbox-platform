@@ -25,7 +25,7 @@ dependencies = [
     "requests ~=2.34.2",
     "rq ~=2.12.0",
     "django-rq ~=4.2.0",
-    "redis ==6.4.0",
+    "redis ~=8.1.0",
     "hiredis ~=3.4.1",
     "docker ~=7.2.0",
     "ssh_config ~=0.1.6",
