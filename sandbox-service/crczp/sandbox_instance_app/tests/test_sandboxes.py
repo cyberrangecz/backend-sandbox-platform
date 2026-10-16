@@ -162,10 +162,8 @@ class TestSandboxesManipulation:
         private_key = f'{ssh_access_name}-key'
 
         for host in user_ssh_config.hosts:
-            identity_file = host.get('IdentityFile')
-            host.set(
-                'IdentityFile',
-                identity_file.replace('<path_to_sandbox_private_key>', f'~/.ssh/{private_key}'),
+            host.options['IdentityFile'] = host.options['IdentityFile'].replace(
+                '<path_to_sandbox_private_key>', f'~/.ssh/{private_key}'
             )
 
         in_memory_zip_file = sandboxes.get_user_ssh_access(sandbox, UNIVERSAL_ROLES)
@@ -222,7 +220,7 @@ class TestSandboxesManipulation:
                 zip_file.read(f'{ssh_access_name}-config').decode('utf-8')
             )
             identity_files = {
-                host.get('IdentityFile').removeprefix('~/.ssh/') for host in config.hosts
+                host.options['IdentityFile'].removeprefix('~/.ssh/') for host in config.hosts
             }
             assert identity_files <= names
 

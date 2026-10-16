@@ -146,7 +146,7 @@ class TestRoleAwareUserSshConfig:
             role_private_key_paths={'red-team': '~/.ssh/red-team-key'},
         )
         victim = next(host for host in result.hosts if 'victim' in host.name.split())
-        assert victim.attributes()['IdentityFile'] == '~/.ssh/red-team-key'
+        assert victim.options['IdentityFile'] == '~/.ssh/red-team-key'
 
     def test_role_free_node_points_at_the_flat_key(self):
         """A node carrying no accessible_by_roles metadata uses the flat key unconditionally."""
@@ -161,7 +161,7 @@ class TestRoleAwareUserSshConfig:
             role_private_key_paths={'red-team': '~/.ssh/red-team-key'},
         )
         plain = next(host for host in result.hosts if 'plain' in host.name.split())
-        assert plain.attributes()['IdentityFile'] == '~/.ssh/flat-key'
+        assert plain.options['IdentityFile'] == '~/.ssh/flat-key'
 
     def test_multi_role_holder_picks_lexicographically_smallest_matching_role(self):
         """A node admitting several of the requester's held roles picks the smallest name."""
@@ -182,4 +182,65 @@ class TestRoleAwareUserSshConfig:
             },
         )
         victim = next(host for host in result.hosts if 'victim' in host.name.split())
-        assert victim.attributes()['IdentityFile'] == '~/.ssh/observer-key'
+        assert victim.options['IdentityFile'] == '~/.ssh/observer-key'
+
+
+class TestSerialization:
+    """Tests for writing and reading the OpenSSH config text."""
+
+    def test_writes_openssh_config_text(self):
+        """Hosts are written as `Host` blocks with OpenSSH yes/no values, blank-line separated."""
+        config = sshconfig.CrczpSSHConfig()
+        config.add_host('jump.example', 'debian', '/root/.ssh/id_rsa', port=2222)
+        config.add_host(
+            '10.10.10.10',
+            'debian',
+            '/root/.ssh/pool_key',
+            proxy_jump='debian@jump.example:2222',
+            alias='man',
+        )
+
+        assert str(config) == (
+            'Host jump.example\n'
+            '    HostName jump.example\n'
+            '    User debian\n'
+            '    Port 2222\n'
+            '    IdentityFile /root/.ssh/id_rsa\n'
+            '    UserKnownHostsFile /dev/null\n'
+            '    IdentitiesOnly yes\n'
+            '    StrictHostKeyChecking no\n'
+            '\n'
+            'Host man 10.10.10.10\n'
+            '    HostName 10.10.10.10\n'
+            '    User debian\n'
+            '    IdentityFile /root/.ssh/pool_key\n'
+            '    ProxyJump debian@jump.example:2222\n'
+            '    UserKnownHostsFile /dev/null\n'
+            '    IdentitiesOnly yes\n'
+            '    StrictHostKeyChecking no\n'
+            '\n'
+        )
+
+    def test_written_config_reads_back_unchanged(self, top_ins):
+        """A generated config parses back to the same hosts and the same text."""
+        proxy_jump = settings.CRCZP_CONFIG.proxy_jump_to_man
+        config = sshconfig.CrczpUserSSHConfig(
+            top_ins, UNIVERSAL_ROLES, proxy_jump.Host, 'stack-name'
+        )
+
+        parsed = sshconfig.CrczpSSHConfig.from_str(str(config))
+
+        assert parsed.asdict() == config.asdict()
+        assert str(parsed) == str(config)
+
+    def test_reads_equals_separated_options_and_skips_comments(self):
+        """`Key=value` options and comments are understood; global options are not kept."""
+        parsed = sshconfig.CrczpSSHConfig.from_str(
+            'ServerAliveInterval 60\n'
+            '# jump host\n'
+            'Host jump\n'
+            '  HostName=jump.example\n'
+            '  User = debian\n'
+        )
+
+        assert parsed.asdict() == [{'Host': 'jump', 'HostName': 'jump.example', 'User': 'debian'}]
