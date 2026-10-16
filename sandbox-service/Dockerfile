@@ -14,7 +14,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Pinned in step with .github/workflows/github-actions.yml and .pre-commit-config.yaml,
 # so one uv version writes and reads uv.lock everywhere. This replaces an apt gcc layer
 # plus an unpinned `pip install uv`: gcc is not needed, because every compiled dependency
-# in the locked set ships a cp312/abi3 manylinux wheel (psycopg2-binary, cryptography,
+# in the locked set ships a cp312/abi3 manylinux wheel (psycopg-binary, cryptography,
 # hiredis, ruamel.yaml.clib, bcrypt, pynacl), and no package in it is sdist-only.
 COPY --from=ghcr.io/astral-sh/uv:0.11.24 /uv /uvx /bin/
 

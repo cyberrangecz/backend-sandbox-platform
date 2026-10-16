@@ -28,7 +28,7 @@ dependencies = [
     "python-gitlab ~=8.6.0",
     "jinja2 ~=3.1.6",
     "django-cors-headers ~=4.9.0",
-    "psycopg2-binary ~=2.9.12",
+    "psycopg[binary] ~=3.3.6",
     "drf-spectacular ~=0.30.0",
     # security-sensitive: pinned exactly rather than compatible-release
     "cryptography ==50.0.2",
