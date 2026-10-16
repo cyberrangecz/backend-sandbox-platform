@@ -242,15 +242,6 @@ wheels = [
 ]
 
 [[package]]
-name = "better-profanity"
-version = "0.6.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/49/3e/92a3015a159981f5d3c0f2c6426d0b45f8e7f014e0cbea2da9d18f4ee6e4/better_profanity-0.6.1.tar.gz", hash = "sha256:c8f1a05dfabc5e8bbe3c6f51e25cea9d1df3e2a38e433b7b88e6579d46df296b", size = 27137, upload-time = "2020-04-08T16:34:01.641Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/7f/a9/cfcd658b95e1acb51f8c100870398ae1de038d832c02410bc0214d6caf90/better_profanity-0.6.1-py3-none-any.whl", hash = "sha256:a20902b17f846aff9f9030e61ca75e2142824c2af287c078808e76a6e3292ecc", size = 41466, upload-time = "2020-04-08T16:33:59.974Z" },
-]
-
-[[package]]
 name = "boolean-py"
 version = "5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -587,7 +578,6 @@ name = "crczp-automated-problem-generation-lib"
 version = "1.0.3"
 source = { editable = "libs/automated-problem-generation-lib" }
 dependencies = [
-    { name = "better-profanity" },
     { name = "pyyaml" },
 ]
 
@@ -605,10 +595,7 @@ test = [
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "better-profanity", specifier = "==0.6.1" },
-    { name = "pyyaml", specifier = ">=6.0.2" },
-]
+requires-dist = [{ name = "pyyaml", specifier = ">=6.0.2" }]
 
 [package.metadata.requires-dev]
 lint = [
@@ -792,7 +779,6 @@ name = "crczp-sandbox-service"
 version = "4.3.0"
 source = { editable = "sandbox-service" }
 dependencies = [
-    { name = "better-profanity" },
     { name = "crczp-automated-problem-generation-lib" },
     { name = "crczp-aws-lib" },
     { name = "crczp-openstack-lib" },
@@ -853,7 +839,6 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "better-profanity", specifier = "==0.6.1" },
     { name = "crczp-automated-problem-generation-lib", editable = "libs/automated-problem-generation-lib" },
     { name = "crczp-aws-lib", editable = "libs/aws-lib" },
     { name = "crczp-openstack-lib", editable = "libs/openstack-lib" },

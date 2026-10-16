@@ -7,8 +7,7 @@ license = "MIT"
 requires-python = ">=3.12"
 authors = [{ name = "Daniel Kosc", email = "485652@mail.muni.cz" }]
 dependencies = [
-    "PyYAML>=6.0.2",
-    "better-profanity==0.6.1"
+    "PyYAML>=6.0.2"
 ]
 
 [dependency-groups]
