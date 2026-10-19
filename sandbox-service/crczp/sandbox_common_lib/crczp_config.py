@@ -5,13 +5,21 @@ Django Apps configuration file
 import os
 from collections.abc import Callable
 from enum import Enum
-from typing import Any
+from typing import Annotated, Any
 
-from ruamel.yaml import MappingNode
-from yamlize import Attribute, Map, Object, Typed, YamlizingError
+from pydantic import BeforeValidator, Field, PlainSerializer, field_validator
+from ruamel.yaml.nodes import MappingNode
 
 from crczp.cloud_commons import TransformationConfiguration
 from crczp.sandbox_common_lib import crczp_config_validation
+from crczp.topology_definition.yaml_model import (
+    YamlBool,
+    YamlInt,
+    YamlModel,
+    YamlModelError,
+    YamlStr,
+    positional_init,
+)
 
 HEAD_IP = '0.0.0.0'  # noqa: S104  # default head host address, not a socket bind
 LOG_FILE = 'sandbox-service.log'
@@ -59,104 +67,135 @@ LEGACY_OPENSTACK_KEYS = {
     )
 }
 
+# Enums are written by member name.
+BY_NAME = PlainSerializer(lambda member: member.name, when_used='json')
 
-def _enum_from_yaml(create: Callable[[str], Enum]) -> Callable[[Any, Any, Any], Enum]:
-    def from_yaml(loader: Any, node: Any, _rtd: Any) -> Enum:
+
+def _parsed_by[E: Enum](enum: type[E], create: Callable[[str], E]) -> BeforeValidator:
+    """
+    Parse a config value into enum with create, which raises ValueError for an unknown one.
+    """
+    return BeforeValidator(lambda value: value if isinstance(value, enum) else create(str(value)))
+
+
+def _by_name[E: Enum](enum: type[E], setting: str) -> Callable[[str], E]:
+    """
+    Look an enum member up by its exact name, naming the setting and the valid names if absent.
+    """
+
+    def create(value: str) -> E:
         try:
-            return create(str(loader.construct_object(node)))
-        except ValueError as exc:
-            raise YamlizingError(str(exc), node) from exc
+            return enum[value]
+        except KeyError:
+            valid = ', '.join(member.name for member in enum)
+            raise ValueError(
+                f'Invalid value for {setting}: {value}. Expected one of: {valid}.'
+            ) from None
 
-    return from_yaml
+    return create
 
 
-class ProxyJump(Object):
+def _default_if_null(model: Callable[[], YamlModel]) -> BeforeValidator:
+    """
+    Read an explicit null like an absent block: as a fresh default instance.
+    """
+    return BeforeValidator(lambda value: model() if value is None else value)
+
+
+class ProxyJump(YamlModel):
     """SSH ProxyJump configuration for connecting to managed nodes."""
 
     # pylint: disable=invalid-name
-    Host = Attribute(type=str)
-    User = Attribute(type=str)
-    Port = Attribute(type=int, default=22)
-    IdentityFile = Attribute(type=str)
+    Host: YamlStr
+    User: YamlStr
+    Port: YamlInt = 22
+    IdentityFile: YamlStr
 
-    def __init__(self, host: str, user: str, identity_file: str, port: int = 22) -> None:
-        self.Host = host
-        self.User = user
-        self.Port = port
-        self.IdentityFile = identity_file
+    @positional_init
+    def __init__(
+        self, host: str, user: str, identity_file: str, port: int = 22, **data: Any
+    ) -> None:
+        fields: dict[str, Any] = {
+            'Host': host,
+            'User': user,
+            'IdentityFile': identity_file,
+            'Port': port,
+            **data,
+        }
+        super().__init__(**fields)
 
 
-class TerraformConfiguration(Object):
+class TerraformConfiguration(YamlModel):
     """Terraform backend configuration settings."""
 
-    backend_type = Attribute(type=str)
+    backend_type: YamlStr
 
 
-class AnsibleRunnerSettings(Object):
+class AnsibleRunnerSettings(YamlModel):
     """Settings for the Ansible runner backend (Docker or Kubernetes)."""
 
-    backend = Attribute(type=str, default='docker')
-    namespace = Attribute(type=str, default='crczp')
-    volumes_path = Attribute(type=str, default=VOLUMES_PATH)
-    persistent_volume_claim_name = Attribute(type=str, default=PERSISTENT_VOLUME_CLAIM_NAME)
+    backend: YamlStr = 'docker'
+    namespace: YamlStr = 'crczp'
+    volumes_path: YamlStr = VOLUMES_PATH
+    persistent_volume_claim_name: YamlStr = PERSISTENT_VOLUME_CLAIM_NAME
 
 
-class TraineeSandboxCleanupConfiguration(Object):
+class TraineeSandboxCleanupConfiguration(YamlModel):
     """Cleanup of the sandboxes trainees allocated for themselves.
 
     The cleanup_trainee_sandboxes management command does the cleanup; the deployment runs
     it periodically, e.g. as a Kubernetes CronJob.
     """
 
-    enabled = Attribute(type=bool, default=False)
+    enabled: YamlBool = False
     # How long a trainee keeps their sandbox before the cleanup removes it.
-    max_age_hours = Attribute(
-        type=int,
-        default=TRAINEE_SANDBOX_CLEANUP_MAX_AGE_HOURS,
-        validator=crczp_config_validation.validate_trainee_cleanup_max_age_hours,
-    )
+    max_age_hours: YamlInt = TRAINEE_SANDBOX_CLEANUP_MAX_AGE_HOURS
+
+    @field_validator('max_age_hours')
+    @classmethod
+    def _valid_max_age_hours(cls, max_age_hours: int) -> int:
+        crczp_config_validation.validate_trainee_cleanup_max_age_hours(cls, max_age_hours)
+        return max_age_hours
 
 
-class LostJobObserverConfiguration(Object):
+class LostJobObserverConfiguration(YamlModel):
     """Detection of sandbox work whose RQ job was lost.
 
     The observe_lost_jobs management command does the detection; the deployment runs it
     periodically, e.g. as a Kubernetes CronJob.
     """
 
-    enabled = Attribute(type=bool, default=True)
+    enabled: YamlBool = True
     # How long a job that is dead but still in Redis may wait for RQ to collect it.
-    grace_seconds = Attribute(
-        type=int,
-        default=LOST_JOB_OBSERVER_GRACE_SECONDS,
-        validator=crczp_config_validation.validate_lost_job_observer_grace_seconds,
-    )
+    grace_seconds: YamlInt = LOST_JOB_OBSERVER_GRACE_SECONDS
+
+    @field_validator('grace_seconds')
+    @classmethod
+    def _valid_grace_seconds(cls, grace_seconds: int) -> int:
+        crczp_config_validation.validate_lost_job_observer_grace_seconds(cls, grace_seconds)
+        return grace_seconds
 
 
-class Database(Object):
+class Database(YamlModel):
     """Database connection configuration."""
 
-    engine = Attribute(type=str, default=DATABASE_ENGINE)
-    host = Attribute(type=str, default=DATABASE_HOST)
-    name = Attribute(type=str, default=DATABASE_NAME)
-    password = Attribute(type=str, default=DATABASE_PASSWORD)
-    port = Attribute(type=str, default=DATABASE_PORT)
-    user = Attribute(type=str, default=DATABASE_USER)
-
-    def __init__(self, **kwargs: Any) -> None:
-        for key, val in kwargs.items():
-            setattr(self, key, val)
+    engine: YamlStr = DATABASE_ENGINE
+    host: YamlStr = DATABASE_HOST
+    name: YamlStr = DATABASE_NAME
+    password: YamlStr = DATABASE_PASSWORD
+    port: YamlStr = DATABASE_PORT
+    user: YamlStr = DATABASE_USER
 
 
-class Redis(Object):
+class Redis(YamlModel):
     """Redis connection and cache timeout configuration."""
 
-    host = Attribute(type=str, default=REDIS_HOST)
-    port = Attribute(type=int, default=REDIS_PORT)
-    db = Attribute(type=int, default=REDIS_DB)
-    default_cache_timeout = Attribute(type=int, default=REDIS_TIMEOUT)
-    uag_cache_timeout = Attribute(type=int, default=REDIS_TIMEOUT)
-    topology_cache_timeout = Attribute(type=int, default=REDIS_TIMEOUT)
+    host: YamlStr = REDIS_HOST
+    port: YamlInt = REDIS_PORT
+    db: YamlInt = REDIS_DB
+    default_cache_timeout: YamlInt = REDIS_TIMEOUT
+    uag_cache_timeout: YamlInt = REDIS_TIMEOUT
+    topology_cache_timeout: YamlInt = REDIS_TIMEOUT
 
 
 class GitType(Enum):
@@ -189,55 +228,41 @@ class OpenStackConsoleType(Enum):
             ) from None
 
 
-class AwsConfiguration(Object):
+class AwsConfiguration(YamlModel):
     """AWS cloud provider configuration."""
 
-    access_key_id = Attribute(type=str, default='')
-    secret_access_key = Attribute(type=str, default='')
-    region = Attribute(type=str, default='')
-    availability_zone = Attribute(type=str, default='')
-    base_vpc = Attribute(type=str, default='Base VPC')
-    base_subnet = Attribute(type=str, default='Base Subnet')
+    access_key_id: YamlStr = ''
+    secret_access_key: YamlStr = ''
+    region: YamlStr = ''
+    availability_zone: YamlStr = ''
+    base_vpc: YamlStr = 'Base VPC'
+    base_subnet: YamlStr = 'Base Subnet'
 
 
-class OpenStackConfiguration(Object):
+class OpenStackConfiguration(YamlModel):
     """OpenStack cloud provider configuration."""
 
-    auth_url = Attribute(type=str, default=None)
-    application_credential_id = Attribute(type=str, default=None)
-    application_credential_secret = Attribute(type=str, default=None)
-    # yamlize's Typed is a metaclass whose __new__ builds and returns a separate class,
-    # so type.__init__ is never reached; ty still checks the call against its overloads.
-    # The same applies to every other Typed(...) call in this file.
-    console_type = Attribute(
-        type=Typed(  # ty: ignore[no-matching-overload]
-            OpenStackConsoleType,
-            from_yaml=_enum_from_yaml(OpenStackConsoleType.create),
-            to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.name)),
-        ),
-        default=OpenStackConsoleType.SPICE_HTML5,
-    )
+    auth_url: YamlStr | None = None
+    application_credential_id: YamlStr | None = None
+    application_credential_secret: YamlStr | None = None
+    console_type: Annotated[
+        OpenStackConsoleType,
+        _parsed_by(OpenStackConsoleType, OpenStackConsoleType.create),
+        BY_NAME,
+    ] = OpenStackConsoleType.SPICE_HTML5
 
 
-class NamingStrategy(Object):
+class NamingStrategy(YamlModel):
     """Naming strategy for OpenStack resource names."""
 
-    pattern = Attribute(type=str)
-    replace = Attribute(type=str, default='')
+    pattern: YamlStr
+    replace: YamlStr = ''
 
 
-class FlavorMapping(Map):
-    """Mapping from sandbox flavor keys to OpenStack flavor names."""
-
-    key_type = Typed(str)
-    value_type = Typed(str)
-
-
-class GitProviders(Map):
-    """Mapping from Git server base URLs to access tokens."""
-
-    key_type = Typed(str)
-    value_type = Typed(str)
+# Sandbox flavor key to OpenStack flavor name.
+FlavorMapping = dict[YamlStr, YamlStr]
+# Git server base URL to access token.
+GitProviders = dict[YamlStr, YamlStr]
 
 
 class SMTPEncryption(Enum):
@@ -248,28 +273,34 @@ class SMTPEncryption(Enum):
     INSECURE = 3
 
 
-class NetbirdConfiguration(Object):
+class NetbirdConfiguration(YamlModel):
     """NetBird VPN management configuration."""
 
-    management_url = Attribute(type=str)
-    client_management_url = Attribute(type=str, default=None)
+    management_url: YamlStr
+    client_management_url: YamlStr | None = None
     # Path to a file containing the service user PAT. The file is read fresh on
     # every Netbird client creation so a rotated secret (e.g. a volume-mounted
     # Kubernetes Secret) is picked up without restarting the service.
-    service_user_pat_file = Attribute(type=str)
-    key_expiry_seconds = Attribute(
-        type=int, default=1209600, validator=crczp_config_validation.validate_netbird_key_expiry
-    )
+    service_user_pat_file: YamlStr
+    key_expiry_seconds: YamlInt = 1209600
     # Upper bound (seconds) on the time spent tearing down a single sandbox's
     # Netbird resources during cleanup. Teardown runs synchronously in the
     # request thread, so a slow or unreachable Netbird endpoint must not block
     # the cleanup path indefinitely; once the budget is exceeded the remaining
     # resources are left behind (best-effort teardown).
-    teardown_budget_seconds = Attribute(
-        type=int,
-        default=60,
-        validator=crczp_config_validation.validate_netbird_teardown_budget_seconds,
-    )
+    teardown_budget_seconds: YamlInt = 60
+
+    @field_validator('key_expiry_seconds')
+    @classmethod
+    def _valid_key_expiry(cls, key_expiry_seconds: int) -> int:
+        crczp_config_validation.validate_netbird_key_expiry(cls, key_expiry_seconds)
+        return key_expiry_seconds
+
+    @field_validator('teardown_budget_seconds')
+    @classmethod
+    def _valid_teardown_budget(cls, budget_seconds: int) -> int:
+        crczp_config_validation.validate_netbird_teardown_budget_seconds(cls, budget_seconds)
+        return budget_seconds
 
 
 class TopologyCacheMode(Enum):
@@ -291,133 +322,118 @@ class TopologyCacheMode(Enum):
             ) from None
 
 
-class CrczpConfiguration(Object):
+class CrczpConfiguration(YamlModel):
     """Top-level CRCZP application configuration loaded from a YAML file."""
 
-    head_host = Attribute(type=str, default=HEAD_IP)
-    syslog_destination_port = Attribute(type=int, default=515)
+    head_host: YamlStr = HEAD_IP
+    syslog_destination_port: YamlInt = 515
 
-    openstack = Attribute(type=OpenStackConfiguration, default=None)
-    aws = Attribute(type=AwsConfiguration, default=None)
+    # Absent or null, the block takes its defaults, a fresh instance per load.
+    openstack: Annotated[OpenStackConfiguration, _default_if_null(OpenStackConfiguration)] = Field(
+        default_factory=OpenStackConfiguration
+    )
+    aws: AwsConfiguration | None = None
 
-    log_file = Attribute(type=str, default=LOG_FILE)
-    log_level = Attribute(type=str, default=LOG_LEVEL)
+    log_file: YamlStr = LOG_FILE
+    log_level: YamlStr = LOG_LEVEL
 
-    man_port = Attribute(type=int, default=4822)
+    man_port: YamlInt = 4822
 
     # Sandbox creation configuration
-    git_user = Attribute(type=str, default=GIT_USER)
-    git_providers = Attribute(type=GitProviders, default=GitProviders())
+    git_user: YamlStr = GIT_USER
+    git_providers: GitProviders = Field(default_factory=dict)
 
     # Deprecated git values
-    git_access_token = Attribute(type=str, default=GIT_TOKEN)
-    git_server = Attribute(type=str, default=GIT_SERVER)
-    git_ssh_port = Attribute(type=int, default=GIT_SSH_PORT)
-    git_rest_server = Attribute(
-        type=str, default=GIT_REST_SERVER, validator=crczp_config_validation.validate_git_rest_url
-    )
-    git_private_key = Attribute(type=str, default=GIT_PRIVATE_KEY)
-    git_type = Attribute(
-        type=Typed(  # ty: ignore[no-matching-overload]
-            GitType,
-            from_yaml=(lambda loader, node, rtd: GitType[loader.construct_object(node)]),
-            to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.name)),
-        ),
-        default=GitType.GITLAB,
+    git_access_token: YamlStr = GIT_TOKEN
+    git_server: YamlStr = GIT_SERVER
+    git_ssh_port: YamlInt = GIT_SSH_PORT
+    git_rest_server: YamlStr = GIT_REST_SERVER
+    git_private_key: YamlStr = GIT_PRIVATE_KEY
+    git_type: Annotated[GitType, _parsed_by(GitType, _by_name(GitType, 'git_type')), BY_NAME] = (
+        GitType.GITLAB
     )
 
-    git_skip_ssl_verification = Attribute(type=bool, default=False)
+    git_skip_ssl_verification: YamlBool = False
 
-    topology_cache_mode = Attribute(
-        type=Typed(  # ty: ignore[no-matching-overload]
-            TopologyCacheMode,
-            from_yaml=_enum_from_yaml(TopologyCacheMode.create),
-            to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.name)),
-        ),
-        default=TopologyCacheMode.AGGRESSIVE,
-    )
+    topology_cache_mode: Annotated[
+        TopologyCacheMode, _parsed_by(TopologyCacheMode, TopologyCacheMode.create), BY_NAME
+    ] = TopologyCacheMode.AGGRESSIVE
 
-    ansible_networking_url = Attribute(type=str)
-    ansible_networking_rev = Attribute(type=str, default=ANSIBLE_NETWORKING_REV)
+    ansible_networking_url: YamlStr
+    ansible_networking_rev: YamlStr = ANSIBLE_NETWORKING_REV
 
-    image_naming_strategy = Attribute(type=NamingStrategy, default=None)
-    flavor_mapping = Attribute(type=FlavorMapping, default=None)
+    image_naming_strategy: NamingStrategy | None = None
+    flavor_mapping: FlavorMapping | None = None
 
-    proxy_jump_to_man = Attribute(type=ProxyJump)
-    terraform_configuration = Attribute(type=TerraformConfiguration)
-    database = Attribute(type=Database)
-    redis = Attribute(type=Redis, default=())
+    proxy_jump_to_man: ProxyJump
+    terraform_configuration: TerraformConfiguration
+    database: Database
+    redis: Redis = Field(default_factory=Redis)
 
-    sandbox_build_timeout = Attribute(type=int, default=SANDBOX_BUILD_TIMEOUT)
-    sandbox_delete_timeout = Attribute(type=int, default=SANDBOX_DELETE_TIMEOUT)
-    cleanup_retry_limit = Attribute(type=int, default=CLEANUP_RETRY_LIMIT)
-    cleanup_retry_delay = Attribute(type=int, default=CLEANUP_RETRY_DELAY)
-    sandbox_ansible_timeout = Attribute(type=int, default=SANDBOX_ANSIBLE_TIMEOUT)
+    sandbox_build_timeout: YamlInt = SANDBOX_BUILD_TIMEOUT
+    sandbox_delete_timeout: YamlInt = SANDBOX_DELETE_TIMEOUT
+    cleanup_retry_limit: YamlInt = CLEANUP_RETRY_LIMIT
+    cleanup_retry_delay: YamlInt = CLEANUP_RETRY_DELAY
+    sandbox_ansible_timeout: YamlInt = SANDBOX_ANSIBLE_TIMEOUT
 
-    ansible_docker_image = Attribute(type=str, default=ANSIBLE_DOCKER_IMAGE)
-    ansible_docker_network = Attribute(type=str, default=ANSIBLE_DOCKER_NETWORK)
+    ansible_docker_image: YamlStr = ANSIBLE_DOCKER_IMAGE
+    ansible_docker_network: YamlStr = ANSIBLE_DOCKER_NETWORK
 
-    ansible_runner_settings = Attribute(type=AnsibleRunnerSettings, default=AnsibleRunnerSettings())
+    ansible_runner_settings: AnsibleRunnerSettings = Field(default_factory=AnsibleRunnerSettings)
 
-    answers_storage_api = Attribute(type=str, default=ANSWERS_STORAGE_API)
+    answers_storage_api: YamlStr = ANSWERS_STORAGE_API
 
-    ssl_ca_certificate_verify = Attribute(type=str, default=SSL_CA_CERTIFICATE_VERIFY)
+    ssl_ca_certificate_verify: YamlStr = SSL_CA_CERTIFICATE_VERIFY
 
     # When False, definitions declaring `network_forwarding` are rejected before Terraform apply.
-    network_forwarding_enabled = Attribute(type=bool, default=False)
+    network_forwarding_enabled: YamlBool = False
 
-    trc = Attribute(type=TransformationConfiguration, key='sandbox_configuration')
+    trc: TransformationConfiguration = Field(alias='sandbox_configuration')
 
     # Email allocation notifications
-    smtp_server = Attribute(type=str, default=None)
+    smtp_server: YamlStr | None = None
     # Port of the used encryption protocol, ex. ssl, tsl
-    smtp_port = Attribute(type=int, default=25)
-    smtp_encryption = Attribute(
-        type=Typed(  # ty: ignore[no-matching-overload]
-            SMTPEncryption,
-            from_yaml=(lambda loader, node, rtd: SMTPEncryption[loader.construct_object(node)]),
-            to_yaml=(lambda dumper, data, rtd: dumper.represent_data(data.name)),
-        ),
-        default=SMTPEncryption.INSECURE,
+    smtp_port: YamlInt = 25
+    smtp_encryption: Annotated[
+        SMTPEncryption,
+        _parsed_by(SMTPEncryption, _by_name(SMTPEncryption, 'smtp_encryption')),
+        BY_NAME,
+    ] = SMTPEncryption.INSECURE
+
+    sender_email: YamlStr = 'sandbox.service@cyberrange.cz'
+    sender_email_password: YamlStr | None = None
+
+    netbird: NetbirdConfiguration | None = None
+
+    trainee_sandbox_cleanup: TraineeSandboxCleanupConfiguration = Field(
+        default_factory=TraineeSandboxCleanupConfiguration
     )
 
-    sender_email = Attribute(type=str, default='sandbox.service@cyberrange.cz')
-    sender_email_password = Attribute(type=str, default=None)
-
-    netbird = Attribute(type=NetbirdConfiguration, default=None)
-
-    trainee_sandbox_cleanup = Attribute(
-        type=TraineeSandboxCleanupConfiguration, default=TraineeSandboxCleanupConfiguration()
+    lost_job_observer: LostJobObserverConfiguration = Field(
+        default_factory=LostJobObserverConfiguration
     )
 
-    lost_job_observer = Attribute(
-        type=LostJobObserverConfiguration, default=LostJobObserverConfiguration()
-    )
-
-    def __init__(self, **kwargs: Any) -> None:
-        for key, val in kwargs.items():
-            setattr(self, key, val)
-
-    # Nested under CrczpServiceConfig, so yamlize builds this through from_yaml, never load.
+    @field_validator('git_rest_server')
     @classmethod
-    def from_yaml(cls, loader: Any, node: Any, _rtd: Any = None) -> 'CrczpConfiguration':
-        """Load CrczpConfiguration from YAML, rejecting the legacy flat OpenStack keys."""
-        legacy = [
-            key_node
-            for key_node, _ in (node.value if isinstance(node, MappingNode) else [])
-            if key_node.value in LEGACY_OPENSTACK_KEYS
-        ]
+    def _valid_git_rest_server(cls, git_rest_server: str) -> str:
+        crczp_config_validation.validate_git_rest_url(cls, git_rest_server)
+        return git_rest_server
+
+    @classmethod
+    def _fix_node(cls, node: MappingNode) -> None:
+        """Reject the legacy flat OpenStack keys, naming where each one moved."""
+        legacy = [key_node for key_node, _ in node.value if key_node.value in LEGACY_OPENSTACK_KEYS]
         if legacy:
             moves = ', '.join(
                 f'{key.value} -> openstack.{LEGACY_OPENSTACK_KEYS[key.value]}' for key in legacy
             )
-            raise YamlizingError(f'OpenStack settings moved under `openstack:`: {moves}', legacy[0])
-        obj = super().from_yaml(loader, node, _rtd)
-        if obj.openstack is None:
-            obj.openstack = OpenStackConfiguration()
+            raise YamlModelError(f'OpenStack settings moved under `openstack:`: {moves}', legacy[0])
+
+    def _after_load(self, node: MappingNode) -> None:
+        """Make the ProxyJump IdentityFile absolute."""
+        del node
         # ProxyJump IdentityFile must be an absolute path. abspath('') would give the cwd.
-        if obj.proxy_jump_to_man.IdentityFile:
-            obj.proxy_jump_to_man.IdentityFile = os.path.abspath(
-                os.path.expanduser(obj.proxy_jump_to_man.IdentityFile)
+        if self.proxy_jump_to_man.IdentityFile:
+            self.proxy_jump_to_man.IdentityFile = os.path.abspath(
+                os.path.expanduser(self.proxy_jump_to_man.IdentityFile)
             )
-        return obj

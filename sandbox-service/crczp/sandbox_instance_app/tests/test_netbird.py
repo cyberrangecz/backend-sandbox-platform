@@ -62,8 +62,7 @@ def quiet_log(mocker):
 @pytest.fixture
 def netbird_cfg(mocker):
     """Provide a minimal CRCZP_CONFIG with a netbird key-expiry setting."""
-    # CRCZP_CONFIG is a yamlize Object whose attribute descriptor cannot be
-    # safely patched in place, so swap the whole config object for the test.
+    # Swap the whole config object, so the test controls exactly what is read from it.
     mocker.patch(
         f'{NETBIRD_MODULE}.settings.CRCZP_CONFIG',
         new=SimpleNamespace(netbird=SimpleNamespace(key_expiry_seconds=1209600)),

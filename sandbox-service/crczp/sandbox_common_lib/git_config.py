@@ -1,7 +1,5 @@
 """Git configuration utilities for the sandbox service."""
 
-from typing import cast
-
 from crczp.sandbox_common_lib.crczp_config import CrczpConfiguration, GitType
 from crczp.sandbox_common_lib.exceptions import GitError
 
@@ -29,7 +27,7 @@ def get_git_token(rest_server: str, config: CrczpConfiguration) -> str | None:
     Takes a base git url, tries to find a match in config.
     Returns matching access token or None.
     """
-    return cast('str | None', config.git_providers.get(rest_server, None))
+    return config.git_providers.get(rest_server)
 
 
 def get_git_type(rest_server: str) -> GitType:

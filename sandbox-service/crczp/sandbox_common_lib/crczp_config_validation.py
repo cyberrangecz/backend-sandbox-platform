@@ -10,6 +10,11 @@ NETBIRD_KEY_EXPIRY_MIN_SECONDS = 86400
 NETBIRD_KEY_EXPIRY_MAX_SECONDS = 31536000
 
 
+def _model_name(obj: object) -> str:
+    """The name of a config class, given the class or one of its instances."""
+    return obj.__name__ if isinstance(obj, type) else type(obj).__name__
+
+
 def validate_git_rest_url(obj: object, git_rest_server: str) -> bool:
     """Validate that the git REST server URL uses an allowed scheme."""
     validate = URLValidator(schemes=ALLOWED_SCHEMES)
@@ -18,9 +23,7 @@ def validate_git_rest_url(obj: object, git_rest_server: str) -> bool:
         validate(git_rest_server)
     except ValidationError:
         _msg = 'Cannot set {}.git_providers server to "{}". Invalid URL. Allowed schemes are: {}.'
-        raise ValueError(
-            _msg.format(obj.__class__.__name__, git_rest_server, ALLOWED_SCHEMES)
-        ) from None
+        raise ValueError(_msg.format(_model_name(obj), git_rest_server, ALLOWED_SCHEMES)) from None
 
     return True
 
@@ -31,7 +34,7 @@ def validate_head_ip(obj: object, head_ip: str) -> bool:
         validate_ipv4_address(head_ip)
     except ValidationError:
         _msg = 'Cannot set {}.head_ip to "{}". Invalid IP address.'
-        raise ValueError(_msg.format(obj.__class__.__name__, head_ip)) from None
+        raise ValueError(_msg.format(_model_name(obj), head_ip)) from None
 
     return True
 
@@ -45,7 +48,7 @@ def validate_netbird_key_expiry(obj: object, key_expiry_seconds: int) -> bool:
         )
         raise ValueError(
             _msg.format(
-                obj.__class__.__name__,
+                _model_name(obj),
                 key_expiry_seconds,
                 NETBIRD_KEY_EXPIRY_MIN_SECONDS,
                 NETBIRD_KEY_EXPIRY_MAX_SECONDS,
@@ -61,7 +64,7 @@ def validate_trainee_cleanup_max_age_hours(obj: object, max_age_hours: int) -> b
     """Validate that trainee sandboxes are kept for at least an hour before the cleanup."""
     if max_age_hours < 1:
         _msg = 'Cannot set {}.max_age_hours to {}. It must be at least 1 hour.'
-        raise ValueError(_msg.format(obj.__class__.__name__, max_age_hours))
+        raise ValueError(_msg.format(_model_name(obj), max_age_hours))
 
     return True
 
@@ -70,7 +73,7 @@ def validate_lost_job_observer_grace_seconds(obj: object, grace_seconds: int) ->
     """Validate that a dead job is given a positive time to be collected by RQ."""
     if grace_seconds < 1:
         _msg = 'Cannot set {}.grace_seconds to {}. It must be at least 1 second.'
-        raise ValueError(_msg.format(obj.__class__.__name__, grace_seconds))
+        raise ValueError(_msg.format(_model_name(obj), grace_seconds))
 
     return True
 
@@ -79,6 +82,6 @@ def validate_netbird_teardown_budget_seconds(obj: object, budget_seconds: int) -
     """Validate that the Netbird teardown of a sandbox is given a positive time budget."""
     if budget_seconds < 1:
         _msg = 'Cannot set {}.teardown_budget_seconds to {}. It must be at least 1 second.'
-        raise ValueError(_msg.format(obj.__class__.__name__, budget_seconds))
+        raise ValueError(_msg.format(_model_name(obj), budget_seconds))
 
     return True

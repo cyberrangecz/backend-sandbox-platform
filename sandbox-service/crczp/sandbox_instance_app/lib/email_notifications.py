@@ -53,20 +53,16 @@ class EmailManager:
 
     def __enter__(self) -> 'EmailManager':
         encryption = self.config.smtp_encryption
+        server = self.config.smtp_server
+        if not server:
+            raise EmailException('SMTP server is not configured.')
 
         try:
             if encryption in (SMTPEncryption.INSECURE, SMTPEncryption.TSL):
-                self.smtp = smtplib.SMTP(
-                    self.config.smtp_server,
-                    self.config.smtp_port,
-                )
+                self.smtp = smtplib.SMTP(server, self.config.smtp_port)
             elif encryption == SMTPEncryption.SSL:
                 context = ssl.create_default_context()
-                self.smtp = smtplib.SMTP_SSL(
-                    self.config.smtp_server,
-                    self.config.smtp_port,
-                    context=context,
-                )
+                self.smtp = smtplib.SMTP_SSL(server, self.config.smtp_port, context=context)
 
             if encryption == SMTPEncryption.TSL:
                 if self.smtp is None:
@@ -76,10 +72,10 @@ class EmailManager:
             if encryption != SMTPEncryption.INSECURE:
                 if self.smtp is None:
                     raise EmailException('SMTP connection was not established.')
-                self.smtp.login(
-                    self.config.sender_email,
-                    self.config.sender_email_password,
-                )
+                password = self.config.sender_email_password
+                if password is None:
+                    raise EmailException('SMTP sender_email_password is not configured.')
+                self.smtp.login(self.config.sender_email, password)
         except Exception:
             if self.smtp:
                 self.smtp.quit()

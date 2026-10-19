@@ -1419,3 +1419,13 @@ class TestVpnRules:
                 + '\nvpn:\n  dns:\n    servers: [10.10.20.5]\n'
                 + '    search_domains: ["sandbox.local\\n"]\n'
             )
+
+
+def test_yaml_directive_accepted(topology_definition_string: str) -> None:
+    """
+    A document opening with a %YAML directive loads like one without.
+    """
+    with_directive = TopologyDefinition.load('%YAML 1.2\n---\n' + topology_definition_string)
+    without = TopologyDefinition.load(topology_definition_string)
+
+    assert TopologyDefinition.dump(with_directive) == TopologyDefinition.dump(without)

@@ -149,7 +149,7 @@ class BaseBox(YamlModel):
                     ),
                 )
 
-    def _check_loaded(self, node: MappingNode) -> None:
+    def _after_load(self, node: MappingNode) -> None:
         if self.mgmt_password is not None and not self.mgmt_password:
             raise YamlModelError(
                 'mgmt_password must not be empty.', value_node(node, 'mgmt_password')
@@ -602,7 +602,7 @@ class TopologyDefinition(NamedModel):  # pylint: disable=too-many-instance-attri
         }
         super().__init__(**fields)
 
-    def _check_loaded(self, node: MappingNode) -> None:
+    def _after_load(self, node: MappingNode) -> None:
         """
         Run the checks that span several attributes, once the whole document is loaded.
 

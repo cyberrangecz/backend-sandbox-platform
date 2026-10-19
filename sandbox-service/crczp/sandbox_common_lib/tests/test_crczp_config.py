@@ -121,6 +121,7 @@ class TestServiceConfigLoad:
         first = _load(text).app_config
         second = _load(text).app_config
 
+        assert first.aws is not None
         assert first.aws.region == 'eu-central-1'
         assert first.openstack is not second.openstack
         assert first.openstack.console_type is OpenStackConsoleType.SPICE_HTML5

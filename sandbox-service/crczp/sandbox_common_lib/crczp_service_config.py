@@ -2,15 +2,14 @@
 REST API configuration file
 """
 
-from typing import Any, cast
+from typing import IO, Any, Self
 
-from yamlize import Attribute, Object, Sequence, StrList, Typed, YamlizingError
+from pydantic import Field, field_validator
 
 from crczp.sandbox_common_lib.crczp_config import CrczpConfiguration
 from crczp.sandbox_common_lib.exceptions import ImproperlyConfigured
-
-# StrList default value must be cast to tuple, otherwise
-# TypeError: unhashable type: 'list' will be thrown
+from crczp.topology_definition.models import StrList
+from crczp.topology_definition.yaml_model import YamlBool, YamlModel, YamlModelError, YamlStr
 
 STACK_NAME_PREFIX = 'default0'
 MICROSERVICE_NAME = 'sandbox-service'
@@ -30,67 +29,44 @@ def stack_name_prefix_validator(_: object, value: str) -> None:
         raise ValueError('Value stack_name_prefix can have only 1 to 8 characters')
 
 
-class AllowedOidcProviders(Sequence):
-    """Sequence type for allowed OIDC provider configurations."""
-
-    item_type = Typed(dict)
+AllowedOidcProviders = list[dict[str, Any]]
 
 
-class Authentication(Object):
+class Authentication(YamlModel):
     """Authentication configuration for the sandbox service."""
 
-    authenticated_rest_api = Attribute(type=bool, default=AUTHENTICATED_REST_API)
-    allowed_oidc_providers = Attribute(
-        type=AllowedOidcProviders, default=tuple(ALLOWED_OIDC_PROVIDERS)
+    authenticated_rest_api: YamlBool = AUTHENTICATED_REST_API
+    allowed_oidc_providers: AllowedOidcProviders = Field(
+        default_factory=lambda: list(ALLOWED_OIDC_PROVIDERS)
     )
-    roles_registration_url = Attribute(type=str)
-    roles_acquisition_url = Attribute(type=str)
-
-    def __init__(
-        self,
-        authenticated_rest_api: bool,
-        allowed_oidc_providers: 'AllowedOidcProviders',
-        roles_registration_url: str,
-        roles_acquisition_url: str,
-    ) -> None:
-        self.authenticated_rest_api = authenticated_rest_api
-        self.allowed_oidc_providers = allowed_oidc_providers
-        self.roles_registration_url = roles_registration_url
-        self.roles_acquisition_url = roles_acquisition_url
+    roles_registration_url: YamlStr
+    roles_acquisition_url: YamlStr
 
 
-class CrczpServiceConfig(Object):
+class CrczpServiceConfig(YamlModel):
     """Top-level service configuration combining Django and app settings."""
 
-    stack_name_prefix = Attribute(
-        type=str, default=STACK_NAME_PREFIX, validator=stack_name_prefix_validator
-    )
-    microservice_name = Attribute(type=str, default=MICROSERVICE_NAME)
-    debug = Attribute(type=bool, default=DEBUG)
-    django_secret_key = Attribute(type=str, default=DJANGO_SECRET_KEY)
-    allowed_hosts = Attribute(type=StrList, default=tuple(ALLOWED_HOSTS))
-    cors_origin_allow_all = Attribute(type=bool, default=CORS_ORIGIN_ALLOW_ALL)
-    cors_origin_whitelist = Attribute(type=StrList, default=tuple(CORS_ORIGIN_WHITELIST))
+    stack_name_prefix: YamlStr = STACK_NAME_PREFIX
+    microservice_name: YamlStr = MICROSERVICE_NAME
+    debug: YamlBool = DEBUG
+    django_secret_key: YamlStr = DJANGO_SECRET_KEY
+    allowed_hosts: StrList = Field(default_factory=lambda: list(ALLOWED_HOSTS))
+    cors_origin_allow_all: YamlBool = CORS_ORIGIN_ALLOW_ALL
+    cors_origin_whitelist: StrList = Field(default_factory=lambda: list(CORS_ORIGIN_WHITELIST))
 
-    authentication = Attribute(type=Authentication)
-    app_config = Attribute(type=CrczpConfiguration, key='application_configuration')
+    authentication: Authentication
+    app_config: CrczpConfiguration = Field(alias='application_configuration')
 
-    def __init__(self, **kwargs: Any) -> None:
-        for key, val in kwargs.items():
-            setattr(self, key, val)
-
-    # Override
+    @field_validator('stack_name_prefix')
     @classmethod
-    def load(cls, *args: Any, **kwargs: Any) -> 'CrczpServiceConfig':
-        """Factory method. Use it to create a new object of this class."""
+    def _valid_stack_name_prefix(cls, value: str) -> str:
+        stack_name_prefix_validator(cls, value)
+        return value
+
+    @classmethod
+    def load(cls, stream: str | IO[str]) -> Self:
+        """Load the service configuration, reporting an invalid one as ImproperlyConfigured."""
         try:
-            obj = super().load(*args, **kwargs)
-        except YamlizingError as ex:
+            return super().load(stream)
+        except YamlModelError as ex:
             raise ImproperlyConfigured(ex) from ex
-        return cast('CrczpServiceConfig', obj)
-
-    @classmethod
-    def from_file(cls, path: str) -> 'CrczpServiceConfig':
-        """Load service configuration from a YAML file."""
-        with open(path, encoding='utf-8') as f:
-            return cls.load(f)

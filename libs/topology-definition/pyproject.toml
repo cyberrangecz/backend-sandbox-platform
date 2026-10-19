@@ -8,10 +8,7 @@ requires-python = ">=3.12"
 authors = [{ name = "cybersecurityhub.cz" }]
 dependencies = [
     "pydantic>=2.14",
-    # Upper bound stays until yamlize is gone from the workspace (python-commons and the
-    # sandbox-service configs still load through it): >=0.19.1 added a Composer.max_depth
-    # check that yamlize's RoundTripLoader does not satisfy.
-    "ruamel.yaml>=0.17,<0.18"
+    "ruamel.yaml>=0.19.1"
 ]
 
 [dependency-groups]

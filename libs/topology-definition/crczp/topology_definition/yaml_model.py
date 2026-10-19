@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import IO, Annotated, Any, Self, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, PlainValidator, ValidationError
+from pydantic.fields import FieldInfo
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 from ruamel.yaml.nodes import MappingNode, Node, SequenceNode
@@ -109,7 +110,7 @@ class YamlModel(BaseModel):
             model = cls.model_validate(data)
         except ValidationError as exc:
             raise _error(cls, exc, root) from exc
-        model._check_tree(root)  # pylint: disable=protected-access  # an instance of cls
+        model._after_load_tree(root)  # pylint: disable=protected-access  # an instance of cls
         return model
 
     @classmethod
@@ -126,7 +127,8 @@ class YamlModel(BaseModel):
         Dump an instance to YAML, writing only the fields it was loaded or built with.
         """
         stream = StringIO()
-        YAML(typ='rt').dump(data.model_dump(mode='json', exclude_unset=True), stream)
+        dumped = data.model_dump(mode='json', exclude_unset=True, by_alias=True)
+        YAML(typ='rt').dump(dumped, stream)
         return stream.getvalue()
 
     @classmethod
@@ -136,10 +138,10 @@ class YamlModel(BaseModel):
         """
         del node
 
-    def _check_loaded(self, node: MappingNode) -> None:
+    def _after_load(self, node: MappingNode) -> None:
         """
-        Check what only a loaded instance must satisfy, raising YamlModelError at its node.
-        Nothing by default; nested instances are checked before the one holding them.
+        Check or complete what only a loaded instance needs, raising YamlModelError at its node.
+        Nothing by default; nested instances run this before the one holding them.
         """
         del node
 
@@ -154,7 +156,7 @@ class YamlModel(BaseModel):
         cls._fix_node(node)
         for key_node, child in node.value:
             key = key_node.value
-            field = cls.model_fields.get(key) if isinstance(key, str) else None
+            field = _field_for_key(cls, key) if isinstance(key, str) else None
             if field is None:
                 continue
             for model in _models_in(field.annotation):
@@ -164,14 +166,13 @@ class YamlModel(BaseModel):
                         # pylint: disable-next=protected-access  # a nested YamlModel class
                         model._prepare(item, seen)
 
-    def _check_tree(self, node: MappingNode) -> None:
+    def _after_load_tree(self, node: MappingNode) -> None:
         """
-        Run _check_loaded on the instances this one holds, then on this one.
+        Run _after_load on the instances this one holds, then on this one.
         """
-        # model_fields is a mapping; pylint cannot infer it through pydantic's metaclass.
-        for name in type(self).model_fields:  # pylint: disable=not-an-iterable
+        for name, field in type(self).model_fields.items():
             value = getattr(self, name)
-            child = find_value_node(node, name)
+            child = find_value_node(node, field.alias or name)
             if child is None:
                 continue
             if isinstance(value, list) and isinstance(child, SequenceNode):
@@ -180,8 +181,8 @@ class YamlModel(BaseModel):
                 pairs = [(value, child)]
             for item, item_node in pairs:
                 if isinstance(item, YamlModel) and isinstance(item_node, MappingNode):
-                    item._check_tree(item_node)  # pylint: disable=protected-access
-        self._check_loaded(node)
+                    item._after_load_tree(item_node)  # pylint: disable=protected-access
+        self._after_load(node)
 
 
 def find_value_node(mapping: MappingNode, key: str) -> Node | None:
@@ -205,6 +206,16 @@ def value_node(mapping: MappingNode, key: str) -> Node:
     The node of key's value in a mapping, or the mapping itself when the key is absent.
     """
     return find_value_node(mapping, key) or mapping
+
+
+def _field_for_key(model: type[YamlModel], key: str) -> FieldInfo | None:
+    """
+    The field a YAML key sets: the one aliased to the key, else the one named so.
+    """
+    return next(
+        (field for name, field in model.model_fields.items() if (field.alias or name) == key),
+        None,
+    )
 
 
 def _models_in(annotation: Any) -> list[type[YamlModel]]:
@@ -254,7 +265,7 @@ def _model_at(model: type[YamlModel], loc: tuple[int | str, ...]) -> type[YamlMo
     The model class an error location ends in.
     """
     for part in loc:
-        field = model.model_fields.get(part) if isinstance(part, str) else None
+        field = _field_for_key(model, part) if isinstance(part, str) else None
         if field is not None and (models := _models_in(field.annotation)):
             model = models[0]
     return model
@@ -285,9 +296,9 @@ def _error(model: type[YamlModel], exc: ValidationError, root: MappingNode) -> Y
             owner_node,
         )
         owner = _model_at(model, loc[:-1])
+        keys = [field.alias or name for name, field in owner.model_fields.items()]
         return YamlModelError(
-            f'Error parsing {owner.__name__}, found key `{loc[-1]}` but expected any of '
-            f'{list(owner.model_fields)}',
+            f'Error parsing {owner.__name__}, found key `{loc[-1]}` but expected any of {keys}',
             key_node,
         )
     node = _node_at(root, loc)

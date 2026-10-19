@@ -19,7 +19,7 @@ class TestGitlabProvider:
     URL1 = 'https://gitlab.com/crczp/backend-python/sandbox-service.git'
     URL2 = 'https://gitlab.com/crczp/backend-python/sub-group/GRPX/sandbox-service.git'
     URL3 = 'https://gitlab.com:123456/sandbox-service.git'
-    CFG = CrczpConfiguration()
+    CFG = CrczpConfiguration.model_construct()
 
     @staticmethod
     def get_expected_url(url: str) -> str:
@@ -178,7 +178,9 @@ class TestGitHubProvider:
         )
 
         def _make(mode: TopologyCacheMode = TopologyCacheMode.AGGRESSIVE) -> GitHubProvider:
-            return GitHubProvider(self.URL, CrczpConfiguration(topology_cache_mode=mode))
+            return GitHubProvider(
+                self.URL, CrczpConfiguration.model_construct(topology_cache_mode=mode)
+            )
 
         return _make
 

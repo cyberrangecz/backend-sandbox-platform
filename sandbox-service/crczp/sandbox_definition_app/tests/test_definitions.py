@@ -165,7 +165,7 @@ class TestLoadDefinition:
 class TestGetDefinition:
     """Tests for fetching a definition from a git provider."""
 
-    CFG = CrczpConfiguration()
+    CFG = CrczpConfiguration.model_construct()
 
     @pytest.fixture(autouse=True)
     def clear_topology_cache(self):
@@ -250,7 +250,7 @@ class TestGetDefProvider:  # pylint: disable=too-few-public-methods
     def test_get_def_provider_gitlab(self):
         """Test that a Gitlab URL returns a GitlabProvider instance."""
         url_git = 'https://gitlab.com/crczp/backend-python/sandbox-service.git'
-        cfg_git = CrczpConfiguration()
+        cfg_git = CrczpConfiguration.model_construct()
         assert isinstance(definitions.get_def_provider(url_git, cfg_git), GitlabProvider)
 
 

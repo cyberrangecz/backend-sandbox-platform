@@ -8,12 +8,12 @@ requires-python = ">=3.12"
 authors = [{ name = "cybersecurityhub.cz" }]
 dependencies = [
     "crczp-topology-definition",
-    # Both are imported directly by crczp/cloud_commons. yamlize also arrives via
+    # Both are imported directly by crczp/cloud_commons. pydantic also arrives via
     # topology-definition, but a direct import warrants a direct declaration; PyYAML
     # arrives from nowhere, so a standalone install used to fail on
     # `import crczp.cloud_commons`.
     "PyYAML>=6.0.2",
-    "yamlize>=0.6"
+    "pydantic>=2.14"
 ]
 [project.optional-dependencies]
 dev = [

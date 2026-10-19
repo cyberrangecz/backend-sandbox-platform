@@ -78,9 +78,7 @@ def fake_redis_for_integration(request, monkeypatch):
 def forwarding_flag(mocker):
     """Return a function that sets network_forwarding_enabled on a copy of the app config.
 
-    A copy, because the attributes of the CRCZP_CONFIG singleton are yamlize descriptors: mock
-    restores a patched one by deleting it, which resets it to the class default instead of the
-    configured value.
+    A copy, so the change never reaches the CRCZP_CONFIG singleton other tests read.
     """
 
     def set_flag(*, enabled: bool) -> None:

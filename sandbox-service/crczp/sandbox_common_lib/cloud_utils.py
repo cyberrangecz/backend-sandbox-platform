@@ -53,13 +53,16 @@ def get_aws_client(crczp_config: CrczpConfiguration) -> CrczpTerraformClient:
     """
     Get AWS terraform client
     """
+    aws = crczp_config.aws
+    if aws is None:
+        raise ValidationError('AWS is not configured: the application configuration has no `aws:`.')
     return CrczpTerraformClient(
-        aws_access_key=crczp_config.aws.access_key_id,
-        aws_secret_key=crczp_config.aws.secret_access_key,
-        region=crczp_config.aws.region,
-        availability_zone=crczp_config.aws.availability_zone,
-        base_vpc_name=crczp_config.aws.base_vpc,
-        base_subnet_name=crczp_config.aws.base_subnet,
+        aws_access_key=aws.access_key_id,
+        aws_secret_key=aws.secret_access_key,
+        region=aws.region,
+        availability_zone=aws.availability_zone,
+        base_vpc_name=aws.base_vpc,
+        base_subnet_name=aws.base_subnet,
         trc=crczp_config.trc,
         cloud_client=AvailableCloudLibraries.AWS,
         backend_type=CrczpTerraformBackendType(crczp_config.terraform_configuration.backend_type),
