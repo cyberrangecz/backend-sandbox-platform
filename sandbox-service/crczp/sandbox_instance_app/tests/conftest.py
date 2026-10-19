@@ -633,7 +633,6 @@ def cleanup_request_finished(cleanup_stage_stack_started):
     return cleanup_stage_stack_started.cleanup_request
 
 
-
 # Authenticated requests, as the OIDC authentication sets them up: the user named
 # '<sub>|<issuer>' with role groups synced from UAG, and the userinfo as request.auth.
 

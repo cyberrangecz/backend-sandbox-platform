@@ -5,7 +5,8 @@ Module for topology definition utilities.
 from typing import Any
 
 from ruamel.yaml.nodes import ScalarNode
-from yamlize import YamlizingError
+
+from crczp.topology_definition.yaml_model import YamlModelError
 
 
 def rename_deprecated_attribute(
@@ -24,7 +25,7 @@ def rename_deprecated_attribute(
                 f'Deprecated attribute "{old_attribute_name}" is mutually exclusive '
                 f'with the new attribute "{new_attribute_name}".'
             )
-            raise YamlizingError(msg)
+            raise YamlModelError(msg)
 
         key_scalars[old_attribute_name].value = new_attribute_name
 
@@ -41,7 +42,7 @@ def reject_key_conflict(
 
     if key_a in key_scalars and key_b in key_scalars:
         msg = f'Attribute "{key_a}" is mutually exclusive with attribute "{key_b}".'
-        raise YamlizingError(msg)
+        raise YamlModelError(msg)
 
 
 def reject_null_value(
@@ -58,4 +59,4 @@ def reject_null_value(
             and isinstance(value_node, ScalarNode)
             and value_node.tag == 'tag:yaml.org,2002:null'
         ):
-            raise YamlizingError(f'Attribute "{key}" must not be null.')
+            raise YamlModelError(f'Attribute "{key}" must not be null.')

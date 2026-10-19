@@ -4,7 +4,13 @@
 from enum import Enum
 from typing import Any, Union, override
 
-from crczp.topology_definition.models import BaseBox, ForwardingDirection, Host, Network, Router
+from crczp.topology_definition.models import (
+    BaseBox,
+    ForwardingDirection,
+    Host,
+    NamedNetwork,
+    Router,
+)
 
 Node = Union['MAN', Host, Router]
 
@@ -59,7 +65,7 @@ class Link:
         self,
         name: str,
         node: Node,
-        network: Network,
+        network: NamedNetwork,
         security_group: SecurityGroups,
         ip: str | None = None,
         mac: str | None = None,

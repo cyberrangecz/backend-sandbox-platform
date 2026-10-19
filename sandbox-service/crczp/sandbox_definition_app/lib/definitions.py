@@ -13,7 +13,6 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.cache import caches
 from generator.var_object import Variable
-from yamlize import YamlizingError
 
 from crczp.sandbox_ansible_app.lib.inventory import DefaultAnsibleHostsGroups
 from crczp.sandbox_common_lib import exceptions, git_config, utils
@@ -27,7 +26,8 @@ from crczp.sandbox_definition_app.lib.definition_providers import (
 )
 from crczp.sandbox_definition_app.models import Definition
 from crczp.topology_definition.image_naming import image_name_replace
-from crczp.topology_definition.models import DockerContainers, Host, TopologyDefinition
+from crczp.topology_definition.models import DockerContainers, Host, TopologyDefinition, Volume
+from crczp.topology_definition.yaml_model import YamlModelError
 
 LOG = structlog.get_logger()
 
@@ -79,7 +79,7 @@ def load_definition(stream: TextIO) -> TopologyDefinition:
     """
     try:
         topology_definition = TopologyDefinition.load(stream)
-    except YamlizingError as ex:
+    except YamlModelError as ex:
         raise exceptions.ValidationError(ex) from ex
 
     image_naming_strategy = settings.CRCZP_CONFIG.image_naming_strategy
@@ -108,7 +108,7 @@ def load_docker_containers(stream: TextIO) -> DockerContainers:
     """
     try:
         containers = DockerContainers.load(stream)
-    except YamlizingError as ex:
+    except YamlModelError as ex:
         raise exceptions.ValidationError(ex) from ex
     return containers
 
@@ -128,7 +128,9 @@ def get_definition(
     cache = caches['topology_cache']
     provider = get_def_provider(url, config)
     rev_sha = provider.get_rev_sha(rev)
-    cache_key = f'definition-{url}-rev-sha-{rev_sha}-topology'
+    # The cache holds pickled TopologyDefinitions; the suffix changes with their class layout
+    # (v2: pydantic models), so a pickle of an older layout is never read back.
+    cache_key = f'definition-{url}-rev-sha-{rev_sha}-topology-v2'
     if not force_refresh:
         top_def = cache.get(cache_key, None)
         if top_def is not None:
@@ -262,12 +264,12 @@ def validate_volumes(topology_definition: TopologyDefinition) -> None:
     :param topology_definition: Topology definition
     :raise: ValidationError if a volume source is missing or larger than the volume
     """
-    hosts = [host for host in topology_definition.hosts if host.volumes]
+    hosts = [(host, volumes) for host in topology_definition.hosts if (volumes := host.volumes)]
     if not hosts:
         return
     min_disks = {image.name: image.min_disk or 0 for image in list_images()}
     extra_images = {
-        volume.image for host in hosts for volume in host.volumes[1:] if volume.image is not None
+        volume.image for _, volumes in hosts for volume in volumes[1:] if volume.image is not None
     }
     if settings.AWS_PROVIDER_CONFIGURED:
         extra_sizes = _get_snapshot_sizes(extra_images)
@@ -276,15 +278,19 @@ def validate_volumes(topology_definition: TopologyDefinition) -> None:
         extra_sizes = {image: _get_min_disk(min_disks, image) for image in extra_images}
         extra_source = 'minimum of image'
 
-    for host in hosts:
+    for host, volumes in hosts:
         base_image = host.base_box.image
         _validate_volume_size(
-            host, 0, _get_min_disk(min_disks, base_image), f'minimum of image {base_image}'
+            host,
+            0,
+            volumes[0],
+            _get_min_disk(min_disks, base_image),
+            f'minimum of image {base_image}',
         )
-        for index, volume in enumerate(host.volumes[1:], start=1):
+        for index, volume in enumerate(volumes[1:], start=1):
             if volume.image is not None:
                 _validate_volume_size(
-                    host, index, extra_sizes[volume.image], f'{extra_source} {volume.image}'
+                    host, index, volume, extra_sizes[volume.image], f'{extra_source} {volume.image}'
                 )
 
 
@@ -311,11 +317,13 @@ def _get_snapshot_sizes(snapshot_ids: set[str]) -> dict[str, int]:
     return sizes
 
 
-def _validate_volume_size(host: Host, index: int, minimum: int, source: str) -> None:
-    size = host.volumes[index].size
-    if size < minimum:
+def _validate_volume_size(
+    host: Host, index: int, volume: Volume, minimum: int, source: str
+) -> None:
+    if volume.size < minimum:
         raise exceptions.ValidationError(
-            f'Host {host.name}: volume {index} size {size} GB is below the {minimum} GB {source}.'
+            f'Host {host.name}: volume {index} size {volume.size} GB is below the {minimum} GB '
+            f'{source}.'
         )
 
 

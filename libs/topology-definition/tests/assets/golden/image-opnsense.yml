@@ -1,0 +1,36 @@
+# Source: https://github.com/cyberrangecz/image-opnsense/blob/HEAD/topology.yml
+name: opnsense-testing-topology
+
+hosts:
+  - name: image-test
+    base_box: 
+      image: IMAGE_NAME
+      mgmt_user: freebsd
+    flavor: standard.small
+
+routers:
+  - name: router
+    base_box:
+      image: IMAGE_NAME
+      mgmt_user: freebsd
+    flavor: standard.small
+
+networks:
+  - name: network
+    cidr: 10.0.0.0/24
+
+net_mappings:
+    - host: image-test
+      network: network
+      ip: 10.0.0.10
+
+router_mappings:
+    - router: router
+      network: network
+      ip: 10.0.0.1
+
+groups:
+  - name: monitor-os
+    nodes: []
+  - name: monitor-icmp
+    nodes: []

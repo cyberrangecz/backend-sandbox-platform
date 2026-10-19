@@ -1,0 +1,74 @@
+# Source: https://github.com/cyberrangecz/library-locust-3302/blob/HEAD/topology.yml
+name: library-locust-3302
+
+hosts:
+  - name: attacker
+    base_box:
+      image: kali
+      mgmt_user: debian
+    flavor: standard.small
+
+  - name: web
+    base_box:
+      image: debian-12-x86_64
+      mgmt_user: debian
+    flavor: standard.small
+    hidden: True
+
+  - name: client
+    base_box:
+      image: debian-12-x86_64
+      mgmt_user: debian
+    flavor: standard.small
+    hidden: True
+
+routers:
+  - name: router
+    base_box:
+      image: debian-12-x86_64
+      mgmt_user: debian
+    flavor: standard.small
+
+wan:
+  name: internet-connection
+  cidr: 100.100.100.0/24
+
+networks:
+  - name: big-broker
+    cidr: 172.18.1.0/24
+    accessible_by_user: False
+
+  - name: outside-network
+    cidr: 10.1.0.0/16
+    accessible_by_user: False
+
+  - name: attacker-network
+    cidr: 10.10.0.0/16
+
+net_mappings:
+  - host: web
+    network: big-broker
+    ip: 172.18.1.5
+
+  - host: client
+    network: outside-network
+    ip: 10.1.17.4
+
+  - host: attacker
+    network: attacker-network
+    ip: 10.10.135.83
+
+router_mappings:
+  - router: router
+    network: big-broker
+    ip: 172.18.1.1
+
+  - router: router
+    network: outside-network
+    ip: 10.1.0.1
+
+  - router: router
+    network: attacker-network
+    ip: 10.10.0.1
+
+groups: []

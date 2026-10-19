@@ -12,7 +12,7 @@ from django.conf import settings
 
 from crczp.cloud_commons import Link, TopologyInstance
 from crczp.sandbox_common_lib import exceptions
-from crczp.topology_definition.models import Network, Router
+from crczp.topology_definition.models import NamedNetwork, Router
 
 PROXY_JUMP_NAME = 'proxy-jump'
 
@@ -277,7 +277,7 @@ class Routing:  # pylint: disable=too-few-public-methods
             for network in router_networks:
                 man_to_routers_interface.add_route(Route(network.cidr, router_to_man_interface.ip))
 
-    def _get_host_networks_for_routing(self, router: Router) -> list[Network]:
+    def _get_host_networks_for_routing(self, router: Router) -> list[NamedNetwork]:
         """
         Return a list of user-defined Networks connected to The Router needed to be routed to.
         """

@@ -1,0 +1,125 @@
+{
+  "definition": {
+    "groups": [],
+    "hosts": [
+      {
+        "base_box": {
+          "image": "kali",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": false,
+        "managed": true,
+        "name": "attacker",
+        "visible_by_roles": null,
+        "volumes": null
+      },
+      {
+        "base_box": {
+          "image": "debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": true,
+        "managed": true,
+        "name": "server",
+        "visible_by_roles": null,
+        "volumes": null
+      },
+      {
+        "base_box": {
+          "image": "debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": true,
+        "managed": true,
+        "name": "client",
+        "visible_by_roles": null,
+        "volumes": null
+      }
+    ],
+    "monitoring_targets": null,
+    "name": "library-junior-hacker-adaptive",
+    "net_mappings": [
+      {
+        "host": "attacker",
+        "ip": "10.1.27.23",
+        "network": "attacker-switch"
+      },
+      {
+        "host": "server",
+        "ip": "10.1.26.9",
+        "network": "target-switch"
+      },
+      {
+        "host": "client",
+        "ip": "10.1.26.4",
+        "network": "target-switch"
+      }
+    ],
+    "network_forwarding": null,
+    "networks": [
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": false,
+        "cidr": "10.1.26.0/24",
+        "hidden": false,
+        "name": "target-switch",
+        "visible_by_roles": null
+      },
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": true,
+        "cidr": "10.1.27.0/24",
+        "hidden": false,
+        "name": "attacker-switch",
+        "visible_by_roles": null
+      }
+    ],
+    "router_mappings": [
+      {
+        "ip": "10.1.26.1",
+        "network": "target-switch",
+        "router": "router"
+      },
+      {
+        "ip": "10.1.27.1",
+        "network": "attacker-switch",
+        "router": "router"
+      }
+    ],
+    "routers": [
+      {
+        "base_box": {
+          "image": "debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": false,
+        "name": "router",
+        "visible_by_roles": null
+      }
+    ],
+    "vpn": null,
+    "wan": {
+      "cidr": "100.100.100.0/24",
+      "name": "wan"
+    }
+  }
+}

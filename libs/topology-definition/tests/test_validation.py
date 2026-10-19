@@ -7,9 +7,9 @@ import re
 
 import pytest
 from ruamel.yaml import YAML
-from yamlize.yamlizing_error import YamlizingError
 
 from crczp.topology_definition.models import TopologyDefinition
+from crczp.topology_definition.yaml_model import YamlModelError
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), 'assets')
 
@@ -23,7 +23,7 @@ def fixture_topology_definition_string() -> str:
         return f.read()
 
 
-def _error_start_line(error: YamlizingError) -> int:
+def _error_start_line(error: YamlModelError) -> int:
     match = re.search(r'start:.*?line (\d+)', str(error))
     assert match is not None
     return int(match.group(1))
@@ -84,7 +84,7 @@ class TestKeyOrder:
         )
         assert 'terraform_data' in document
 
-        with pytest.raises(YamlizingError, match='is not a valid IPv4 CIDR'):
+        with pytest.raises(YamlModelError, match='is not a valid IPv4 CIDR'):
             TopologyDefinition.load(document)
 
     def test_injected_mapping_ip_scope_id_rejected(self, topology_definition_string: str) -> None:
@@ -96,14 +96,14 @@ class TestKeyOrder:
         )
         assert 'terraform_data' in document
 
-        with pytest.raises(YamlizingError, match='is not a valid IPv4 address'):
+        with pytest.raises(YamlModelError, match='is not a valid IPv4 address'):
             TopologyDefinition.load(document)
 
     def test_ipv6_network_rejected(self, topology_definition_string: str) -> None:
         """
         User networks are IPv4 only.
         """
-        with pytest.raises(YamlizingError, match='"fd00:10::/64" is not a valid IPv4 CIDR'):
+        with pytest.raises(YamlModelError, match='"fd00:10::/64" is not a valid IPv4 CIDR'):
             TopologyDefinition.load(
                 topology_definition_string.replace('cidr: 10.10.50.0/24', 'cidr: fd00:10::/64')
             )
@@ -118,7 +118,7 @@ class TestKeyOrder:
             'cidr: 10.10.50.0/24', 'cidr: not-a-cidr'
         )
 
-        with pytest.raises(YamlizingError, match='is not a valid IPv4 CIDR'):
+        with pytest.raises(YamlModelError, match='is not a valid IPv4 CIDR'):
             TopologyDefinition.load(document)
 
     @pytest.mark.parametrize(
@@ -139,7 +139,7 @@ class TestKeyOrder:
             'ip: 10.10.50.5', f'ip: {ip}'
         )
 
-        with pytest.raises(YamlizingError, match=match):
+        with pytest.raises(YamlModelError, match=match):
             TopologyDefinition.load(document)
 
     def test_every_mapping_ip_checked(self, topology_definition_string: str) -> None:
@@ -154,7 +154,7 @@ class TestKeyOrder:
             '  - host: home\n    network: server-switch\n    ip: 10.10.20.6\n',
         )
 
-        with pytest.raises(YamlizingError, match='"10.10.99.5" is not valid host address'):
+        with pytest.raises(YamlModelError, match='"10.10.99.5" is not valid host address'):
             TopologyDefinition.load(document)
 
     def test_shuffled_keys_load_the_same_definition(self, topology_definition_string: str) -> None:
@@ -194,7 +194,7 @@ class TestKeyOrder:
             '      - home-router\n', '      - nobody\n'
         )
 
-        with pytest.raises(YamlizingError, match='Cannot find a node .* with name "nobody"'):
+        with pytest.raises(YamlModelError, match='Cannot find a node .* with name "nobody"'):
             TopologyDefinition.load(document)
 
     @pytest.mark.parametrize(
@@ -227,7 +227,7 @@ class TestKeyOrder:
         assert topology_definition_string.count(old) == 1
         document = topology_definition_string.replace(old, new)
 
-        with pytest.raises(YamlizingError) as exc_info:
+        with pytest.raises(YamlModelError) as exc_info:
             TopologyDefinition.load(document)
 
         lines = document.splitlines()
@@ -246,7 +246,7 @@ class TestKeyOrder:
         """
         document = topology_definition_string.replace(old, new)
 
-        with pytest.raises(YamlizingError) as exc_info:
+        with pytest.raises(YamlModelError) as exc_info:
             TopologyDefinition.load(document)
 
         assert _error_start_line(exc_info.value) == document.splitlines().index(new) + 1
@@ -276,7 +276,7 @@ class TestReservedNames:
         """
         assert topology_definition_string.count(old) == 1
 
-        with pytest.raises(YamlizingError, match='is reserved for the sandbox management'):
+        with pytest.raises(YamlModelError, match='is reserved for the sandbox management'):
             TopologyDefinition.load(topology_definition_string.replace(old, new))
 
     def test_names_containing_reserved_ones_accepted(self, topology_definition_string: str) -> None:

@@ -1,0 +1,58 @@
+# Source: https://github.com/cyberrangecz/library-junior-hacker-adaptive/blob/HEAD/topology.yml
+name: library-junior-hacker-adaptive
+
+hosts:
+  - name: attacker
+    base_box:
+      image: kali
+      man_user: debian
+    flavor: standard.small
+
+  - name: server
+    base_box:
+      image: debian-12-x86_64
+      man_user: debian
+    flavor: standard.small
+    hidden: True
+
+  - name: client
+    base_box:
+      image: debian-12-x86_64
+      man_user: debian
+    flavor: standard.small
+    hidden: True
+
+routers:
+  - name: router
+    base_box:
+      image: debian-12-x86_64
+      man_user: debian
+    flavor: standard.small
+
+networks:
+  - name: target-switch
+    cidr: 10.1.26.0/24
+    accessible_by_user: False
+  - name: attacker-switch
+    cidr: 10.1.27.0/24
+
+net_mappings:
+  - host: attacker
+    network: attacker-switch
+    ip: 10.1.27.23
+  - host: server
+    network: target-switch
+    ip: 10.1.26.9
+  - host: client
+    network: target-switch
+    ip: 10.1.26.4
+
+router_mappings:
+  - router: router
+    network: target-switch
+    ip: 10.1.26.1
+  - router: router
+    network: attacker-switch
+    ip: 10.1.27.1
+
+groups: []

@@ -1,0 +1,18 @@
+{
+  "definition": {
+    "groups": [],
+    "hosts": [],
+    "monitoring_targets": null,
+    "name": "terraform-testing-definition",
+    "net_mappings": [],
+    "network_forwarding": null,
+    "networks": [],
+    "router_mappings": [],
+    "routers": [],
+    "vpn": null,
+    "wan": {
+      "cidr": "100.100.100.0/24",
+      "name": "wan"
+    }
+  }
+}
