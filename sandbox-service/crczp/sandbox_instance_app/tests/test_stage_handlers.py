@@ -164,6 +164,9 @@ class TestAllocationAnsibleStageHandler:
         mocker.patch('crczp.sandbox_instance_app.lib.sandboxes.get_topology_instance')
         mocker.patch('crczp.sandbox_ansible_app.lib.container.DockerContainer._run_container')
         mocker.patch('crczp.sandbox_ansible_app.lib.container.DockerContainer.delete')
+        self.generate_role_keypairs = mocker.patch(
+            'crczp.sandbox_instance_app.lib.stage_handlers.sandboxes.generate_role_keypairs'
+        )
 
         allocation_runner_class = mocker.patch(
             'crczp.sandbox_instance_app.lib.stage_handlers.AllocationAnsibleRunner'
@@ -207,6 +210,26 @@ class TestAllocationAnsibleStageHandler:
         assert allocation_stage_networking.outputs.count() == 1
         assert allocation_stage_networking.outputs.first().content == 'output'
         assert_db_stage(allocation_stage_networking, now, failed=False)
+
+    def test_execute_generates_role_keypairs_for_the_networking_stage(
+        self, allocation_stage_networking, sandbox
+    ):
+        """The networking stage generates the sandbox's per-role SSH keypairs."""
+        handler = stage_handlers.AllocationAnsibleStageHandler(allocation_stage_networking, sandbox)
+
+        handler.execute()
+
+        self.generate_role_keypairs.assert_called_once_with(sandbox, handler.allocation_unit.pool)
+
+    def test_execute_does_not_generate_role_keypairs_for_the_user_stage(
+        self, allocation_stage_user, sandbox
+    ):
+        """The user stage does not regenerate the sandbox's per-role SSH keypairs."""
+        handler = stage_handlers.AllocationAnsibleStageHandler(allocation_stage_user, sandbox)
+
+        handler.execute()
+
+        self.generate_role_keypairs.assert_not_called()
 
     def test_execute_failed_to_create_docker(self, now, allocation_stage_networking, sandbox):
         """Test that a Docker creation failure marks the stage as failed with no container."""

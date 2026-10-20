@@ -4,9 +4,10 @@ from unittest import mock
 
 import pytest
 from django.conf import settings
+from django.contrib.auth.models import Group, User
 from django.core.cache import cache
 from rest_framework.reverse import reverse
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from crczp.sandbox_cloud_app.lib.projects import get_flavor_catalog
 from crczp.sandbox_cloud_app.views import ProjectFlavorsView
@@ -124,6 +125,7 @@ def test_view_passes_cached_query_parameter(mocker, query, expected_cached):
         (['ROLE_SANDBOX-SERVICE_ADMIN'], 200),
     ],
 )
+@pytest.mark.django_db
 def test_view_admits_designer_organizer_and_admin_only(mocker, roles, expected_status):
     """With REST authentication on, a trainee is refused and every other role is served."""
     mocker.patch.object(
@@ -132,15 +134,13 @@ def test_view_admits_designer_organizer_and_admin_only(mocker, roles, expected_s
         mock.Mock(authentication=mock.Mock(authenticated_rest_api=True)),
     )
     mocker.patch(
-        'crczp.sandbox_uag.permissions.authenticator_class.get_bearer_token',
-        return_value=b'token',
-    )
-    mocker.patch('crczp.sandbox_uag.permissions.get_user_roles', return_value=roles)
-    mocker.patch(
         'crczp.sandbox_cloud_app.lib.projects.get_flavor_catalog',
         return_value={'flavors': [], 'unmapped_aliases': []},
     )
+    user = User.objects.create(username='requester')
+    user.groups.set(Group.objects.create(name=role) for role in roles)
     request = APIRequestFactory().get(reverse('project-flavors'))
+    force_authenticate(request, user=user)
 
     response = ProjectFlavorsView.as_view()(request)
 

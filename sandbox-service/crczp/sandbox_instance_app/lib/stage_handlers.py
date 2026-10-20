@@ -21,11 +21,13 @@ from crczp.sandbox_ansible_app.models import (
     AnsibleAllocationStage,
     AnsibleCleanupStage,
     Container,
+    NetworkingAnsibleAllocationStage,
     UserAnsibleAllocationStage,
     UserAnsibleCleanupStage,
 )
 from crczp.sandbox_common_lib import exceptions, utils
 from crczp.sandbox_definition_app.lib import definitions
+from crczp.sandbox_instance_app.lib import sandboxes
 from crczp.sandbox_instance_app.lib.jump_proxy_cleanup import delete_jump_ssh_key
 from crczp.sandbox_instance_app.models import (
     AllocationRQJob,
@@ -389,6 +391,12 @@ class AllocationAnsibleStageHandler(AnsibleStageHandler):
         """
         if self.sandbox is None:
             raise exceptions.AnsibleError('Sandbox was not provided')
+
+        if isinstance(self.stage, NetworkingAnsibleAllocationStage):
+            # Runs before the inventory/SSH dir below read sandbox.role_keypairs,
+            # so every row they need already exists; a failure here fails this
+            # stage, tracked and reported like any other stage failure.
+            sandboxes.generate_role_keypairs(self.sandbox, self.allocation_unit.pool)
 
         runner = AllocationAnsibleRunner(self.directory_path)
         runner.prepare_ssh_dir(self.allocation_unit.pool, self.sandbox)
