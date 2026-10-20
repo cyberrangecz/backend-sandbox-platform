@@ -7,10 +7,12 @@ import pytest
 from django.db import IntegrityError
 from django.http import Http404
 
+from crczp.cloud_commons import UNIVERSAL_ROLES
 from crczp.sandbox_common_lib import exceptions
 from crczp.sandbox_instance_app import serializers
 from crczp.sandbox_instance_app.lib import sandboxes, sshconfig
-from crczp.sandbox_instance_app.models import Sandbox, SandboxAllocationUnit
+from crczp.sandbox_instance_app.models import Sandbox, SandboxAllocationUnit, SandboxRoleKeypair
+from crczp.sandbox_instance_app.tests.test_sshconfig import TestRoleAwareUserSshConfig
 
 pytestmark = pytest.mark.django_db
 
@@ -45,6 +47,50 @@ class TestGetSandbox:
         )
         sandbox: Sandbox = Sandbox.objects.create(id=64, allocation_unit=au, ready=True)
         assert sandboxes.get_sandbox(sandbox.id) is not None
+
+
+class TestGenerateRoleKeypairs:
+    """Tests for generating a sandbox's per-role SSH keypairs."""
+
+    def test_creates_one_keypair_per_declared_role(self, mocker, sandbox):
+        """One SandboxRoleKeypair row is created per role the definition declares."""
+        mocker.patch(
+            'crczp.sandbox_instance_app.lib.sandboxes.definitions.get_definition',
+            return_value=mock.MagicMock(get_declared_roles=lambda: {'red-team', 'blue-team'}),
+        )
+
+        sandboxes.generate_role_keypairs(sandbox, sandbox.allocation_unit.pool)
+
+        roles = set(sandbox.role_keypairs.values_list('role', flat=True))
+        assert roles == {'red-team', 'blue-team'}
+
+    def test_declaring_no_role_creates_no_keypair(self, mocker, sandbox):
+        """A role-free definition creates no SandboxRoleKeypair rows."""
+        mocker.patch(
+            'crczp.sandbox_instance_app.lib.sandboxes.definitions.get_definition',
+            return_value=mock.MagicMock(get_declared_roles=set),
+        )
+
+        sandboxes.generate_role_keypairs(sandbox, sandbox.allocation_unit.pool)
+
+        assert not sandbox.role_keypairs.exists()
+
+    def test_rerun_for_an_already_generated_role_is_a_no_op(self, mocker, sandbox):
+        """A role with an existing row is left untouched by a rerun."""
+        mocker.patch(
+            'crczp.sandbox_instance_app.lib.sandboxes.definitions.get_definition',
+            return_value=mock.MagicMock(get_declared_roles=lambda: {'red-team'}),
+        )
+        existing = SandboxRoleKeypair.objects.create(
+            sandbox=sandbox, role='red-team', private_key='priv', public_key='pub'
+        )
+
+        sandboxes.generate_role_keypairs(sandbox, sandbox.allocation_unit.pool)
+
+        assert sandbox.role_keypairs.count() == 1
+        existing.refresh_from_db()
+        assert existing.private_key == 'priv'
+        assert existing.public_key == 'pub'
 
 
 class TestSandboxesManipulation:
@@ -91,7 +137,7 @@ class TestSandboxesManipulation:
             mock.patch('django.core.cache.cache.set'),
         ):
             mock_cache_get.return_value = None
-            topo = sandboxes.get_sandbox_topology(mocker.Mock())
+            topo = sandboxes.get_sandbox_topology(mocker.Mock(), UNIVERSAL_ROLES)
 
         result = serializers.TopologySerializer(topo).data
 
@@ -104,7 +150,7 @@ class TestSandboxesManipulation:
         sandbox = mocker.MagicMock()
         sandbox.allocation_unit.get_stack_name.return_value = 'stack-name'
 
-        ssh_conf = sandboxes.get_user_sshconfig(sandbox)
+        ssh_conf = sandboxes.get_user_sshconfig(sandbox, UNIVERSAL_ROLES)
         assert ssh_conf.asdict() == user_ssh_config.asdict()
 
     def test_get_user_ssh_access(self, mocker, sandbox, user_ssh_config):
@@ -122,7 +168,7 @@ class TestSandboxesManipulation:
                 identity_file.replace('<path_to_sandbox_private_key>', f'~/.ssh/{private_key}'),
             )
 
-        in_memory_zip_file = sandboxes.get_user_ssh_access(sandbox)
+        in_memory_zip_file = sandboxes.get_user_ssh_access(sandbox, UNIVERSAL_ROLES)
 
         with zipfile.ZipFile(in_memory_zip_file, 'r', zipfile.ZIP_DEFLATED) as zip_file:
             with zip_file.open(ssh_config_name) as file:
@@ -134,6 +180,108 @@ class TestSandboxesManipulation:
                 assert file.read().decode('utf-8') == sandbox.private_user_key
             with zip_file.open(f'{private_key}.pub') as file:
                 assert file.read().decode('utf-8') == sandbox.public_user_key
+
+    def test_get_user_ssh_access_role_free_zip_carries_no_role_keys(self, mocker, sandbox):
+        """A role-free sandbox's zip carries only the flat key, no role-scoped ones."""
+        sandbox.allocation_unit.get_stack_name = mocker.MagicMock()
+        sandbox.allocation_unit.get_stack_name.return_value = 'stack-name'
+        ssh_access_name = f'pool-id-{sandbox.allocation_unit.pool.id}-sandbox-id-{sandbox.id}-user'
+        private_key = f'{ssh_access_name}-key'
+
+        in_memory_zip_file = sandboxes.get_user_ssh_access(sandbox, frozenset())
+
+        with zipfile.ZipFile(in_memory_zip_file, 'r', zipfile.ZIP_DEFLATED) as zip_file:
+            names = zip_file.namelist()
+            assert private_key in names
+            assert not any(name.startswith(f'{private_key}-') for name in names)
+
+    @pytest.mark.parametrize(
+        'users_roles',
+        [frozenset(), frozenset({'red-team'}), UNIVERSAL_ROLES],
+    )
+    def test_get_user_ssh_access_identity_files_all_exist_in_the_zip(
+        self, mocker, sandbox, users_roles
+    ):
+        """Every IdentityFile the generated config names is a key file in the same zip."""
+        self.mock_get_top_ins.return_value = TestRoleAwareUserSshConfig._build_topology_instance()
+        sandbox.allocation_unit.get_stack_name = mocker.MagicMock()
+        sandbox.allocation_unit.get_stack_name.return_value = 'stack-name'
+        ssh_access_name = f'pool-id-{sandbox.allocation_unit.pool.id}-sandbox-id-{sandbox.id}-user'
+        SandboxRoleKeypair.objects.create(
+            sandbox=sandbox,
+            role='red-team',
+            private_key='red-team-private',
+            public_key='red-team-public',
+        )
+
+        in_memory_zip_file = sandboxes.get_user_ssh_access(sandbox, users_roles)
+
+        with zipfile.ZipFile(in_memory_zip_file, 'r', zipfile.ZIP_DEFLATED) as zip_file:
+            names = set(zip_file.namelist())
+            config = sshconfig.CrczpSSHConfig.from_str(
+                zip_file.read(f'{ssh_access_name}-config').decode('utf-8')
+            )
+            identity_files = {
+                host.get('IdentityFile').removeprefix('~/.ssh/') for host in config.hosts
+            }
+            assert identity_files <= names
+
+    def test_get_user_ssh_access_carries_one_key_per_held_role(self, mocker, sandbox):
+        """The zip carries the flat key plus one private-key file per role held."""
+        sandbox.allocation_unit.get_stack_name = mocker.MagicMock()
+        sandbox.allocation_unit.get_stack_name.return_value = 'stack-name'
+        ssh_access_name = f'pool-id-{sandbox.allocation_unit.pool.id}-sandbox-id-{sandbox.id}-user'
+        private_key = f'{ssh_access_name}-key'
+
+        SandboxRoleKeypair.objects.create(
+            sandbox=sandbox,
+            role='red-team',
+            private_key='red-team-private',
+            public_key='red-team-public',
+        )
+        SandboxRoleKeypair.objects.create(
+            sandbox=sandbox,
+            role='blue-team',
+            private_key='blue-team-private',
+            public_key='blue-team-public',
+        )
+
+        in_memory_zip_file = sandboxes.get_user_ssh_access(sandbox, frozenset({'red-team'}))
+
+        with zipfile.ZipFile(in_memory_zip_file, 'r', zipfile.ZIP_DEFLATED) as zip_file:
+            names = zip_file.namelist()
+            assert private_key in names
+            assert f'{private_key}-red-team' in names
+            assert f'{private_key}-blue-team' not in names
+            with zip_file.open(f'{private_key}-red-team') as file:
+                assert file.read().decode('utf-8') == 'red-team-private'
+
+    def test_get_user_ssh_access_universal_roles_carries_every_role_key(self, mocker, sandbox):
+        """A privileged requester's zip carries every declared role's key."""
+        sandbox.allocation_unit.get_stack_name = mocker.MagicMock()
+        sandbox.allocation_unit.get_stack_name.return_value = 'stack-name'
+        ssh_access_name = f'pool-id-{sandbox.allocation_unit.pool.id}-sandbox-id-{sandbox.id}-user'
+        private_key = f'{ssh_access_name}-key'
+
+        SandboxRoleKeypair.objects.create(
+            sandbox=sandbox,
+            role='red-team',
+            private_key='red-team-private',
+            public_key='red-team-public',
+        )
+        SandboxRoleKeypair.objects.create(
+            sandbox=sandbox,
+            role='blue-team',
+            private_key='blue-team-private',
+            public_key='blue-team-public',
+        )
+
+        in_memory_zip_file = sandboxes.get_user_ssh_access(sandbox, UNIVERSAL_ROLES)
+
+        with zipfile.ZipFile(in_memory_zip_file, 'r', zipfile.ZIP_DEFLATED) as zip_file:
+            names = zip_file.namelist()
+            assert f'{private_key}-red-team' in names
+            assert f'{private_key}-blue-team' in names
 
     def test_get_management_ssh_config(self, mocker, management_ssh_config):
         """Test that get_management_sshconfig returns the expected SSH config."""

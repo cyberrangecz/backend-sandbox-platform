@@ -31,4 +31,9 @@ urlpatterns = [
         views.DefinitionVariablesView.as_view(),
         name='definition-variables',
     ),
+    path(
+        'definitions/<int:definition_id>/roles',
+        views.DefinitionRolesView.as_view(),
+        name='definition-roles',
+    ),
 ]

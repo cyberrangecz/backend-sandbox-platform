@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 
 VALID_NAMES_REGEX = r'^[a-z]([a-z0-9A-Z-])*$'
 MAX_VOLUMES = 12
+ROLE_NAME_REGEX = r'^[a-z0-9_-]{1,128}$'
 # A DNS domain: dot-separated labels, each 1-63 chars, starting and ending with
 # an alphanumeric. Accepts single-label domains (e.g. "local") as valid search domains.
 DNS_DOMAIN_REGEX = (
@@ -334,6 +335,46 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         for index, volume in enumerate(volumes):
             if isinstance(volume.size, bool) or volume.size < 1:
                 raise ValueError(f'volumes[{index}].size must be a whole number of at least 1 GB')
+
+    @staticmethod
+    def _validate_role_list(obj: object, roles: StrList, field_name: str) -> None:
+        """
+        Validate a declared role list and collapse it to a sorted set of names.
+        """
+        for role in roles:
+            if not re.match(ROLE_NAME_REGEX, role):
+                _msg = 'Cannot set {}.{} entry "{}". It does not match regex "{}".'
+                raise ValueError(
+                    _msg.format(obj.__class__.__name__, field_name, role, ROLE_NAME_REGEX)
+                )
+        roles[:] = sorted(set(roles))
+
+    @staticmethod
+    def validate_visible_by_roles(obj: object, roles: StrList | None) -> None:
+        """
+        Validate a declared visible_by_roles list. An empty list is rejected.
+        """
+        if roles is not None:
+            if not roles:
+                raise ValueError(
+                    f'{obj.__class__.__name__}.visible_by_roles must not be an empty list; '
+                    'omit the field to admit every role, or name at least one role to admit. '
+                    'Use hidden: true to conceal a node from every role.'
+                )
+            TopologyValidation._validate_role_list(obj, roles, 'visible_by_roles')
+
+    @staticmethod
+    def validate_accessible_by_roles(obj: object, roles: StrList | None) -> None:
+        """
+        Validate a declared accessible_by_roles list. An empty list is rejected.
+        """
+        if roles is not None:
+            if not roles:
+                raise ValueError(
+                    f'{obj.__class__.__name__}.accessible_by_roles must not be an empty list; '
+                    'omit the field to admit every role, or name at least one role to admit.'
+                )
+            TopologyValidation._validate_role_list(obj, roles, 'accessible_by_roles')
 
     @staticmethod
     def validate_monitoring_targets(
