@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, call
 
 import pytest
 from django.contrib.auth.models import AnonymousUser
+from django.db import OperationalError
 from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory
 
@@ -373,28 +374,243 @@ class TestProvision:  # pylint: disable=too-many-public-methods
         client.create_nameserver_group.assert_not_called()
         assert access.dns_nameserver_group_id is None
 
-    def test_partial_failure_persists_row(self, mocker, sandbox, netbird_cfg):
-        """A failing entrypoint is caught and its partial row persisted."""
+    @staticmethod
+    def _one_entrypoint_client(mocker, routes: list[str]) -> MagicMock:
+        """Patch in a client that provisions one entrypoint with ``routes`` successfully."""
         client = MagicMock()
-        # Access provisions fully; the entrypoint then fails on its host key.
         client.create_group.side_effect = ['access-grp', 'host-grp']
+        client.create_setup_key.side_effect = [
+            ('access-key-id', 'access-key-val'),
+            ('host-key-id', 'host-key-val'),
+        ]
+        client.create_policy.return_value = 'pol-1'
+        client.create_route.side_effect = [f'route-{i}' for i in range(1, len(routes) + 1)]
+        client.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_vpn_entrypoints',
+            return_value=[FakeEntrypoint('server', routes)],
+        )
+        return client
+
+    def test_creates_policy_before_routes(self, mocker, sandbox, netbird_cfg):
+        """The policy exists before any route, so no route is ever left without it."""
+        client = self._one_entrypoint_client(mocker, ['10.0.0.0/24', '10.0.1.0/24'])
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        call_names = [c[0] for c in client.mock_calls]
+        assert call_names.index('create_policy') < call_names.index('create_route')
+
+    def test_host_key_failure_discards_entrypoint(self, mocker, sandbox, netbird_cfg):
+        """A failing entrypoint is caught, and what it created is torn down with its row."""
+        client = self._one_entrypoint_client(mocker, ['10.0.0.0/24'])
         client.create_setup_key.side_effect = [
             ('access-key-id', 'access-key-val'),
             NetbirdApiError('POST', 'url', 500, 'fail'),
         ]
-        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
-        mocker.patch(
-            f'{NETBIRD_MODULE}._get_vpn_entrypoints',
-            return_value=[FakeEntrypoint('server', ['10.0.0.0/24'])],
-        )
 
         # Must not raise: a failing entrypoint is caught and logged.
         netbird.provision_netbird_for_sandbox(sandbox)
 
+        client.delete_group.assert_called_once_with('host-grp')
+        assert not SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
+        access = SandboxNetbirdAccess.objects.get(sandbox=sandbox)
+        assert access.access_setup_key_value == 'access-key-val'
+
+    def test_policy_failure_discards_entrypoint(self, mocker, sandbox, netbird_cfg):
+        """A failing policy create creates no route and tears down the host key and group."""
+        client = self._one_entrypoint_client(mocker, ['10.0.0.0/24'])
+        client.create_policy.side_effect = NetbirdApiError('POST', 'url', 500, 'fail')
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        client.create_route.assert_not_called()
+        client.delete_policy.assert_not_called()
+        client.delete_setup_key.assert_called_once_with('host-key-id')
+        client.delete_group.assert_called_once_with('host-grp')
+        assert not SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
+
+    def test_route_failure_discards_policy_and_created_routes(self, mocker, sandbox, netbird_cfg):
+        """A route failing part-way tears down the policy and the routes created before it."""
+        client = self._one_entrypoint_client(mocker, ['10.0.0.0/24', '10.0.1.0/24'])
+        client.create_route.side_effect = ['route-1', NetbirdApiError('POST', 'url', 500, 'fail')]
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        client.delete_policy.assert_called_once_with('pol-1')
+        client.delete_route.assert_called_once_with('route-1')
+        client.delete_setup_key.assert_called_once_with('host-key-id')
+        client.delete_group.assert_called_once_with('host-grp')
+        assert not SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
+
+    def test_failed_cleanup_keeps_row_for_teardown(self, mocker, sandbox, netbird_cfg):
+        """If the cleanup cannot delete everything, the row stays without key value or CIDRs."""
+        client = self._one_entrypoint_client(mocker, ['10.0.0.0/24'])
+        client.create_route.side_effect = NetbirdApiError('POST', 'url', 500, 'fail')
+        client.delete_group.side_effect = NetbirdApiError('DELETE', 'url', 503, 'down')
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
         nbr = SandboxNetbirdResources.objects.get(sandbox=sandbox, entrypoint_host_name='server')
+        # The IDs stay for the sandbox teardown to retry.
         assert nbr.host_group_id == 'host-grp'
-        assert nbr.host_setup_key_id is None
-        assert nbr.policy_id is None
+        assert nbr.host_setup_key_id == 'host-key-id'
+        assert nbr.policy_id == 'pol-1'
+        # Ansible skips the entrypoint VM, and the VPN view advertises nothing for it.
+        assert nbr.host_setup_key_value is None
+        assert nbr.get_route_cidr_list() == []
+
+    def test_failed_cleanup_after_all_routes_keeps_no_cidrs(self, mocker, sandbox, netbird_cfg):
+        """A kept row advertises no CIDRs, even when only recording them failed."""
+        client = self._one_entrypoint_client(mocker, ['10.0.0.0/24'])
+        client.delete_group.side_effect = NetbirdApiError('DELETE', 'url', 503, 'down')
+        save = SandboxNetbirdResources.save
+        failed = []
+
+        def _fail_recording_cidrs(nbr, *args, **kwargs):
+            if nbr.route_cidrs and not failed:
+                failed.append(True)
+                raise OperationalError('statement timeout')
+            save(nbr, *args, **kwargs)
+
+        mocker.patch.object(SandboxNetbirdResources, 'save', _fail_recording_cidrs)
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        client.delete_policy.assert_called_once_with('pol-1')
+        client.delete_route.assert_called_once_with('route-1')
+        nbr = SandboxNetbirdResources.objects.get(sandbox=sandbox, entrypoint_host_name='server')
+        assert nbr.host_setup_key_value is None
+        assert nbr.get_route_cidr_list() == []
+
+    def test_discards_entrypoint_whose_row_was_deleted_mid_provision(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """Regression: the entrypoint is torn down even if its DB row is gone.
+
+        The error path must use the in-memory handle rather than re-read the
+        deleted row, or the host key and group it created would be orphaned.
+        """
+        client = self._one_entrypoint_client(mocker, ['10.0.0.0/24'])
+
+        def _delete_row_then_fail(**_kwargs):
+            SandboxNetbirdResources.objects.filter(sandbox=sandbox).delete()
+            raise NetbirdApiError('POST', 'url', 500, 'fail')
+
+        client.create_policy.side_effect = _delete_row_then_fail
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        client.delete_setup_key.assert_called_once_with('host-key-id')
+        client.delete_group.assert_called_once_with('host-grp')
+
+    def test_failed_entrypoint_does_not_stop_the_next(self, mocker, sandbox, netbird_cfg):
+        """A failed entrypoint is discarded and the next one is still provisioned."""
+        client = MagicMock()
+        client.create_group.side_effect = ['access-grp', 'grp-a', 'grp-b']
+        client.create_setup_key.side_effect = [('ak-id', 'ak'), ('ka-id', 'ka'), ('kb-id', 'kb')]
+        client.create_policy.side_effect = [NetbirdApiError('POST', 'url', 500, 'fail'), 'pol-b']
+        client.create_route.return_value = 'route-b'
+        client.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_vpn_entrypoints',
+            return_value=[
+                FakeEntrypoint('a', ['10.0.0.0/24']),
+                FakeEntrypoint('b', ['10.0.1.0/24']),
+            ],
+        )
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        client.delete_group.assert_called_once_with('grp-a')
+        nbr = SandboxNetbirdResources.objects.get(sandbox=sandbox)
+        assert nbr.entrypoint_host_name == 'b'
+        assert nbr.policy_id == 'pol-b'
+        assert nbr.get_route_cidr_list() == ['10.0.1.0/24']
+
+    def test_non_api_error_in_cleanup_still_hides_the_entrypoint(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """A teardown that raises still leaves the kept row without key value or CIDRs."""
+        client = self._one_entrypoint_client(mocker, ['10.0.0.0/24'])
+        client.create_route.side_effect = NetbirdApiError('POST', 'url', 500, 'fail')
+        client.list_group_peer_ids.side_effect = ValueError('malformed peer list')
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        client.delete_setup_key.assert_called_once_with('host-key-id')
+        nbr = SandboxNetbirdResources.objects.get(sandbox=sandbox, entrypoint_host_name='server')
+        assert nbr.host_setup_key_value is None
+        assert nbr.get_route_cidr_list() == []
+
+    @staticmethod
+    def _red_team_client(mocker, routes: list[str]) -> MagicMock:
+        """Patch in a client for one red-team-only entrypoint in a pool declaring red-team."""
+        mocker.patch(f'{NETBIRD_MODULE}._get_declared_roles', return_value={'red-team'})
+        client = MagicMock()
+        client.create_group.side_effect = ['flat-grp', 'red-grp', 'host-grp']
+        client.create_setup_key.side_effect = [
+            ('flat-key-id', 'flat-key'),
+            ('red-key-id', 'red-key'),
+            ('host-key-id', 'host-key'),
+        ]
+        client.create_policy.return_value = 'pol-1'
+        client.create_route.side_effect = [f'route-{i}' for i in range(1, len(routes) + 1)]
+        client.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_vpn_entrypoints',
+            return_value=[FakeEntrypoint('server', routes, ['red-team'])],
+        )
+        return client
+
+    def test_role_scoped_route_failure_discards_only_the_entrypoint(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """A role-scoped route failing part-way tears down that entrypoint, not the roles."""
+        client = self._red_team_client(mocker, ['10.0.0.0/24', '10.0.1.0/24'])
+        client.create_route.side_effect = ['route-1', NetbirdApiError('POST', 'url', 500, 'fail')]
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        assert client.create_policy.call_args.kwargs['source_group_ids'] == ['red-grp']
+        call_names = [c[0] for c in client.mock_calls]
+        assert call_names.index('create_policy') < call_names.index('create_route')
+        client.delete_policy.assert_called_once_with('pol-1')
+        client.delete_route.assert_called_once_with('route-1')
+        client.delete_group.assert_called_once_with('host-grp')
+        assert not SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
+        access = {a.role: a.access_setup_key_value for a in SandboxNetbirdAccess.objects.all()}
+        assert access == {'': 'flat-key', 'red-team': 'red-key'}
+
+    def test_role_scoped_kept_row_advertises_nothing_and_is_torn_down_later(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """A kept role-scoped row hides its routes and goes before the groups at teardown."""
+        client = self._red_team_client(mocker, ['10.0.0.0/24'])
+        client.create_route.side_effect = NetbirdApiError('POST', 'url', 500, 'fail')
+        client.delete_group.side_effect = NetbirdApiError('DELETE', 'url', 503, 'down')
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        nbr = SandboxNetbirdResources.objects.get(sandbox=sandbox, entrypoint_host_name='server')
+        assert nbr.host_setup_key_value is None
+        assert netbird.resolve_vpn_routes(sandbox, frozenset({'red-team'})) == []
+
+        teardown = MagicMock()
+        teardown.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=teardown)
+        netbird.destroy_netbird_for_sandbox(sandbox)
+
+        calls = list(teardown.mock_calls)
+        host_group_delete = calls.index(call.delete_group('host-grp'))
+        red_group_delete = calls.index(call.delete_group('red-grp'))
+        flat_group_delete = calls.index(call.delete_group('flat-grp'))
+        assert host_group_delete < red_group_delete < flat_group_delete
+        assert not SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
+        assert not SandboxNetbirdAccess.objects.filter(sandbox=sandbox).exists()
 
     def test_access_failure_skips_entrypoints(self, mocker, sandbox, netbird_cfg):
         """If the shared access group cannot be created, no entrypoint is provisioned."""
