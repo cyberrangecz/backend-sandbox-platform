@@ -1,17 +1,13 @@
 """Utility functions for OpenStack clients."""
 
-from typing import Literal, overload
-
 import keystoneauth1.identity
 import keystoneauth1.session
-from glanceclient.v2 import client as glance_client
-from neutronclient.v2_0 import client as neutron_client
-from novaclient import client as nova_client
-from novaclient.v2 import client as nova_v2_client
+from openstack import connection
 
-NOVA_CLIENT_VERSION = '2.10'
-HEAT_CLIENT_VERSION = 1
-KEYSTONE_CLIENT_VERSION = 3
+# The compute microversion every Nova request is pinned to. A negotiated version would vary
+# the response shapes with each cloud's maximum, and from 2.92 Nova stops generating a key
+# for a keypair created without a public key.
+COMPUTE_API_VERSION = '2.10'
 
 NAMES_REGEX = r'^[a-z]([a-z0-9A-Z-])*$'
 
@@ -41,56 +37,24 @@ def get_session(
     return keystoneauth1.session.Session(auth=auth)
 
 
-# `novaclient.client.Client` is a version-dispatching factory *function*, not a class, so the
-# concrete class behind NOVA_CLIENT_VERSION ('2.x') has to be named explicitly in annotations.
-OpenStackClient = neutron_client.Client | glance_client.Client | nova_v2_client.Client
-
-
-@overload
-def get_client(
-    client_type: Literal['neutron'], session: keystoneauth1.session.Session
-) -> neutron_client.Client: ...
-
-
-@overload
-def get_client(
-    client_type: Literal['glance'], session: keystoneauth1.session.Session
-) -> glance_client.Client: ...
-
-
-@overload
-def get_client(
-    client_type: Literal['nova'], session: keystoneauth1.session.Session
-) -> nova_v2_client.Client: ...
-
-
-@overload
-def get_client(client_type: str, session: keystoneauth1.session.Session) -> OpenStackClient: ...
-
-
-def get_client(client_type: str, session: keystoneauth1.session.Session) -> OpenStackClient:
+def get_connection(session: keystoneauth1.session.Session) -> connection.Connection:
     """
-    Gets specific OpenStack client
+    Wraps an existing keystoneauth session in an openstacksdk Connection.
 
-    :param client_type: type of client to get.
-                - 'neutron'     for neutron client (operates over networks)
-                - 'glance'      for glance client (operates over images)
-                - 'nova'        for nova client (operates over Server e.g. virtual machines)
+    The connection reuses the session as it is and reads neither clouds.yaml nor OS_*
+    environment variables. Building it does no network I/O: the token is fetched and each
+    service discovered on its first use.
+
     :param session: keystoneauth session
-
-    :return:    instance of class glanceclient.v2.client for client_type 'glance'
-                instance of class neutronclient.v2_0.client for client_type 'neutron'
-                instance of class novaclient.v2.client for client_type 'nova'
-
-    :raise: ValueError if given client does not exists.
+    :return: instance of class openstack.connection.Connection
     """
-    if client_type == 'neutron':
-        client = neutron_client.Client(session=session)
-    elif client_type == 'glance':
-        client = glance_client.Client(session=session)
-    elif client_type == 'nova':
-        client = nova_client.Client(session=session, version=NOVA_CLIENT_VERSION)
-    else:
-        raise ValueError(f'Unknown client type: {client_type}')
-
-    return client
+    return connection.Connection(
+        session=session,
+        compute_api_version=COMPUTE_API_VERSION,
+        # Only the v2 image API is used. This picks the v2 proxy at runtime; for ty,
+        # `connection.image` stays v1 | v2, hence the cast in OpenStackProxy._image.
+        image_api_version='2',
+        # The SDK retries an image request 5 times on HTTP 503 by default. Fail at once,
+        # like every other service call.
+        image_status_code_retries=0,
+    )

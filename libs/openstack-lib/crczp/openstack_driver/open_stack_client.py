@@ -2,8 +2,6 @@
 
 from typing import Any
 
-import novaclient.v2.keypairs
-
 from crczp.cloud_commons import (
     CrczpCloudClientBase,
     CrczpException,
@@ -26,8 +24,8 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
     """
     client used as interface providing functions of this library
 
-    takes parameters to authenticate to openstack.
-    :raise: ValueError if some of used clients doesn't exist.
+    takes parameters to authenticate to openstack. Construction does no network I/O;
+    authentication happens on the first call that reaches OpenStack.
     """
 
     def __init__(
@@ -40,13 +38,9 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
         self.session = utils.get_session(
             auth_url, application_credential_id, application_credential_secret
         )
-        self.glance_client = utils.get_client('glance', self.session)
-        self.nova_client = utils.get_client('nova', self.session)
-        self.neutron_client = utils.get_client('neutron', self.session)
+        self.connection = utils.get_connection(self.session)
         self.open_stack_proxy = open_stack_proxy.OpenStackProxy(
-            self.glance_client,
-            self.nova_client,
-            self.neutron_client,
+            self.connection,
             auth_url,
             application_credential_id,
             application_credential_secret,
@@ -198,12 +192,13 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
         self.open_stack_proxy.create_keypair(name, public_key, key_type)
 
     @check_authentication
-    def get_keypair(self, name: str) -> novaclient.v2.keypairs.Keypair:
+    def get_keypair(self, name: str) -> dict[str, Any]:
         """
         Get keypair from nova
 
         :param name: Name of keypair to be returned
-        :return: Keypair instance
+        :return: Keypair as a dict with Nova's keys: name, public_key, fingerprint, type,
+                 user_id and created_at
         :raise: CrczpException if keypair does not exist
         """
         return self.open_stack_proxy.get_keypair(name)

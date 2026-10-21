@@ -12,10 +12,11 @@ dependencies = [
     "crczp-topology-definition",
     "jinja2>=3.1.3",
     "keystoneauth1>=5.11.0",
+    # Capped below 4.19: from 4.19 a service missing from the catalog is cached as a
+    # disabled proxy for the life of the Connection, which is the life of the process here.
+    # That needs its own reviewed bump and a check against a real cloud.
+    "openstacksdk>=4.18.0,<4.19",
     "structlog>=25.3.0",
-    "python-glanceclient>=4.8.0",
-    "python-neutronclient>=11.5.0",
-    "python-novaclient>=18.9.0"
 ]
 
 [dependency-groups]

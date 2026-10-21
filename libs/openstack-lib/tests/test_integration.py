@@ -1,10 +1,11 @@
-"""Tests for CrczpOpenStackClient keypair lifecycle (mocked Nova API)."""
+"""Tests for CrczpOpenStackClient keypair lifecycle (fake openstacksdk connection)."""
 
 import pytest
 from Crypto.PublicKey import RSA  # noqa: S413  # pycryptodome, not the abandoned pycrypto
+from openstack.compute.v2.keypair import Keypair
 
 from crczp.cloud_commons import TransformationConfiguration
-from crczp.openstack_driver import CrczpOpenStackClient
+from crczp.openstack_driver import CrczpOpenStackClient, utils
 
 
 def generate_ssh_keypair(bits=2048):
@@ -20,42 +21,35 @@ def generate_ssh_keypair(bits=2048):
 
 
 class TestKeypairLifecycle:
-    """Tests for keypair create/delete flow using a mocked Nova client."""
+    """Tests for keypair create/delete flow through the client, proxy and fake SDK."""
 
     key_pair_name = 'lib-key-testing-1'
 
     @pytest.fixture
-    def os_client(self, mocker):
-        """Create a CrczpOpenStackClient with a mocked Nova keypairs API."""
+    def os_client(self, mocker, fake_conn):
+        """Create a CrczpOpenStackClient whose openstacksdk connection is fake_conn."""
         trc = TransformationConfiguration(
             'debian-12-x86_64',
             'standard.small',
             'root',
             base_network='test_base_network',
         )
-        client = CrczpOpenStackClient('http://fake-url', 'fake-id', 'fake-secret', trc)
+        mocker.patch.object(utils, 'get_connection', return_value=fake_conn)
+        return CrczpOpenStackClient('http://fake-url', 'fake-id', 'fake-secret', trc)
 
-        mock_keypairs = mocker.MagicMock()
-        mock_keypairs.list.return_value = []
-        mock_keypairs.create.return_value = mocker.MagicMock(name=self.key_pair_name)
-        mock_keypairs.delete.return_value = None
-        mock_keypairs.get.side_effect = Exception('not found')
-        client.nova_client.keypairs = mock_keypairs
-        client.open_stack_proxy.nova.keypairs = mock_keypairs
-
-        return client
-
-    def test_create_and_delete_keypair(self, os_client):
+    def test_create_and_delete_keypair(self, os_client, fake_conn):
         """Test that a keypair can be created and deleted via the client."""
         _, public_key = generate_ssh_keypair()
-
-        existing = os_client.nova_client.keypairs.list()
-        assert self.key_pair_name not in [kp.name for kp in existing]
+        fake_conn.compute.create_keypair.return_value = Keypair.existing(
+            name=self.key_pair_name, public_key=public_key, type='ssh'
+        )
 
         os_client.create_keypair(self.key_pair_name, public_key)
-        os_client.nova_client.keypairs.create.assert_called_once_with(
-            self.key_pair_name, public_key, key_type='ssh'
+        fake_conn.compute.create_keypair.assert_called_once_with(
+            name=self.key_pair_name, public_key=public_key, type='ssh'
         )
 
         os_client.delete_keypair(self.key_pair_name)
-        os_client.nova_client.keypairs.delete.assert_called_once_with(self.key_pair_name)
+        fake_conn.compute.delete_keypair.assert_called_once_with(
+            self.key_pair_name, ignore_missing=False
+        )
