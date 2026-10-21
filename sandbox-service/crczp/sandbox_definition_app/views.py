@@ -34,6 +34,10 @@ COMMON_RESPONSE_PATTERNS = {
     404: OpenApiResponse(description='Not Found'),
     500: OpenApiResponse(description='Internal Server Error'),
 }
+REPOSITORY_RESPONSE_PATTERNS = {
+    **COMMON_RESPONSE_PATTERNS,
+    422: utils.ERROR_RESPONSES[422],
+}
 
 
 @extend_schema(
@@ -58,7 +62,7 @@ class DefinitionListCreateView(SortableViewMixin, generics.ListCreateAPIView[Def
         request=OpenApiRequest(DefinitionRequestSerializer),
         responses={
             201: OpenApiResponse(response=SandboxDefinitionSerializer),
-            **{k: v for k, v in utils.ERROR_RESPONSES.items() if k in [400, 401, 403, 500]},
+            **{k: v for k, v in utils.ERROR_RESPONSES.items() if k in [400, 401, 403, 422, 500]},
         },
     )
     @override
@@ -97,7 +101,7 @@ class DefinitionDetailDeleteView(generics.RetrieveDestroyAPIView[Definition]):
             description='List of Definition Refs',
             response=serializers.DefinitionRevSerializer(many=True),
         ),
-        **COMMON_RESPONSE_PATTERNS,
+        **REPOSITORY_RESPONSE_PATTERNS,
     },
 )
 class DefinitionRefsListView(SortableViewMixin, generics.ListAPIView[Any]):
@@ -126,7 +130,7 @@ class DefinitionRefsListView(SortableViewMixin, generics.ListAPIView[Any]):
 
 @extend_schema(
     methods=['GET'],
-    responses={200: instance_serializers.TopologySerializer(), **COMMON_RESPONSE_PATTERNS},
+    responses={200: instance_serializers.TopologySerializer(), **REPOSITORY_RESPONSE_PATTERNS},
 )
 class DefinitionTopologyView(generics.RetrieveAPIView[Any]):
     """
@@ -152,7 +156,7 @@ class DefinitionTopologyView(generics.RetrieveAPIView[Any]):
 
 @extend_schema(
     methods=['POST'],
-    responses={201: serializers.LocalVariableSerializer(many=True), **COMMON_RESPONSE_PATTERNS},
+    responses={201: serializers.LocalVariableSerializer(many=True), **REPOSITORY_RESPONSE_PATTERNS},
 )
 class LocalSandboxVariablesView(generics.CreateAPIView[Any]):
     """View to generate and post variables for local sandboxes."""

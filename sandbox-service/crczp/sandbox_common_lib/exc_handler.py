@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import exception_handler
 
 from crczp.cloud_commons import CrczpException
-from crczp.sandbox_common_lib.exceptions import ApiException
+from crczp.sandbox_common_lib.exceptions import ApiException, GitError
 
 # Create logger
 LOG = structlog.get_logger()
@@ -24,6 +24,8 @@ def custom_exception_handler(exc: Exception, context: dict[str, Any]) -> Respons
         response = handle_permission_denied(exc, context)
     elif isinstance(exc, ValidationError):
         response = handle_model_validation_error(exc, context)
+    elif isinstance(exc, GitError):
+        response = handle_unreadable_repository(exc, context)
     elif isinstance(exc, (ApiException, CrczpException)):
         response = handle_crczp_exception(exc, context)
     elif isinstance(exc, Http404):
@@ -62,6 +64,16 @@ def handle_crczp_exception(exc: Exception, _context: dict[str, Any]) -> Response
             'detail': str(exc),
         },
         status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+def handle_unreadable_repository(exc: GitError, _context: dict[str, Any]) -> Response:
+    """Answer 422 when a sandbox definition Git repository cannot be read."""
+    return Response(
+        {
+            'detail': str(exc),
+        },
+        status=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
 
 

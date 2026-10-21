@@ -51,6 +51,7 @@ COMMON_RESPONSE_PATTERNS = {
 }
 
 POOL_RESPONSES = {**COMMON_RESPONSE_PATTERNS, 400: OpenApiResponse(description='Bad Request')}
+POOL_REPOSITORY_RESPONSES = {**POOL_RESPONSES, 422: utils.ERROR_RESPONSES[422]}
 SANDBOX_RESPONSES = {**COMMON_RESPONSE_PATTERNS}
 SANDBOX_REQUEST_SORTABLE_FIELDS = ('id', 'allocation_unit_id', 'created')
 
@@ -88,7 +89,7 @@ class PoolListCreateView(SortableViewMixin, generics.ListCreateAPIView[Any]):
         request=OpenApiRequest(PoolRequestSerializer),
         responses={
             201: OpenApiResponse(response=PoolResponseSerializer, description='Pool created'),
-            **POOL_RESPONSES,
+            **POOL_REPOSITORY_RESPONSES,
         },
     )
     @override
@@ -415,7 +416,7 @@ class SandboxAllocationUnitListCreateView(SortableViewMixin, generics.ListCreate
                 response=serializers.SandboxAllocationUnitSerializer(many=True),
                 description='Created Sandbox Allocation Units',
             ),
-            **POOL_RESPONSES,
+            **POOL_REPOSITORY_RESPONSES,
         },
     )
     @override
