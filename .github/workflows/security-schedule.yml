@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
-          version: "0.11.24"
+          version: "0.13.4"
           python-version: "3.12"
       - run: uv tool install tox --with tox-uv-bare==1.36.0
       - working-directory: sandbox-service
