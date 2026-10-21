@@ -67,6 +67,7 @@ class ProjectImagesView(SortableViewMixin, generics.ListAPIView[Any]):
 
     queryset = Pool.objects.none()
     serializer_class = serializers.ImageSerializer
+    permission_classes = [DesignerPermission | OrganizerPermission | AdminPermission]
     sortable_fields = (
         'name',
         'os_distro',
