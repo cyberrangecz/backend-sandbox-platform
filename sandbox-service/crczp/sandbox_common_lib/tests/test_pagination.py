@@ -228,6 +228,40 @@ class TestListSorting:
         assert response.status_code == 400
 
 
+class TestImageFilter:
+    """Text filters of the image list."""
+
+    @pytest.mark.parametrize('filter_value', ['kali', 'KALI', 'LiNuX'])
+    def test_text_filter_ignores_case(self, mocker, filter_value):
+        """A text filter matches the attribute whatever the case on either side."""
+        images = [make_image(name='Kali-Linux'), make_image(name='debian')]
+        mocker.patch('crczp.sandbox_cloud_app.views.list_images', return_value=images)
+
+        response = request_page(ProjectImagesView, {'name': filter_value})
+
+        assert [item['name'] for item in response.data['results']] == ['Kali-Linux']
+
+    def test_other_text_attribute_ignores_case(self, mocker):
+        """The case-insensitive match applies to every text attribute, not only the name."""
+        images = [make_image(default_user='Debian'), make_image(default_user='kali')]
+        mocker.patch('crczp.sandbox_cloud_app.views.list_images', return_value=images)
+
+        response = request_page(ProjectImagesView, {'default_user': 'DEB'})
+
+        assert [item['default_user'] for item in response.data['results']] == ['Debian']
+
+    def test_non_matching_filter_returns_nothing(self, mocker):
+        """An image whose attribute does not contain the filter is left out."""
+        mocker.patch(
+            'crczp.sandbox_cloud_app.views.list_images',
+            return_value=[make_image(name='debian')],
+        )
+
+        response = request_page(ProjectImagesView, {'name': 'ubuntu'})
+
+        assert response.data['results'] == []
+
+
 class TestSchema:
     """The OpenAPI description of the sort parameters."""
 

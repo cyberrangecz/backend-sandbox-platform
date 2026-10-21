@@ -20,6 +20,17 @@ from crczp.sandbox_uag.permissions import AdminPermission, DesignerPermission, O
 LOG = structlog.get_logger()
 
 
+def contains_filter(value: Any, attribute_filter: str) -> bool:
+    """
+    Tell whether the attribute value contains the filter.
+
+    Text values are compared case-insensitively; any other container is searched as is.
+    """
+    if isinstance(value, str):
+        return attribute_filter.casefold() in value.casefold()
+    return attribute_filter in value
+
+
 class ProjectInfoView(generics.RetrieveAPIView[Any]):
     """View to retrieve project quota information."""
 
@@ -154,7 +165,7 @@ class ProjectImagesView(SortableViewMixin, generics.ListAPIView[Any]):
                         image
                         for image in image_set
                         if getattr(image, attribute)
-                        and attribute_filter in getattr(image, attribute)
+                        and contains_filter(getattr(image, attribute), attribute_filter)
                     ]
         serialized_image_set = serializers.ImageSerializer(image_set, many=True)
         # DRF's paginate_queryset works on any sized sequence (already-serialized data
