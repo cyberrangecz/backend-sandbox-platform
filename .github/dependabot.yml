@@ -13,6 +13,21 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # pyproject.toml declares lower bounds and uv.lock pins the exact versions, so an update
+    # the bounds already allow only changes uv.lock. The default (`increase`) would rewrite
+    # every bumped lower bound in pyproject.toml as well.
+    versioning-strategy: increase-if-necessary
+    # Deliberate holds, each matching an upper bound in a pyproject.toml. Dependabot would
+    # otherwise raise the bound together with the version.
+    ignore:
+      - dependency-name: django # kept on the 5.2 LTS line
+        versions: [">=6"]
+      - dependency-name: kubernetes # see sandbox-service/pyproject.toml
+        versions: [">=37"]
+      - dependency-name: openstacksdk # see libs/openstack-lib/pyproject.toml
+        versions: [">=4.19"]
+      - dependency-name: djangorestframework-stubs # see sandbox-service/pyproject.toml
+        versions: [">=3.17.1"]
     # One PR for routine bumps instead of one per package; majors stay separate.
     groups:
       python-minor-and-patch:

@@ -10,10 +10,10 @@ dependencies = [
     "crczp-python-commons",
     "crczp-openstack-lib",
     "crczp-aws-lib",
-    "Jinja2>=3.1.6",
+    "jinja2>=3.1.6",
     # Imported by crczp/terraform_driver/terraform_exc_handlers.py; previously arrived only
     # transitively through openstack-lib.
-    "structlog>=25.3.0"
+    "structlog>=26.1.0"
 ]
 
 [dependency-groups]

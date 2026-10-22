@@ -12,12 +12,12 @@ dependencies = [
     # topology-definition, but a direct import warrants a direct declaration; PyYAML
     # arrives from nowhere, so a standalone install used to fail on
     # `import crczp.cloud_commons`.
-    "PyYAML>=6.0.2",
-    "pydantic>=2.14"
+    "pyyaml>=6.0.3",
+    "pydantic>=2.14.1"
 ]
 [project.optional-dependencies]
 dev = [
-    "types-PyYAML",
+    "types-pyyaml",
 ]
 
 [dependency-groups]
