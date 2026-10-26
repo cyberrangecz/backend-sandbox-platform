@@ -103,7 +103,7 @@ class RequestHandler(abc.ABC):
         self,
         stage_handlers: list[StageHandler],
         finalizing_stage: Callable[[], None],
-        user_ansible_extra_depends: Job | None = None,
+        user_ansible_extra_depends: list[Job] | None = None,
     ) -> None:
         """
         Enqueue methods of the given stage handlers.
@@ -111,11 +111,11 @@ class RequestHandler(abc.ABC):
         The order of stage handlers is important.
           Every subsequent stage depends on the previous one, and it is enqueued as such.
 
-        ``user_ansible_extra_depends`` is an optional extra job that the
-        user-ansible stage must additionally wait for — the NetBird provisioning
-        job, which writes the setup key that the user-ansible inventory consumes.
-        Stage sets without a user-ansible allocation stage (e.g. cleanup) never
-        match, so the parameter is harmless there.
+        ``user_ansible_extra_depends`` lists extra jobs that the user-ansible
+        stage must additionally wait for — the NetBird provisioning job, whose
+        output the user-ansible inventory consumes. Stage sets without a
+        user-ansible allocation stage (e.g. cleanup) never match, so the
+        parameter is harmless there.
         """
         previous_job = None
         for stage_handler in stage_handlers:
@@ -126,11 +126,11 @@ class RequestHandler(abc.ABC):
             else:
                 queue = self.queue_default
             depends_on: Job | list[Job] | None = previous_job
-            if user_ansible_extra_depends is not None and isinstance(
+            if user_ansible_extra_depends and isinstance(
                 stage_handler.stage, UserAnsibleAllocationStage
             ):
                 depends_on = [
-                    job for job in (previous_job, user_ansible_extra_depends) if job is not None
+                    job for job in (previous_job, *user_ansible_extra_depends) if job is not None
                 ]
             previous_job = queue.enqueue(stage_handler.execute, depends_on=depends_on)
             stage_handler.set_job_id(previous_job.id)
@@ -196,18 +196,22 @@ class AllocationRequestHandler(RequestHandler):
         finalizing_stage: Callable[[], None],
     ) -> None:
         """
-        Enqueue the NetBird provisioning job (when configured) and the stage chain.
+        Enqueue the NetBird provisioning job, then the stage chain.
 
         Runs from the post-commit hook so the committed Sandbox row is visible to
-        the provisioning worker. NetBird provisioning is a SEPARATE job on the
-        ansible queue — never inline on the default queue — so a slow NetBird
-        endpoint can no longer block this orchestration job and starve other
-        pools' allocation requests. The user-ansible stage depends on the job so
-        the setup key exists before that stage runs.
+        the job. NetBird provisioning needs a git definition fetch, so it is its
+        own job on the ansible queue — never inline on the default queue — so a
+        slow NetBird endpoint cannot block this orchestration job and starve other
+        pools' allocation requests. The user-ansible stage depends on it so its
+        output exists before that stage runs. Per-role SSH keypairs are instead
+        generated inside the tracked networking stage (stage_handlers.py), which
+        already needs the same definition fetch to build its own inventory.
         """
         netbird_job = self._enqueue_netbird_provision(sandbox)
         self._enqueue_request(
-            stage_handlers, finalizing_stage, user_ansible_extra_depends=netbird_job
+            stage_handlers,
+            finalizing_stage,
+            user_ansible_extra_depends=[job for job in (netbird_job,) if job is not None],
         )
 
     def _enqueue_netbird_provision(self, sandbox: Sandbox) -> Job | None:

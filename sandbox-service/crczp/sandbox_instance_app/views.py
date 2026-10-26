@@ -7,6 +7,7 @@ from wsgiref.util import FileWrapper
 import structlog
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.db import transaction
 from django.db.models import QuerySet
 from django.http import Http404, HttpResponse
 from drf_spectacular.utils import OpenApiParameter, OpenApiRequest, OpenApiResponse, extend_schema
@@ -27,17 +28,17 @@ from crczp.sandbox_common_lib.utils import get_object_or_404
 from crczp.sandbox_definition_app.lib import definitions
 from crczp.sandbox_definition_app.serializers import DefinitionSerializer
 from crczp.sandbox_instance_app import serializers
-from crczp.sandbox_instance_app.lib import nodes, pools, sandboxes, stage_handlers
+from crczp.sandbox_instance_app.lib import netbird, nodes, pools, roles, sandboxes, stage_handlers
 from crczp.sandbox_instance_app.lib import requests as sandbox_requests
 from crczp.sandbox_instance_app.models import (
     AllocationRequest,
     CleanupRequest,
     Pool,
     PoolLock,
+    PoolRoleGrant,
     Sandbox,
     SandboxAllocationUnit,
     SandboxLock,
-    SandboxNetbirdAccess,
 )
 from crczp.sandbox_uag.permissions import AdminPermission, OrganizerPermission
 
@@ -930,7 +931,9 @@ class SandboxTopologyView(generics.RetrieveAPIView[Any]):
 
     @override
     def get_object(self) -> Any:
-        return sandboxes.get_sandbox_topology(super().get_object())
+        sandbox = super().get_object()
+        users_roles = roles.resolve_users_roles(self.request, sandbox.allocation_unit.pool)
+        return sandboxes.get_sandbox_topology(sandbox, users_roles)
 
 
 @extend_schema(
@@ -1012,16 +1015,23 @@ class SandboxVMConsoleView(APIView):
 
 @extend_schema(responses={200: OpenApiResponse(description='SSH Config File'), **SANDBOX_RESPONSES})
 class SandboxUserSSHAccessView(APIView):
-    """API view to generate SSH config for user access to a sandbox."""
+    """API view to generate SSH config and per-role keys for user access to a sandbox."""
 
     queryset = Sandbox.objects.none()
 
     # noinspection PyMethodMayBeStatic
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response | HttpResponse:
-        """Generate SSH config for User access to this sandbox.
-        Some values are user specific, the config contains placeholders for them."""
+        """Return a zip with the SSH config and private keys for this sandbox.
+
+        The zip always carries the sandbox's flat private key, plus one further
+        private-key file per role the requesting user holds; each host entry in
+        the config points at whichever of those keys that host's declared role
+        admits, or the flat key when the host declares no role. A privileged
+        requester (organizer/admin) receives every declared role's key.
+        """
         sandbox = sandboxes.get_sandbox(kwargs['sandbox_uuid'])
-        in_memory_zip_file = sandboxes.get_user_ssh_access(sandbox)
+        users_roles = roles.resolve_users_roles(request, sandbox.allocation_unit.pool)
+        in_memory_zip_file = sandboxes.get_user_ssh_access(sandbox, users_roles)
         response = HttpResponse(FileWrapper(in_memory_zip_file), content_type='application/zip')
         response['Content-Disposition'] = (
             f'attachment; filename=user-ssh-access-pool-{sandbox.allocation_unit.pool.id}'
@@ -1112,6 +1122,102 @@ class PoolVariablesView(APIView):
         return Response({'variables': variable_names})
 
 
+def _grants_by_user(pool: Pool) -> dict[int, list[str]]:
+    """Return a pool's role grants keyed by user id."""
+    by_user: dict[int, list[str]] = {}
+    for grant in PoolRoleGrant.objects.filter(pool=pool):
+        by_user.setdefault(grant.user, []).append(grant.role)
+    return by_user
+
+
+def _get_pool_declared_roles(pool: Pool) -> set[str] | None:
+    """Return the role names the pool's pinned definition revision declares.
+
+    Returns None, logging a warning, if that revision cannot be read.
+    """
+    try:
+        topology_definition = definitions.get_definition(
+            pool.definition.url, pool.rev_sha, settings.CRCZP_CONFIG
+        )
+    except exceptions.GitError as ex:
+        LOG.warning(
+            "Failed to read pool's definition for role validation; skipping validation",
+            pool_id=pool.id,
+            exc_info=ex,
+        )
+        return None
+    return topology_definition.get_declared_roles()
+
+
+@extend_schema(
+    methods=['GET'],
+    responses={
+        200: OpenApiResponse(
+            response=serializers.PoolRoleGrantsSerializer, description='Grants held in the pool'
+        ),
+        **POOL_RESPONSES,
+    },
+)
+@extend_schema(
+    methods=['POST'],
+    request=serializers.PoolRoleGrantsSerializer,
+    responses={
+        200: OpenApiResponse(
+            response=serializers.PoolRoleGrantsSerializer,
+            description="The pool's grants after the call",
+        ),
+        400: OpenApiResponse(description="A role name is not declared by the pool's definition"),
+        **POOL_RESPONSES,
+    },
+)
+class PoolRolesView(APIView):
+    """
+    get: Retrieve role grants held in a pool.
+    post: Replace the roles of the users named in the body. A user absent from the body is
+    untouched; an empty list removes that user's grants.
+    """
+
+    queryset = PoolRoleGrant.objects.all()
+
+    # noinspection PyMethodMayBeStatic
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Return the pool's role grants keyed by user id."""
+        pool = utils.get_object_or_404(Pool, pk=kwargs['pool_id'])
+        return Response(serializers.PoolRoleGrantsSerializer(_grants_by_user(pool)).data)
+
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Replace the roles of the users named in the body."""
+        pool = utils.get_object_or_404(Pool, pk=kwargs['pool_id'])
+        body = serializers.PoolRoleGrantsSerializer().to_internal_value(request.data)
+
+        declared_roles = _get_pool_declared_roles(pool)
+        if declared_roles is not None:
+            undeclared = [
+                {'user': user_id, 'role': role_name}
+                for user_id, role_names in body.items()
+                for role_name in role_names
+                if role_name not in declared_roles
+            ]
+            if undeclared:
+                return Response(
+                    {
+                        'detail': "One or more roles are not declared by the pool's definition.",
+                        'undeclared': undeclared,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        with transaction.atomic():
+            for user_id, role_names in body.items():
+                PoolRoleGrant.objects.filter(pool=pool, user=user_id).delete()
+                PoolRoleGrant.objects.bulk_create([
+                    PoolRoleGrant(pool=pool, user=user_id, role=role_name)
+                    for role_name in role_names
+                ])
+
+        return Response(serializers.PoolRoleGrantsSerializer(_grants_by_user(pool)).data)
+
+
 @extend_schema(
     responses={
         200: OpenApiResponse(
@@ -1143,9 +1249,10 @@ class TopologyNodeConnectionData(APIView):
                 f'Node with name {node_name} does not exist'
                 f' in the topology of sandbox {sandbox.id}.'
             )
+        users_roles = roles.resolve_users_roles(request, sandbox.allocation_unit.pool)
         return Response(
             serializers.NodeAccessDataSerializer(
-                nodes.get_node_access_data(topology_instance, node)
+                nodes.get_node_access_data(topology_instance, node, users_roles)
             ).data
         )
 
@@ -1163,10 +1270,21 @@ class SandboxVpnView(APIView):
     """
     Returns the Netbird VPN client configuration for this sandbox.
 
-    A single shared access setup key grants a client access to every VPN
-    entrypoint of the sandbox; ``routes`` is the union of the CIDRs reachable
-    through those entrypoints. ``setup_key`` is null while the access resources
-    are still being provisioned (or when the sandbox has no VPN entrypoints).
+    The setup key granted is scoped to the requesting user's own roles in the
+    pool: a role-free pool grants its one shared access setup key to everyone.
+    A role-declaring pool grants a role's own key to a single-role holder, one
+    key spanning every held role's access group to a multi-role holder or a
+    privileged requester (minted on the first request for that role
+    combination and reused afterwards), and the shared key to a requester
+    holding none of the sandbox's roles. ``routes`` is the union of the CIDRs
+    of entrypoints the same roles can reach.
+
+    ``setup_key`` is null whenever ``reason`` is not: ``no_role`` (the requester
+    holds none of the sandbox's roles and no shared key is provisioned either),
+    ``not_provisioned`` (the sandbox has no VPN, or the Netbird objects the
+    requester is admitted to never finished provisioning), or ``error``
+    (minting a multi-role key failed). ``reason`` is null whenever ``setup_key``
+    is present.
 
     ``command`` is the ready-to-run NetBird CLI line a client pastes to connect
     (it embeds ``management_url`` and ``setup_key``); it is null whenever
@@ -1187,16 +1305,14 @@ class SandboxVpnView(APIView):
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Returns the Netbird VPN client configuration for this sandbox."""
         sandbox = sandboxes.get_sandbox(self.kwargs['sandbox_uuid'])
-        access = SandboxNetbirdAccess.objects.filter(sandbox=sandbox).first()
-        setup_key = access.access_setup_key_value if access else None
+        users_roles = roles.resolve_users_roles(request, sandbox.allocation_unit.pool)
+        setup_key, reason = netbird.resolve_vpn_setup_key_with_reason(sandbox, users_roles)
         management_url = get_client_management_url()
 
         routes: list[str] = []
         command: str | None = None
         if setup_key:
-            for nbr in sandbox.netbird_resources.all():
-                routes.extend(nbr.get_route_cidr_list())
-            routes = list(dict.fromkeys(routes))
+            routes = netbird.resolve_vpn_routes(sandbox, users_roles)
             # Build the command server-side so the NetBird CLI syntax lives in
             # one place; shlex.quote keeps a key/URL with shell-special
             # characters from breaking when pasted into a shell.
@@ -1208,6 +1324,7 @@ class SandboxVpnView(APIView):
         return Response({
             'management_url': management_url,
             'setup_key': setup_key,
+            'reason': reason,
             'routes': routes,
             'command': command,
         })

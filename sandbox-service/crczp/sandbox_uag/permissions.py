@@ -1,17 +1,12 @@
 """Permission classes for sandbox REST API endpoint access control."""
 
 from enum import Enum
-from typing import Any, override
+from typing import Any, cast, override
 
 from django.conf import settings
+from django.contrib.auth.models import User
 from rest_framework import permissions
 from rest_framework.request import Request
-
-from crczp.sandbox_uag.auth import get_user_roles
-from crczp.sandbox_uag.oidc_jwt import JWTAccessTokenAuthentication
-
-authenticator_class = JWTAccessTokenAuthentication()
-UAG_SETTINGS = settings.SANDBOX_UAG
 
 
 class EndpointPermissionClass(permissions.BasePermission):
@@ -32,14 +27,18 @@ class EndpointPermissionClass(permissions.BasePermission):
 
     @staticmethod
     def has_access_level(request: Request, level: 'EndpointPermissionClass.AccessLevel') -> bool:
-        """Check whether the request bearer token grants the required access level."""
+        """Check whether the requesting user's resolved groups grant the required access level.
+
+        Reads the groups OIDC authentication already resolved onto ``request.user``
+        (``auth.get_or_create_user``); makes no User-and-group call of its own.
+        """
         if not settings.CRCZP_SERVICE_CONFIG.authentication.authenticated_rest_api:
             return True
 
-        bearer_token = authenticator_class.get_bearer_token(request)
-        users_roles_names = get_user_roles(UAG_SETTINGS['ROLES_ACQUISITION_URL'], bearer_token)
         role_name = EndpointPermissionClass.get_role_string(level)
-        return role_name in users_roles_names
+        # the project does not swap AUTH_USER_MODEL, so an authenticated request.user
+        # is always django.contrib.auth.models.User
+        return cast(User, request.user).groups.filter(name=role_name).exists()
 
 
 class TraineePermission(EndpointPermissionClass):

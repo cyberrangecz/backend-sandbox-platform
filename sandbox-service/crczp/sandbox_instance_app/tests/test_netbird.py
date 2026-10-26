@@ -11,14 +11,17 @@ from unittest.mock import MagicMock, call
 
 import pytest
 from django.contrib.auth.models import AnonymousUser
+from django.db import OperationalError
 from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory
 
+from crczp.cloud_commons import UNIVERSAL_ROLES
 from crczp.sandbox_common_lib.netbird_client import NetbirdApiError, NetbirdConfigError
 from crczp.sandbox_instance_app.lib import netbird
 from crczp.sandbox_instance_app.models import (
     Sandbox,
     SandboxNetbirdAccess,
+    SandboxNetbirdEphemeralKey,
     SandboxNetbirdResources,
 )
 from crczp.sandbox_instance_app.views import SandboxVpnView
@@ -30,10 +33,11 @@ NETBIRD_MODULE = 'crczp.sandbox_instance_app.lib.netbird'
 
 @dataclass
 class FakeEntrypoint:  # pylint: disable=too-few-public-methods
-    """Stand-in for a topology VPN entrypoint with a name and routes."""
+    """Stand-in for a topology VPN entrypoint with a name, routes, and declared roles."""
 
     name: str
     routes: list[str]
+    accessible_by_roles: list[str] | None = None
 
 
 @dataclass
@@ -59,6 +63,9 @@ def netbird_cfg(mocker):
         f'{NETBIRD_MODULE}.settings.CRCZP_CONFIG',
         new=SimpleNamespace(netbird=SimpleNamespace(key_expiry_seconds=1209600)),
     )
+    # A role-free pool's declared role set, so provisioning takes the role-free
+    # branch; role-declaring scenarios override this.
+    mocker.patch(f'{NETBIRD_MODULE}._get_declared_roles', return_value=set())
 
 
 class TestShortStackName:
@@ -208,7 +215,7 @@ class TestGetVpnDns:
         assert netbird._get_vpn_dns(sandbox) is None
 
 
-class TestProvision:
+class TestProvision:  # pylint: disable=too-many-public-methods
     """Tests for provision_netbird_for_sandbox."""
 
     @pytest.fixture(autouse=True)
@@ -227,15 +234,21 @@ class TestProvision:
         assert SandboxNetbirdResources.objects.filter(sandbox=sandbox).count() == 0
 
     def test_skipped_when_no_entrypoints(self, mocker, sandbox):
-        """No entrypoints: nothing is created."""
+        """No entrypoints and no DNS: nothing is created, and no role lookup is made."""
         client = MagicMock()
         mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
         mocker.patch(f'{NETBIRD_MODULE}._get_vpn_entrypoints', return_value=[])
+        mocker.patch(f'{NETBIRD_MODULE}._get_vpn_dns', return_value=None)
+        get_declared_roles = mocker.patch(f'{NETBIRD_MODULE}._get_declared_roles')
 
         netbird.provision_netbird_for_sandbox(sandbox)
 
         client.create_group.assert_not_called()
         assert SandboxNetbirdResources.objects.filter(sandbox=sandbox).count() == 0
+        get_declared_roles.assert_not_called()
+        netbird.LOG.debug.assert_called_once_with(
+            'netbird_provision_skipped', sandbox_id=sandbox.id, reason='no_vpn_settings'
+        )
 
     def test_skipped_on_config_error(self, mocker, sandbox):
         """A config error building the client must not propagate or provision."""
@@ -265,6 +278,36 @@ class TestProvision:
 
         client.create_group.assert_not_called()
         assert SandboxNetbirdResources.objects.filter(sandbox=sandbox).count() == 0
+        netbird.LOG.warning.assert_called_once_with(
+            'netbird_provision_skipped',
+            sandbox_id=sandbox.id,
+            reason='vpn_settings_lookup_failed',
+            error='git fetch failed',
+        )
+
+    def test_skipped_when_declared_roles_lookup_fails(self, mocker, sandbox):
+        """A failing role lookup, past the entrypoint/DNS fetch, must not propagate or provision."""
+        client = MagicMock()
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_vpn_entrypoints',
+            return_value=[FakeEntrypoint('server', ['10.0.0.0/24'])],
+        )
+        mocker.patch(f'{NETBIRD_MODULE}._get_vpn_dns', return_value=None)
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_declared_roles', side_effect=RuntimeError('git fetch failed')
+        )
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        client.create_group.assert_not_called()
+        assert SandboxNetbirdResources.objects.filter(sandbox=sandbox).count() == 0
+        netbird.LOG.warning.assert_called_once_with(
+            'netbird_provision_skipped',
+            sandbox_id=sandbox.id,
+            reason='vpn_settings_lookup_failed',
+            error='git fetch failed',
+        )
 
     def test_entry_point_never_raises_on_unexpected_error(self, mocker, sandbox):
         """The public entry point swallows unexpected errors.
@@ -331,28 +374,243 @@ class TestProvision:
         client.create_nameserver_group.assert_not_called()
         assert access.dns_nameserver_group_id is None
 
-    def test_partial_failure_persists_row(self, mocker, sandbox, netbird_cfg):
-        """A failing entrypoint is caught and its partial row persisted."""
+    @staticmethod
+    def _one_entrypoint_client(mocker, routes: list[str]) -> MagicMock:
+        """Patch in a client that provisions one entrypoint with ``routes`` successfully."""
         client = MagicMock()
-        # Access provisions fully; the entrypoint then fails on its host key.
         client.create_group.side_effect = ['access-grp', 'host-grp']
+        client.create_setup_key.side_effect = [
+            ('access-key-id', 'access-key-val'),
+            ('host-key-id', 'host-key-val'),
+        ]
+        client.create_policy.return_value = 'pol-1'
+        client.create_route.side_effect = [f'route-{i}' for i in range(1, len(routes) + 1)]
+        client.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_vpn_entrypoints',
+            return_value=[FakeEntrypoint('server', routes)],
+        )
+        return client
+
+    def test_creates_policy_before_routes(self, mocker, sandbox, netbird_cfg):
+        """The policy exists before any route, so no route is ever left without it."""
+        client = self._one_entrypoint_client(mocker, ['10.0.0.0/24', '10.0.1.0/24'])
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        call_names = [c[0] for c in client.mock_calls]
+        assert call_names.index('create_policy') < call_names.index('create_route')
+
+    def test_host_key_failure_discards_entrypoint(self, mocker, sandbox, netbird_cfg):
+        """A failing entrypoint is caught, and what it created is torn down with its row."""
+        client = self._one_entrypoint_client(mocker, ['10.0.0.0/24'])
         client.create_setup_key.side_effect = [
             ('access-key-id', 'access-key-val'),
             NetbirdApiError('POST', 'url', 500, 'fail'),
         ]
-        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
-        mocker.patch(
-            f'{NETBIRD_MODULE}._get_vpn_entrypoints',
-            return_value=[FakeEntrypoint('server', ['10.0.0.0/24'])],
-        )
 
         # Must not raise: a failing entrypoint is caught and logged.
         netbird.provision_netbird_for_sandbox(sandbox)
 
+        client.delete_group.assert_called_once_with('host-grp')
+        assert not SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
+        access = SandboxNetbirdAccess.objects.get(sandbox=sandbox)
+        assert access.access_setup_key_value == 'access-key-val'
+
+    def test_policy_failure_discards_entrypoint(self, mocker, sandbox, netbird_cfg):
+        """A failing policy create creates no route and tears down the host key and group."""
+        client = self._one_entrypoint_client(mocker, ['10.0.0.0/24'])
+        client.create_policy.side_effect = NetbirdApiError('POST', 'url', 500, 'fail')
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        client.create_route.assert_not_called()
+        client.delete_policy.assert_not_called()
+        client.delete_setup_key.assert_called_once_with('host-key-id')
+        client.delete_group.assert_called_once_with('host-grp')
+        assert not SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
+
+    def test_route_failure_discards_policy_and_created_routes(self, mocker, sandbox, netbird_cfg):
+        """A route failing part-way tears down the policy and the routes created before it."""
+        client = self._one_entrypoint_client(mocker, ['10.0.0.0/24', '10.0.1.0/24'])
+        client.create_route.side_effect = ['route-1', NetbirdApiError('POST', 'url', 500, 'fail')]
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        client.delete_policy.assert_called_once_with('pol-1')
+        client.delete_route.assert_called_once_with('route-1')
+        client.delete_setup_key.assert_called_once_with('host-key-id')
+        client.delete_group.assert_called_once_with('host-grp')
+        assert not SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
+
+    def test_failed_cleanup_keeps_row_for_teardown(self, mocker, sandbox, netbird_cfg):
+        """If the cleanup cannot delete everything, the row stays without key value or CIDRs."""
+        client = self._one_entrypoint_client(mocker, ['10.0.0.0/24'])
+        client.create_route.side_effect = NetbirdApiError('POST', 'url', 500, 'fail')
+        client.delete_group.side_effect = NetbirdApiError('DELETE', 'url', 503, 'down')
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
         nbr = SandboxNetbirdResources.objects.get(sandbox=sandbox, entrypoint_host_name='server')
+        # The IDs stay for the sandbox teardown to retry.
         assert nbr.host_group_id == 'host-grp'
-        assert nbr.host_setup_key_id is None
-        assert nbr.policy_id is None
+        assert nbr.host_setup_key_id == 'host-key-id'
+        assert nbr.policy_id == 'pol-1'
+        # Ansible skips the entrypoint VM, and the VPN view advertises nothing for it.
+        assert nbr.host_setup_key_value is None
+        assert nbr.get_route_cidr_list() == []
+
+    def test_failed_cleanup_after_all_routes_keeps_no_cidrs(self, mocker, sandbox, netbird_cfg):
+        """A kept row advertises no CIDRs, even when only recording them failed."""
+        client = self._one_entrypoint_client(mocker, ['10.0.0.0/24'])
+        client.delete_group.side_effect = NetbirdApiError('DELETE', 'url', 503, 'down')
+        save = SandboxNetbirdResources.save
+        failed = []
+
+        def _fail_recording_cidrs(nbr, *args, **kwargs):
+            if nbr.route_cidrs and not failed:
+                failed.append(True)
+                raise OperationalError('statement timeout')
+            save(nbr, *args, **kwargs)
+
+        mocker.patch.object(SandboxNetbirdResources, 'save', _fail_recording_cidrs)
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        client.delete_policy.assert_called_once_with('pol-1')
+        client.delete_route.assert_called_once_with('route-1')
+        nbr = SandboxNetbirdResources.objects.get(sandbox=sandbox, entrypoint_host_name='server')
+        assert nbr.host_setup_key_value is None
+        assert nbr.get_route_cidr_list() == []
+
+    def test_discards_entrypoint_whose_row_was_deleted_mid_provision(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """Regression: the entrypoint is torn down even if its DB row is gone.
+
+        The error path must use the in-memory handle rather than re-read the
+        deleted row, or the host key and group it created would be orphaned.
+        """
+        client = self._one_entrypoint_client(mocker, ['10.0.0.0/24'])
+
+        def _delete_row_then_fail(**_kwargs):
+            SandboxNetbirdResources.objects.filter(sandbox=sandbox).delete()
+            raise NetbirdApiError('POST', 'url', 500, 'fail')
+
+        client.create_policy.side_effect = _delete_row_then_fail
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        client.delete_setup_key.assert_called_once_with('host-key-id')
+        client.delete_group.assert_called_once_with('host-grp')
+
+    def test_failed_entrypoint_does_not_stop_the_next(self, mocker, sandbox, netbird_cfg):
+        """A failed entrypoint is discarded and the next one is still provisioned."""
+        client = MagicMock()
+        client.create_group.side_effect = ['access-grp', 'grp-a', 'grp-b']
+        client.create_setup_key.side_effect = [('ak-id', 'ak'), ('ka-id', 'ka'), ('kb-id', 'kb')]
+        client.create_policy.side_effect = [NetbirdApiError('POST', 'url', 500, 'fail'), 'pol-b']
+        client.create_route.return_value = 'route-b'
+        client.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_vpn_entrypoints',
+            return_value=[
+                FakeEntrypoint('a', ['10.0.0.0/24']),
+                FakeEntrypoint('b', ['10.0.1.0/24']),
+            ],
+        )
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        client.delete_group.assert_called_once_with('grp-a')
+        nbr = SandboxNetbirdResources.objects.get(sandbox=sandbox)
+        assert nbr.entrypoint_host_name == 'b'
+        assert nbr.policy_id == 'pol-b'
+        assert nbr.get_route_cidr_list() == ['10.0.1.0/24']
+
+    def test_non_api_error_in_cleanup_still_hides_the_entrypoint(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """A teardown that raises still leaves the kept row without key value or CIDRs."""
+        client = self._one_entrypoint_client(mocker, ['10.0.0.0/24'])
+        client.create_route.side_effect = NetbirdApiError('POST', 'url', 500, 'fail')
+        client.list_group_peer_ids.side_effect = ValueError('malformed peer list')
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        client.delete_setup_key.assert_called_once_with('host-key-id')
+        nbr = SandboxNetbirdResources.objects.get(sandbox=sandbox, entrypoint_host_name='server')
+        assert nbr.host_setup_key_value is None
+        assert nbr.get_route_cidr_list() == []
+
+    @staticmethod
+    def _red_team_client(mocker, routes: list[str]) -> MagicMock:
+        """Patch in a client for one red-team-only entrypoint in a pool declaring red-team."""
+        mocker.patch(f'{NETBIRD_MODULE}._get_declared_roles', return_value={'red-team'})
+        client = MagicMock()
+        client.create_group.side_effect = ['flat-grp', 'red-grp', 'host-grp']
+        client.create_setup_key.side_effect = [
+            ('flat-key-id', 'flat-key'),
+            ('red-key-id', 'red-key'),
+            ('host-key-id', 'host-key'),
+        ]
+        client.create_policy.return_value = 'pol-1'
+        client.create_route.side_effect = [f'route-{i}' for i in range(1, len(routes) + 1)]
+        client.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_vpn_entrypoints',
+            return_value=[FakeEntrypoint('server', routes, ['red-team'])],
+        )
+        return client
+
+    def test_role_scoped_route_failure_discards_only_the_entrypoint(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """A role-scoped route failing part-way tears down that entrypoint, not the roles."""
+        client = self._red_team_client(mocker, ['10.0.0.0/24', '10.0.1.0/24'])
+        client.create_route.side_effect = ['route-1', NetbirdApiError('POST', 'url', 500, 'fail')]
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        assert client.create_policy.call_args.kwargs['source_group_ids'] == ['red-grp']
+        call_names = [c[0] for c in client.mock_calls]
+        assert call_names.index('create_policy') < call_names.index('create_route')
+        client.delete_policy.assert_called_once_with('pol-1')
+        client.delete_route.assert_called_once_with('route-1')
+        client.delete_group.assert_called_once_with('host-grp')
+        assert not SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
+        access = {a.role: a.access_setup_key_value for a in SandboxNetbirdAccess.objects.all()}
+        assert access == {'': 'flat-key', 'red-team': 'red-key'}
+
+    def test_role_scoped_kept_row_advertises_nothing_and_is_torn_down_later(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """A kept role-scoped row hides its routes and goes before the groups at teardown."""
+        client = self._red_team_client(mocker, ['10.0.0.0/24'])
+        client.create_route.side_effect = NetbirdApiError('POST', 'url', 500, 'fail')
+        client.delete_group.side_effect = NetbirdApiError('DELETE', 'url', 503, 'down')
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        nbr = SandboxNetbirdResources.objects.get(sandbox=sandbox, entrypoint_host_name='server')
+        assert nbr.host_setup_key_value is None
+        assert netbird.resolve_vpn_routes(sandbox, frozenset({'red-team'})) == []
+
+        teardown = MagicMock()
+        teardown.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=teardown)
+        netbird.destroy_netbird_for_sandbox(sandbox)
+
+        calls = list(teardown.mock_calls)
+        host_group_delete = calls.index(call.delete_group('host-grp'))
+        red_group_delete = calls.index(call.delete_group('red-grp'))
+        flat_group_delete = calls.index(call.delete_group('flat-grp'))
+        assert host_group_delete < red_group_delete < flat_group_delete
+        assert not SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
+        assert not SandboxNetbirdAccess.objects.filter(sandbox=sandbox).exists()
 
     def test_access_failure_skips_entrypoints(self, mocker, sandbox, netbird_cfg):
         """If the shared access group cannot be created, no entrypoint is provisioned."""
@@ -471,6 +729,43 @@ class TestProvision:
         # though its DB row was deleted before the error handler ran.
         client.delete_group.assert_any_call('access-grp')
 
+    def test_end_guard_destroys_the_flat_access_row_last(self, mocker, sandbox, netbird_cfg):
+        """Regression: Netbird refuses to delete a group a setup key still names.
+
+        Every role key also names the flat group, so the end guard must delete the
+        role rows before the flat one, as destroy_netbird_for_sandbox does.
+        """
+        mocker.patch(f'{NETBIRD_MODULE}._get_declared_roles', return_value={'red-team'})
+        client = MagicMock()
+        client.create_group.side_effect = ['flat-grp', 'red-grp', 'host-grp']
+        client.create_setup_key.side_effect = [
+            ('flat-key-id', 'flat-key'),
+            ('red-key-id', 'red-key'),
+            ('host-key-id', 'host-key'),
+        ]
+        client.create_route.return_value = 'route-1'
+        client.create_policy.return_value = 'pol-1'
+        client.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_vpn_entrypoints',
+            return_value=[FakeEntrypoint('server', ['10.0.0.0/24'])],
+        )
+        exists_results = iter([True, False])
+        mocker.patch(
+            f'{NETBIRD_MODULE}.Sandbox.objects.filter',
+            side_effect=lambda **_kw: type(
+                '_QS', (), {'exists': lambda self: next(exists_results)}
+            )(),
+        )
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        deletes = [c for c in client.mock_calls if c[0] in ('delete_setup_key', 'delete_group')]
+        flat_group_delete = deletes.index(call.delete_group('flat-grp'))
+        assert deletes.index(call.delete_setup_key('red-key-id')) < flat_group_delete
+        assert deletes.index(call.delete_group('red-grp')) < flat_group_delete
+
     def test_creates_dns_primary_nameserver_group(self, mocker, sandbox, netbird_cfg):
         """vpn.dns without search domains creates a primary nameserver group."""
         client = MagicMock()
@@ -576,6 +871,143 @@ class TestProvision:
         client.create_policy.assert_not_called()
         assert SandboxNetbirdResources.objects.filter(sandbox=sandbox).count() == 0
 
+    def test_dns_uses_a_role_qualified_name_per_role(self, mocker, sandbox):
+        """Each role's nameserver group is named uniquely, avoiding a Netbird name clash."""
+        mocker.patch(
+            f'{NETBIRD_MODULE}.settings.CRCZP_CONFIG',
+            new=SimpleNamespace(netbird=SimpleNamespace(key_expiry_seconds=1209600)),
+        )
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_declared_roles', return_value={'red-team', 'blue-team'}
+        )
+        client = MagicMock()
+        client.create_group.side_effect = ['flat-grp', 'blue-grp', 'red-grp']
+        client.create_setup_key.side_effect = [
+            ('flat-key-id', 'flat-key'),
+            ('blue-key-id', 'blue-key'),
+            ('red-key-id', 'red-key'),
+        ]
+        client.create_nameserver_group.side_effect = ['flat-ns', 'blue-ns', 'red-ns']
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        mocker.patch(f'{NETBIRD_MODULE}._get_vpn_entrypoints', return_value=[])
+        mocker.patch(f'{NETBIRD_MODULE}._get_vpn_dns', return_value=FakeDns(['10.0.0.5']))
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        stack_name = netbird._short_stack_name(sandbox.allocation_unit.get_stack_name())
+        names = [call.kwargs['name'] for call in client.create_nameserver_group.call_args_list]
+        assert names == [
+            f'{stack_name}-dns',
+            f'{stack_name}-dns_blue-team',
+            f'{stack_name}-dns_red-team',
+        ]
+        assert len(set(names)) == len(names)
+
+    def test_role_keys_also_name_the_flat_access_group(self, mocker, sandbox):
+        """Each role's stored key also names the flat group, not just its own."""
+        mocker.patch(
+            f'{NETBIRD_MODULE}.settings.CRCZP_CONFIG',
+            new=SimpleNamespace(netbird=SimpleNamespace(key_expiry_seconds=1209600)),
+        )
+        mocker.patch(f'{NETBIRD_MODULE}._get_declared_roles', return_value={'red-team'})
+        client = MagicMock()
+        client.create_group.side_effect = ['flat-grp', 'red-grp']
+        client.create_setup_key.side_effect = [
+            ('flat-key-id', 'flat-key'),
+            ('red-key-id', 'red-key'),
+        ]
+        client.create_nameserver_group.side_effect = ['flat-ns', 'red-ns']
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        mocker.patch(f'{NETBIRD_MODULE}._get_vpn_entrypoints', return_value=[])
+        mocker.patch(f'{NETBIRD_MODULE}._get_vpn_dns', return_value=FakeDns(['10.0.0.5']))
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        flat_call, red_call = client.create_setup_key.call_args_list
+        assert set(flat_call.kwargs['auto_group_ids']) == {'flat-grp'}
+        assert set(red_call.kwargs['auto_group_ids']) == {'red-grp', 'flat-grp'}
+
+    def test_role_keys_name_the_flat_group_even_when_its_own_key_fails(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """Regression: a failed flat key must not drop the flat group from role keys.
+
+        Unscoped entrypoints still source from the flat group once it exists, so
+        role holders would otherwise lose them.
+        """
+        mocker.patch(f'{NETBIRD_MODULE}._get_declared_roles', return_value={'red-team'})
+        client = MagicMock()
+        client.create_group.side_effect = ['flat-grp', 'red-grp']
+        client.create_setup_key.side_effect = [
+            NetbirdApiError('POST', 'url', 500, 'fail'),
+            ('red-key-id', 'red-key'),
+        ]
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        mocker.patch(f'{NETBIRD_MODULE}._get_vpn_entrypoints', return_value=[])
+        mocker.patch(f'{NETBIRD_MODULE}._get_vpn_dns', return_value=FakeDns(['10.0.0.5']))
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        red_call = client.create_setup_key.call_args_list[1]
+        assert set(red_call.kwargs['auto_group_ids']) == {'red-grp', 'flat-grp'}
+
+    def test_unscoped_entrypoint_sources_from_the_flat_group_alone(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """An entrypoint declaring no accessible_by_roles sources from the flat group alone."""
+        mocker.patch(f'{NETBIRD_MODULE}._get_declared_roles', return_value={'red-team'})
+        client = MagicMock()
+        client.create_group.side_effect = ['flat-grp', 'red-grp', 'host-grp']
+        client.create_setup_key.side_effect = [
+            ('flat-key-id', 'flat-key'),
+            ('red-key-id', 'red-key'),
+            ('host-key-id', 'host-key'),
+        ]
+        client.create_route.return_value = 'route-1'
+        client.create_policy.return_value = 'pol-1'
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_vpn_entrypoints',
+            return_value=[FakeEntrypoint('server', ['10.0.0.0/24'])],
+        )
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        kwargs = client.create_policy.call_args.kwargs
+        assert kwargs['source_group_ids'] == ['flat-grp']
+        nbr = SandboxNetbirdResources.objects.get(sandbox=sandbox, entrypoint_host_name='server')
+        assert nbr.get_source_role_list() == []
+
+    def test_role_scoped_entrypoint_sources_only_its_named_roles(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """An entrypoint naming specific roles sources only those roles' groups."""
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_declared_roles', return_value={'red-team', 'blue-team'}
+        )
+        client = MagicMock()
+        client.create_group.side_effect = ['flat-grp', 'blue-grp', 'red-grp', 'host-grp']
+        client.create_setup_key.side_effect = [
+            ('flat-key-id', 'flat-key'),
+            ('blue-key-id', 'blue-key'),
+            ('red-key-id', 'red-key'),
+            ('host-key-id', 'host-key'),
+        ]
+        client.create_route.return_value = 'route-1'
+        client.create_policy.return_value = 'pol-1'
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_vpn_entrypoints',
+            return_value=[FakeEntrypoint('server', ['10.0.0.0/24'], ['red-team'])],
+        )
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        kwargs = client.create_policy.call_args.kwargs
+        assert kwargs['source_group_ids'] == ['red-grp']
+        nbr = SandboxNetbirdResources.objects.get(sandbox=sandbox, entrypoint_host_name='server')
+        assert nbr.get_source_role_list() == ['red-team']
+
 
 class TestDestroy:
     """Tests for destroy_netbird_for_sandbox."""
@@ -674,6 +1106,134 @@ class TestDestroy:
         client.delete_group.assert_has_calls([call('host-grp'), call('access-grp')])
         assert not SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
         assert not SandboxNetbirdAccess.objects.filter(sandbox=sandbox).exists()
+
+    def test_every_roles_access_resources_are_torn_down(self, mocker, sandbox):
+        """Every SandboxNetbirdAccess row for the sandbox is torn down, not just one."""
+        red = SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox,
+            role='red-team',
+            access_group_id='red-grp',
+            access_setup_key_id='red-key-id',
+            access_setup_key_value='red-key-val',
+        )
+        blue = SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox,
+            role='blue-team',
+            access_group_id='blue-grp',
+            access_setup_key_id='blue-key-id',
+            access_setup_key_value='blue-key-val',
+        )
+        client = MagicMock()
+        client.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+
+        netbird.destroy_netbird_for_sandbox(sandbox)
+
+        client.delete_group.assert_has_calls([call('red-grp'), call('blue-grp')], any_order=True)
+        client.delete_setup_key.assert_has_calls(
+            [call('red-key-id'), call('blue-key-id')], any_order=True
+        )
+        assert not SandboxNetbirdAccess.objects.filter(pk__in=[red.pk, blue.pk]).exists()
+
+    def test_deletes_ephemeral_keys_before_the_access_groups_they_reference(self, mocker, sandbox):
+        """A minted multi-role key is deleted before the access groups it names."""
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_group_id='red-grp'
+        )
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='blue-team', access_group_id='blue-grp'
+        )
+        SandboxNetbirdEphemeralKey.objects.create(
+            sandbox=sandbox, role_set='blue-team,red-team', key_id='ephemeral-id', key_value='v'
+        )
+        client = MagicMock()
+        client.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+
+        netbird.destroy_netbird_for_sandbox(sandbox)
+
+        calls = [c[0] for c in client.method_calls]
+        ephemeral_calls = [
+            i
+            for i, c in enumerate(client.method_calls)
+            if c[0] == 'delete_setup_key' and c.args[0] == 'ephemeral-id'
+        ]
+        group_calls = [
+            i
+            for i, c in enumerate(client.method_calls)
+            if c[0] == 'delete_group' and c.args[0] in ('red-grp', 'blue-grp')
+        ]
+        assert ephemeral_calls and len(group_calls) == 2
+        assert max(ephemeral_calls) < min(group_calls)
+        assert calls.count('delete_group') == 2
+        assert not SandboxNetbirdEphemeralKey.objects.filter(sandbox=sandbox).exists()
+
+    def test_destroying_a_freshly_minted_multi_role_key_leaves_nothing_behind(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """A key minted through the real resolution path is fully torn down afterward."""
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_group_id='red-grp'
+        )
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='blue-team', access_group_id='blue-grp'
+        )
+        client = MagicMock()
+        client.create_setup_key.return_value = ('ephemeral-id', 'ephemeral-key')
+        client.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        result = netbird.resolve_vpn_setup_key(sandbox, frozenset({'red-team', 'blue-team'}))
+        assert result == 'ephemeral-key'
+
+        netbird.destroy_netbird_for_sandbox(sandbox)
+
+        calls = list(client.method_calls)
+        ephemeral_delete = next(
+            i
+            for i, c in enumerate(calls)
+            if c[0] == 'delete_setup_key' and c.args[0] == 'ephemeral-id'
+        )
+        group_deletes = [
+            i
+            for i, c in enumerate(calls)
+            if c[0] == 'delete_group' and c.args[0] in ('red-grp', 'blue-grp')
+        ]
+        assert len(group_deletes) == 2
+        assert ephemeral_delete < min(group_deletes)
+        assert not SandboxNetbirdEphemeralKey.objects.filter(sandbox=sandbox).exists()
+        assert not SandboxNetbirdAccess.objects.filter(sandbox=sandbox).exists()
+
+    def test_destroys_the_flat_access_row_last(self, mocker, sandbox):
+        """The flat row's group is destroyed only after every role row's key is gone.
+
+        Every role's stored key also names the flat group, so deleting the flat
+        group before a role's key is gone would be rejected by Netbird.
+        """
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, access_group_id='flat-grp', access_setup_key_id='flat-key-id'
+        )
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox,
+            role='red-team',
+            access_group_id='red-grp',
+            access_setup_key_id='red-key-id',
+        )
+        client = MagicMock()
+        client.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+
+        netbird.destroy_netbird_for_sandbox(sandbox)
+
+        calls = list(client.method_calls)
+        red_key_delete = next(
+            i
+            for i, c in enumerate(calls)
+            if c[0] == 'delete_setup_key' and c.args[0] == 'red-key-id'
+        )
+        flat_group_delete = next(
+            i for i, c in enumerate(calls) if c[0] == 'delete_group' and c.args[0] == 'flat-grp'
+        )
+        assert red_key_delete < flat_group_delete
 
     def test_deletes_all_resources_and_row(self, mocker, sandbox):
         """All resources are deleted in order and the rows removed."""
@@ -779,6 +1339,284 @@ class TestDestroy:
         assert ap1_idx < access_grp_idx
 
 
+class TestResolveVpnSetupKey:
+    """Tests for resolving the Netbird setup key a requesting user's roles admit."""
+
+    def test_role_free_pool_returns_the_flat_stored_key(self, sandbox):
+        """A role-free pool's requester gets the role='' row's stored key, unchanged."""
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_setup_key_value='flat-key')
+
+        assert netbird.resolve_vpn_setup_key(sandbox, frozenset()) == 'flat-key'
+
+    def test_roleless_requester_in_role_declaring_pool_gets_the_flat_key(self, sandbox):
+        """A requester resolving to no role in a role-declaring pool falls back to the flat key."""
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_setup_key_value='flat-key')
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_setup_key_value='red-team-key'
+        )
+
+        assert netbird.resolve_vpn_setup_key(sandbox, frozenset()) == 'flat-key'
+
+    def test_roleless_requester_gets_none_when_no_flat_key_either(self, sandbox):
+        """A requester resolving to no role gets None when no flat key is provisioned either."""
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox)
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_setup_key_value='red-team-key'
+        )
+
+        assert netbird.resolve_vpn_setup_key(sandbox, frozenset()) is None
+
+    def test_single_role_holder_gets_that_roles_stored_key(self, mocker, sandbox):
+        """A single-role holder gets that role's own stored key; no Netbird call is made."""
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_setup_key_value='flat-key')
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox,
+            role='red-team',
+            access_group_id='red-grp',
+            access_setup_key_value='red-team-key',
+        )
+        client_factory = mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client')
+
+        result = netbird.resolve_vpn_setup_key(sandbox, frozenset({'red-team'}))
+
+        assert result == 'red-team-key'
+        client_factory.assert_not_called()
+
+    def test_multi_role_holder_gets_a_freshly_minted_key(self, mocker, sandbox, netbird_cfg):
+        """A multi-role holder gets one freshly minted key naming every held role's group."""
+        red = SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox,
+            role='red-team',
+            access_group_id='red-grp',
+            access_setup_key_value='red-team-key',
+        )
+        blue = SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox,
+            role='blue-team',
+            access_group_id='blue-grp',
+            access_setup_key_value='blue-team-key',
+        )
+        client = MagicMock()
+        client.create_setup_key.return_value = ('ephemeral-id', 'ephemeral-key')
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+
+        result = netbird.resolve_vpn_setup_key(sandbox, frozenset({'red-team', 'blue-team'}))
+
+        assert result == 'ephemeral-key'
+        kwargs = client.create_setup_key.call_args.kwargs
+        stack_name = netbird._short_stack_name(sandbox.allocation_unit.get_stack_name())
+        assert set(kwargs['auto_group_ids']) == {'red-grp', 'blue-grp'}
+        assert kwargs['expires_in_seconds'] == 1209600
+        assert kwargs['name'] == f'{stack_name}-access-ephemeral_blue-team_red-team'
+        # Not written onto either role's own row.
+        red.refresh_from_db()
+        blue.refresh_from_db()
+        assert red.access_setup_key_value == 'red-team-key'
+        assert blue.access_setup_key_value == 'blue-team-key'
+        # Persisted under the role combination instead, so a repeat request reuses it.
+        stored = SandboxNetbirdEphemeralKey.objects.get(
+            sandbox=sandbox, role_set='blue-team,red-team'
+        )
+        assert stored.key_id == 'ephemeral-id'
+        assert stored.key_value == 'ephemeral-key'
+
+    def test_multi_role_holder_reuses_a_previously_minted_key(self, mocker, sandbox, netbird_cfg):
+        """A repeat request for the same role combination reuses the stored key."""
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_group_id='red-grp'
+        )
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='blue-team', access_group_id='blue-grp'
+        )
+        SandboxNetbirdEphemeralKey.objects.create(
+            sandbox=sandbox, role_set='blue-team,red-team', key_id='old-id', key_value='old-key'
+        )
+        client_factory = mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client')
+
+        result = netbird.resolve_vpn_setup_key(sandbox, frozenset({'red-team', 'blue-team'}))
+
+        assert result == 'old-key'
+        client_factory.assert_not_called()
+
+    def test_concurrent_first_mint_hands_out_the_stored_key_and_drops_its_own(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """Regression: losing a concurrent first mint must neither 500 nor leak its key."""
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_group_id='red-grp'
+        )
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='blue-team', access_group_id='blue-grp'
+        )
+        client = MagicMock()
+
+        def _concurrent_request_stores_first(**_kwargs):
+            SandboxNetbirdEphemeralKey.objects.create(
+                sandbox=sandbox,
+                role_set='blue-team,red-team',
+                key_id='winner-id',
+                key_value='winner-key',
+            )
+            return ('loser-id', 'loser-key')
+
+        client.create_setup_key.side_effect = _concurrent_request_stores_first
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+
+        result = netbird.resolve_vpn_setup_key(sandbox, frozenset({'red-team', 'blue-team'}))
+
+        assert result == 'winner-key'
+        client.delete_setup_key.assert_called_once_with('loser-id')
+        stored = SandboxNetbirdEphemeralKey.objects.filter(sandbox=sandbox)
+        assert list(stored.values_list('key_id', flat=True)) == ['winner-id']
+
+    def test_multi_role_holder_gets_none_when_netbird_unreachable(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """A minting failure yields None rather than raising."""
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_group_id='red-grp'
+        )
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='blue-team', access_group_id='blue-grp'
+        )
+        client = MagicMock()
+        client.create_setup_key.side_effect = NetbirdApiError('POST', 'url', 500, 'fail')
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+
+        assert netbird.resolve_vpn_setup_key(sandbox, frozenset({'red-team', 'blue-team'})) is None
+
+    def test_multi_role_holder_gets_none_on_a_config_error(self, mocker, sandbox, netbird_cfg):
+        """A missing or invalid Netbird configuration yields None rather than raising."""
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_group_id='red-grp'
+        )
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='blue-team', access_group_id='blue-grp'
+        )
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', side_effect=NetbirdConfigError)
+
+        assert netbird.resolve_vpn_setup_key(sandbox, frozenset({'red-team', 'blue-team'})) is None
+
+    def test_multi_role_holder_gets_none_when_netbird_unconfigured(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """Netbird not being configured at all yields None rather than raising."""
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_group_id='red-grp'
+        )
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='blue-team', access_group_id='blue-grp'
+        )
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=None)
+
+        assert netbird.resolve_vpn_setup_key(sandbox, frozenset({'red-team', 'blue-team'})) is None
+
+    def test_privileged_requester_role_free_pool_gets_the_flat_key(self, sandbox):
+        """UNIVERSAL_ROLES in a role-free pool gets the role='' row's stored key."""
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_setup_key_value='flat-key')
+
+        assert netbird.resolve_vpn_setup_key(sandbox, UNIVERSAL_ROLES) == 'flat-key'
+
+    def test_privileged_requester_gets_a_key_spanning_every_declared_role(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """UNIVERSAL_ROLES with several declared roles mints a key spanning all of them."""
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_group_id='red-grp'
+        )
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='blue-team', access_group_id='blue-grp'
+        )
+        client = MagicMock()
+        client.create_setup_key.return_value = ('ephemeral-id', 'ephemeral-key')
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+
+        result = netbird.resolve_vpn_setup_key(sandbox, UNIVERSAL_ROLES)
+
+        assert result == 'ephemeral-key'
+        kwargs = client.create_setup_key.call_args.kwargs
+        assert set(kwargs['auto_group_ids']) == {'red-grp', 'blue-grp'}
+
+    def test_reason_is_none_when_a_key_is_resolved(self, sandbox):
+        """The reason is None alongside a successfully resolved key."""
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_setup_key_value='flat-key')
+
+        assert netbird.resolve_vpn_setup_key_with_reason(sandbox, frozenset()) == ('flat-key', None)
+
+    def test_reason_is_not_provisioned_for_an_unprovisioned_flat_pool(self, sandbox):
+        """A sandbox with no access row at all (no VPN) reports not_provisioned."""
+        assert netbird.resolve_vpn_setup_key_with_reason(sandbox, frozenset()) == (
+            None,
+            'not_provisioned',
+        )
+
+    def test_roleless_requester_gets_the_flat_key_when_one_is_provisioned(self, sandbox):
+        """A roleless requester in a role-declaring pool falls back to the flat key."""
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_setup_key_value='flat-key')
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_group_id='red-grp'
+        )
+
+        assert netbird.resolve_vpn_setup_key_with_reason(sandbox, frozenset()) == (
+            'flat-key',
+            None,
+        )
+
+    def test_reason_is_no_role_for_a_roleless_requester_with_no_flat_key(self, sandbox):
+        """A roleless requester reports no_role when no flat key is provisioned either."""
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox)
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_group_id='red-grp'
+        )
+
+        assert netbird.resolve_vpn_setup_key_with_reason(sandbox, frozenset()) == (
+            None,
+            'no_role',
+        )
+
+    def test_stray_grant_naming_no_declared_role_gets_the_flat_key(self, sandbox):
+        """A role held by the requester but declared on no access row falls back to the flat key."""
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_setup_key_value='flat-key')
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_group_id='red-grp'
+        )
+
+        assert netbird.resolve_vpn_setup_key_with_reason(sandbox, frozenset({'observer'})) == (
+            'flat-key',
+            None,
+        )
+
+    def test_reason_is_not_provisioned_for_an_admitted_but_unprovisioned_role(self, sandbox):
+        """An admitted role whose access group never provisioned reports not_provisioned."""
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_setup_key_value='flat-key')
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, role='red-team')
+
+        assert netbird.resolve_vpn_setup_key_with_reason(sandbox, frozenset({'red-team'})) == (
+            None,
+            'not_provisioned',
+        )
+
+    def test_reason_is_error_when_minting_a_multi_role_key_fails(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """A multi-role minting failure reports error."""
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_group_id='red-grp'
+        )
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='blue-team', access_group_id='blue-grp'
+        )
+        client = MagicMock()
+        client.create_setup_key.side_effect = NetbirdApiError('POST', 'url', 500, 'fail')
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+
+        result = netbird.resolve_vpn_setup_key_with_reason(
+            sandbox, frozenset({'red-team', 'blue-team'})
+        )
+
+        assert result == (None, 'error')
+
+
 class TestSandboxVpnView:
     """Tests for the sandbox VPN API view."""
 
@@ -824,6 +1662,7 @@ class TestSandboxVpnView:
         assert response.data == {
             'management_url': 'https://client.example.com',
             'setup_key': 'access-key-val',
+            'reason': None,
             'routes': ['10.0.0.0/24', '10.0.1.0/24', '10.0.2.0/24'],
             'command': (
                 'netbird up --management-url https://client.example.com --setup-key access-key-val'
@@ -844,6 +1683,7 @@ class TestSandboxVpnView:
         assert response.data == {
             'management_url': 'https://client.example.com',
             'setup_key': None,
+            'reason': 'not_provisioned',
             'routes': [],
             'command': None,
         }
@@ -869,6 +1709,74 @@ class TestSandboxVpnView:
         assert response.data == {
             'management_url': 'https://client.example.com',
             'setup_key': None,
+            'reason': 'not_provisioned',
+            'routes': [],
+            'command': None,
+        }
+
+    def test_single_role_holder_receives_their_own_teams_key(self, mocker, sandbox):
+        """A requester resolving to one role receives that role's own stored key."""
+        mocker.patch(
+            'crczp.sandbox_instance_app.views.roles.resolve_users_roles',
+            return_value=frozenset({'red-team'}),
+        )
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_setup_key_value='flat-key')
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox,
+            role='red-team',
+            access_group_id='red-grp',
+            access_setup_key_value='red-team-key',
+        )
+
+        response = self._call(sandbox)
+
+        assert response.status_code == 200
+        assert response.data['setup_key'] == 'red-team-key'
+
+    def test_roleless_requester_in_role_declaring_pool_receives_the_flat_key(self, mocker, sandbox):
+        """A requester resolving to no role in a role-declaring pool gets the flat key."""
+        mocker.patch(
+            'crczp.sandbox_instance_app.views.roles.resolve_users_roles',
+            return_value=frozenset(),
+        )
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_setup_key_value='flat-key')
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_setup_key_value='red-team-key'
+        )
+
+        response = self._call(sandbox)
+
+        assert response.status_code == 200
+        assert response.data == {
+            'management_url': 'https://client.example.com',
+            'setup_key': 'flat-key',
+            'reason': None,
+            'routes': [],
+            'command': (
+                'netbird up --management-url https://client.example.com --setup-key flat-key'
+            ),
+        }
+
+    def test_roleless_requester_in_role_declaring_pool_with_no_flat_key_receives_nothing(
+        self, mocker, sandbox
+    ):
+        """A requester resolving to no role gets nothing when no flat key is provisioned either."""
+        mocker.patch(
+            'crczp.sandbox_instance_app.views.roles.resolve_users_roles',
+            return_value=frozenset(),
+        )
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox)
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox, role='red-team', access_setup_key_value='red-team-key'
+        )
+
+        response = self._call(sandbox)
+
+        assert response.status_code == 200
+        assert response.data == {
+            'management_url': 'https://client.example.com',
+            'setup_key': None,
+            'reason': 'no_role',
             'routes': [],
             'command': None,
         }

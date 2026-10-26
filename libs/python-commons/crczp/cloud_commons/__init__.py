@@ -11,7 +11,7 @@ from .exceptions import (
 )
 from .hcl import hcl_string
 from .topology_elements import MAN, Link, NetworkForwarding, NodeToNodeLinkPair, SecurityGroups
-from .topology_instance import MAN_NAME, MAN_NET_NAME, TopologyInstance
+from .topology_instance import MAN_NAME, MAN_NET_NAME, UNIVERSAL_ROLES, TopologyInstance, UsersRoles
 from .transformation_configuration import TransformationConfiguration
 
 __all__ = [
@@ -31,6 +31,8 @@ __all__ = [
     'TopologyInstance',
     'TransformationConfiguration',
     'hcl_string',
+    'UNIVERSAL_ROLES',
+    'UsersRoles',
     'CrczpException',
     'InvalidTopologyDefinition',
     'StackCreationFailed',

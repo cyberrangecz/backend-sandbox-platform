@@ -5,7 +5,7 @@ from typing import Any, override
 import structlog
 from ssh_config.client import Host, parse_config  # Don't import SSHConfig unless reading from file
 
-from crczp.cloud_commons import Link, TopologyInstance
+from crczp.cloud_commons import Link, TopologyInstance, UsersRoles
 
 LOG = structlog.getLogger()
 
@@ -139,12 +139,15 @@ class CrczpUserSSHConfig(CrczpSSHConfig):
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         top_ins: TopologyInstance,
+        users_roles: UsersRoles,
         proxy_host: str,
         proxy_user: str,
         sandbox_private_key_path: str = '<path_to_sandbox_private_key>',
         proxy_port: int = 22,
+        role_private_key_paths: dict[str, str] | None = None,
     ) -> None:
         super().__init__()
+        role_private_key_paths = role_private_key_paths or {}
         # Create an entry for PROXY JUMP host.
         self.add_host(proxy_host, proxy_user, sandbox_private_key_path, port=proxy_port)
         proxy_jump = (
@@ -166,7 +169,7 @@ class CrczpUserSSHConfig(CrczpSSHConfig):
 
         # OpenSSH takes the first Host block matching an alias, so a node's main link
         # takes the slot of that node's first entry.
-        user_accessible_links = top_ins.get_links_to_user_accessible_nodes()
+        user_accessible_links = top_ins.get_links_to_user_accessible_nodes(users_roles)
         first_slots: dict[str, int] = {}
         for index, link in enumerate(list(user_accessible_links)):
             first = first_slots.setdefault(link.node.name, index)
@@ -175,11 +178,22 @@ class CrczpUserSSHConfig(CrczpSSHConfig):
                     link,
                     user_accessible_links[first],
                 )
+        # Create an entry for user-accessible nodes of a sandbox. A node carrying no
+        # accessible_by_roles metadata, or one whose declared roles none of the held
+        # keys match, is unlocked by the flat key; one with a match is unlocked by the
+        # lexicographically smallest matching role's key.
         for link in user_accessible_links:
+            node_roles = top_ins.get_accessible_by_roles_for_node(link.node)
+            matching_roles = set(node_roles or ()) & role_private_key_paths.keys()
+            identity_file = (
+                role_private_key_paths[min(matching_roles)]
+                if matching_roles
+                else sandbox_private_key_path
+            )
             self.add_host(
                 link.ip,  # ty: ignore[invalid-argument-type]
                 SSH_PROXY_USERNAME,
-                sandbox_private_key_path,
+                identity_file,
                 proxy_jump=man_proxy_jump,
                 alias=link.node.name,
             )

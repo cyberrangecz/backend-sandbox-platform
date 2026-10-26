@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ('sandbox_instance_app', '0014_sandboxnetbirdresources'),
+        ('sandbox_instance_app', '0018_sandboxnetbirdephemeralkey'),
     ]
 
     operations = [
