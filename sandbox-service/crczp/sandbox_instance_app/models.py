@@ -58,7 +58,7 @@ class StageOutputRow(OrderedByIdModel):
 
     id: int
 
-    class Meta:  # pylint: disable=too-few-public-methods
+    class Meta(OrderedByIdModel.Meta):  # pylint: disable=too-few-public-methods
         """Meta options for StageOutputRow."""
 
         abstract = True
@@ -660,7 +660,7 @@ class ExternalDependencyCleanup(models.Model):
 class TerraformOutput(StageOutputRow):
     """Abstract base class for storing Terraform process output lines."""
 
-    class Meta:  # pylint: disable=too-few-public-methods
+    class Meta(StageOutputRow.Meta):  # pylint: disable=too-few-public-methods
         """Meta options for TerraformOutput model."""
 
         abstract = True

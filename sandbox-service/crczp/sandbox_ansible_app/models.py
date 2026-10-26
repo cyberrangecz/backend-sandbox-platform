@@ -118,7 +118,7 @@ class UserAnsibleCleanupStage(AnsibleCleanupStage):
 class AnsibleOutput(StageOutputRow):
     """Abstract model representing a single line of Ansible output."""
 
-    class Meta:  # pylint: disable=too-few-public-methods
+    class Meta(StageOutputRow.Meta):  # pylint: disable=too-few-public-methods
         """Meta options for AnsibleOutput."""
 
         abstract = True
