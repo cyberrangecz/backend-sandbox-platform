@@ -97,10 +97,14 @@ class TestQuerySetSorting:
 class TestPostSorting:
     """Results of a POST request keep their order and ignore the sort parameters."""
 
-    @pytest.mark.parametrize('parameters', [{}, {'sort_by': 'name', 'order': 'desc'}, {'sort_by': '?', 'order': 'up'}])
+    @pytest.mark.parametrize(
+        'parameters', [{}, {'sort_by': 'name', 'order': 'desc'}, {'sort_by': '?', 'order': 'up'}]
+    )
     def test_order_is_kept_and_sort_parameters_are_not_rejected(self, parameters):
         """Items come back in the order they went in, whatever the sort parameters say."""
-        request = Request(APIRequestFactory().post('/list/', data={}, QUERY_STRING=urlencode(parameters)))
+        request = Request(
+            APIRequestFactory().post('/list/', data={}, QUERY_STRING=urlencode(parameters))
+        )
         items = [{'id': 3}, {'id': 1}, {'id': 2}]
 
         page = PageNumberWithPageSizePagination().paginate_queryset(
@@ -302,7 +306,8 @@ class TestSchema:
             if path.endswith('/allocation-requests/{request_id}/stages/networking-ansible')
         ]
         parameters = {
-            parameter['name']: parameter for parameter in schema['paths'][stage_path]['get']['parameters']
+            parameter['name']: parameter
+            for parameter in schema['paths'][stage_path]['get']['parameters']
         }
         assert parameters['sort_by']['schema']['enum'] == ['id']
         assert parameters['order']['schema']['enum'] == ['asc', 'desc']

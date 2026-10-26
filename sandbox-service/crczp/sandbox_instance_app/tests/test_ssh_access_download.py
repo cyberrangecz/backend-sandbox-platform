@@ -4,7 +4,7 @@ import io
 
 import pytest
 from corsheaders.middleware import CorsMiddleware
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseBase
 from rest_framework.test import APIRequestFactory
 
 from crczp.sandbox_instance_app.views import PoolManagementSSHAccessView, SandboxUserSSHAccessView
@@ -54,4 +54,5 @@ def test_cors_exposes_content_disposition_to_browser_scripts(settings, request_f
 
     response = cors_middleware(request_factory.get('/', HTTP_ORIGIN='https://frontend.example'))
 
+    assert isinstance(response, HttpResponseBase)
     assert 'Content-Disposition' in response['Access-Control-Expose-Headers']
