@@ -630,9 +630,8 @@ def patch_fakeredis_client_list(monkeypatch):
     original = fakeredis.FakeRedis.client_list
 
     def _patched(self, *args, **kwargs):
-        return [
-            {**c, 'addr': c.get('addr', '127.0.0.1:0')} for c in original(self, *args, **kwargs)
-        ]
+        clients = cast(list[dict[str, Any]], original(self, *args, **kwargs))
+        return [{**c, 'addr': c.get('addr', '127.0.0.1:0')} for c in clients]
 
     monkeypatch.setattr(fakeredis.FakeRedis, 'client_list', _patched)
 

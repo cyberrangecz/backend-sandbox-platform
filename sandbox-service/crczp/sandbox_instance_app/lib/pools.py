@@ -24,7 +24,7 @@ from crczp.sandbox_common_lib import exceptions, utils
 from crczp.sandbox_definition_app.lib import definitions
 from crczp.sandbox_definition_app.models import Definition
 from crczp.sandbox_instance_app import serializers
-from crczp.sandbox_instance_app.lib import requests, sandboxes, unit_filters
+from crczp.sandbox_instance_app.lib import requests, sandboxes
 from crczp.sandbox_instance_app.models import (
     Pool,
     PoolLock,
@@ -197,7 +197,7 @@ def create_sandboxes_in_pool(
         if (
             created_by_sub is not None
             and SandboxAllocationUnit.objects.filter(
-                unit_filters.active(), pool=pool, created_by_sub=created_by_sub
+                SandboxAllocationUnit.is_active(), pool=pool, created_by_sub=created_by_sub
             ).exists()
         ):
             raise exceptions.ConflictError(
@@ -207,6 +207,12 @@ def create_sandboxes_in_pool(
         current_size = pool.size
         if count is None:
             count = pool.max_size - current_size
+
+        if count < 1:
+            raise exceptions.ValidationError(
+                f'Cannot build {count} sandboxes: the count must be at least 1'
+                f' (pool size is {current_size}/{pool.max_size}).'
+            )
 
         if current_size + count > pool.max_size:
             raise exceptions.ValidationError(
@@ -218,8 +224,6 @@ def create_sandboxes_in_pool(
         units = requests.create_allocations_requests(
             pool, count, created_by, created_by_sub=created_by_sub
         )
-        pool.size += count
-        pool.save()
         return units
 
 

@@ -26,6 +26,8 @@ GIT_PRIVATE_KEY = os.path.expanduser('~/.ssh/git_rsa_key')
 ANSIBLE_NETWORKING_REV = 'master'
 SANDBOX_BUILD_TIMEOUT = 3600 * 2
 SANDBOX_DELETE_TIMEOUT = 3600
+CLEANUP_RETRY_LIMIT = 3
+CLEANUP_RETRY_DELAY = 60
 SANDBOX_ANSIBLE_TIMEOUT = 3600 * 2
 VOLUMES_PATH = '/tmp/crczp'  # noqa: S108  # default for volumes_path in config.yml, not a temp file
 PERSISTENT_VOLUME_CLAIM_NAME = 'sandbox-service'
@@ -34,6 +36,7 @@ ANSIBLE_DOCKER_NETWORK = 'bridge'
 ANSWERS_STORAGE_API = 'http://answers-storage:8087/answers-storage/api/v1'
 SSL_CA_CERTIFICATE_VERIFY = '/etc/ssl/certs'
 TRAINEE_SANDBOX_CLEANUP_MAX_AGE_HOURS = 24
+LOST_JOB_OBSERVER_GRACE_SECONDS = 900
 DATABASE_ENGINE = 'django.db.backends.postgresql'
 DATABASE_HOST = 'localhost'
 DATABASE_NAME = 'postgres'
@@ -111,6 +114,22 @@ class TraineeSandboxCleanupConfiguration(Object):
         type=int,
         default=TRAINEE_SANDBOX_CLEANUP_MAX_AGE_HOURS,
         validator=crczp_config_validation.validate_trainee_cleanup_max_age_hours,
+    )
+
+
+class LostJobObserverConfiguration(Object):
+    """Detection of sandbox work whose RQ job was lost.
+
+    The observe_lost_jobs management command does the detection; the deployment runs it
+    periodically, e.g. as a Kubernetes CronJob.
+    """
+
+    enabled = Attribute(type=bool, default=True)
+    # How long a job that is dead but still in Redis may wait for RQ to collect it.
+    grace_seconds = Attribute(
+        type=int,
+        default=LOST_JOB_OBSERVER_GRACE_SECONDS,
+        validator=crczp_config_validation.validate_lost_job_observer_grace_seconds,
     )
 
 
@@ -246,7 +265,11 @@ class NetbirdConfiguration(Object):
     # request thread, so a slow or unreachable Netbird endpoint must not block
     # the cleanup path indefinitely; once the budget is exceeded the remaining
     # resources are left behind (best-effort teardown).
-    teardown_budget_seconds = Attribute(type=int, default=60)
+    teardown_budget_seconds = Attribute(
+        type=int,
+        default=60,
+        validator=crczp_config_validation.validate_netbird_teardown_budget_seconds,
+    )
 
 
 class TopologyCacheMode(Enum):
@@ -327,6 +350,8 @@ class CrczpConfiguration(Object):
 
     sandbox_build_timeout = Attribute(type=int, default=SANDBOX_BUILD_TIMEOUT)
     sandbox_delete_timeout = Attribute(type=int, default=SANDBOX_DELETE_TIMEOUT)
+    cleanup_retry_limit = Attribute(type=int, default=CLEANUP_RETRY_LIMIT)
+    cleanup_retry_delay = Attribute(type=int, default=CLEANUP_RETRY_DELAY)
     sandbox_ansible_timeout = Attribute(type=int, default=SANDBOX_ANSIBLE_TIMEOUT)
 
     ansible_docker_image = Attribute(type=str, default=ANSIBLE_DOCKER_IMAGE)
@@ -363,6 +388,10 @@ class CrczpConfiguration(Object):
 
     trainee_sandbox_cleanup = Attribute(
         type=TraineeSandboxCleanupConfiguration, default=TraineeSandboxCleanupConfiguration()
+    )
+
+    lost_job_observer = Attribute(
+        type=LostJobObserverConfiguration, default=LostJobObserverConfiguration()
     )
 
     def __init__(self, **kwargs: Any) -> None:

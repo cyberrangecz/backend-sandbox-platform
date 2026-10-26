@@ -11,9 +11,15 @@ import structlog
 from django.contrib.auth.models import User
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
+from django.db.models import F
+from django.http import Http404
 
 from crczp.sandbox_common_lib import exceptions
-from crczp.sandbox_instance_app.lib import netbird, request_handlers, sandboxes, unit_filters
+from crczp.sandbox_instance_app.lib import (
+    allocation_cancellation,
+    request_handlers,
+    sandboxes,
+)
 from crczp.sandbox_instance_app.models import (
     AllocationRequest,
     CleanupRequest,
@@ -49,7 +55,8 @@ def create_allocations_requests(
 ) -> list[SandboxAllocationUnit]:
     """Batch version of create_allocation_request. Create count Sandbox Requests.
 
-    created_by_sub is the OIDC sub of a trainee allocating a sandbox for themselves.
+    created_by_sub is the OIDC sub of a trainee allocating a sandbox for themselves. The pool
+    size grows in the same transaction as the unit rows.
     """
 
     with transaction.atomic():
@@ -68,21 +75,79 @@ def create_allocations_requests(
             # IN_QUEUE, which is the correct state for a just-queued request.
             AllocationRequest.objects.create(allocation_unit=unit)
             units.append(unit)
+        Pool.objects.filter(pk=pool.pk).update(size=F('size') + count)
 
-        transaction.on_commit(
-            partial(request_handlers.AllocationRequestHandler().enqueue_request, units, created_by)
-        )
+        if units:
+            transaction.on_commit(
+                partial(
+                    request_handlers.AllocationRequestHandler().enqueue_request, units, created_by
+                )
+            )
 
     return units
 
 
-def cancel_allocation_request(alloc_req: AllocationRequest) -> None:
-    """(Soft) cancel all stages of the Allocation Request."""
-    request_handlers.AllocationRequestHandler().cancel_request(alloc_req)
+def cancel_allocation_request(alloc_req: AllocationRequest) -> bool:
+    """Cancel all stages of the Allocation Request; return whether a stop is still pending."""
+    return request_handlers.AllocationRequestHandler().cancel_request(alloc_req)
+
+
+def cancel_allocation_request_and_clean_up(alloc_req: AllocationRequest) -> bool:
+    """Cancel the Allocation Request and queue the cleanup of its unit once its jobs ended.
+
+    While the stop of a stage is pending, no cleanup is queued. A request whose stages do not
+    exist yet is queued: its job and unit are removed the way Cancel all allocations removes them.
+
+    :returns: Whether a stop is still pending.
+    :raises ValidationError: The unit cannot be cleaned up, or the queued allocation could not
+        be cancelled.
+    """
+    _ensure_cleanup_not_blocked(alloc_req.allocation_unit, _get_sandbox(alloc_req.allocation_unit))
+    if not alloc_req.stages.exists():
+        return allocation_cancellation.cancel_queued_request(alloc_req)
+    stop_pending = False
+    if not _is_failed_and_settled(alloc_req):
+        stop_pending = cancel_allocation_request(alloc_req)
+    if not stop_pending:
+        create_cleanup_request_after_stop(alloc_req.allocation_unit)
+    return stop_pending
+
+
+def _is_failed_and_settled(alloc_req: AllocationRequest) -> bool:
+    """Whether the allocation ended with a failed stage, so only its cleanup is missing."""
+    return alloc_req.is_settled and alloc_req.stages.filter(failed=True).exists()
+
+
+def create_cleanup_request_after_stop(allocation_unit: SandboxAllocationUnit) -> None:
+    """
+    Create the cleanup request of a unit whose build has stopped.
+
+    A cleanup request queued meanwhile by another process counts as success.
+
+    :raises ValidationError: The unit cannot be cleaned up.
+    """
+    try:
+        create_cleanup_request(allocation_unit)
+    except exceptions.ValidationError:
+        if not CleanupRequest.objects.filter(allocation_unit=allocation_unit).exists():
+            raise
 
 
 class CleanupNotAllowedError(exceptions.ValidationError):
     """Raised when a unit cannot be cleaned up yet, not even by force."""
+
+
+def _ensure_cleanup_not_blocked(
+    allocation_unit: SandboxAllocationUnit, sandbox: Sandbox | None
+) -> None:
+    """Raise ValidationError while a lock or an existing cleanup request refuses the cleanup."""
+    if sandbox is not None and hasattr(sandbox, 'lock'):
+        raise exceptions.ValidationError(f'Sandbox ID={sandbox.id} is locked. Unlock it first.')
+    if hasattr(allocation_unit, 'cleanup_request'):
+        raise exceptions.ValidationError(
+            f'Allocation unit ID={allocation_unit.id} already has a cleanup request '
+            f'ID={allocation_unit.cleanup_request.id}. Delete it first.'
+        )
 
 
 def _ensure_cleanup_allowed(allocation_unit: SandboxAllocationUnit) -> None:
@@ -105,70 +170,74 @@ def _ensure_cleanup_allowed(allocation_unit: SandboxAllocationUnit) -> None:
         )
 
 
+def _queue_cleanup(
+    allocation_unit: SandboxAllocationUnit, sandbox: Sandbox | None, delete_pool: bool = False
+) -> None:
+    """
+    Create the unit's cleanup request, then delete its sandbox with its lock and cached data,
+    in one transaction; the cleanup stages are created by a job queued once it commits.
+    """
+    with transaction.atomic():
+        request_handlers.CleanupRequestHandler(delete_pool=delete_pool).enqueue_request(
+            allocation_unit
+        )
+        if sandbox is not None:
+            SandboxLock.objects.filter(sandbox=sandbox).delete()
+            sandboxes.clear_cache(sandbox)
+            sandbox.delete()
+
+
+def _has_unfinished_cleanup(allocation_unit: SandboxAllocationUnit) -> bool:
+    return SandboxAllocationUnit.objects.filter(
+        SandboxAllocationUnit.has_unfinished_cleanup(), pk=allocation_unit.pk
+    ).exists()
+
+
 def create_cleanup_request_force(allocation_unit: SandboxAllocationUnit, delete_pool: bool) -> None:
     """Create cleanup request and enqueue it. Immediately delete sandbox from database.
-    The force parameter forces the deletion.
+    The force parameter forces the deletion. A unit whose cleanup is queued or running is
+    left alone, except that the cleanup takes over the pool deletion when delete_pool is set.
 
     :raises CleanupNotAllowedError: The unit cannot be cleaned up yet.
     """
-    if (
-        hasattr(allocation_unit, 'cleanup_request')
-        and not allocation_unit.cleanup_request.is_finished
-    ):
+    if _has_unfinished_cleanup(allocation_unit):
+        if delete_pool:
+            CleanupRequest.objects.filter(allocation_unit=allocation_unit).update(delete_pool=True)
         return
 
     _ensure_cleanup_allowed(allocation_unit)
 
+    if not allocation_unit.allocation_request.is_settled and cancel_allocation_request(
+        allocation_unit.allocation_request
+    ):
+        raise CleanupNotAllowedError(
+            f'The stop of the allocation of unit ID={allocation_unit.id} is not confirmed yet. '
+            'Retry once it is.'
+        )
+
+    _queue_cleanup(allocation_unit, _get_sandbox(allocation_unit), delete_pool)
+
+
+def _get_sandbox(allocation_unit: SandboxAllocationUnit) -> Sandbox | None:
     try:
-        sandbox = allocation_unit.sandbox
+        return allocation_unit.sandbox
     except ObjectDoesNotExist:
-        sandbox = None
-    else:
-        if sandbox is not None and hasattr(sandbox, 'lock'):
-            sandbox.lock.delete()
-
-    if not allocation_unit.allocation_request.is_finished:
-        cancel_allocation_request(allocation_unit.allocation_request)
-
-    if sandbox:
-        sandboxes.clear_cache(sandbox)
-        netbird.destroy_netbird_for_sandbox(sandbox)
-        sandbox.delete()
-
-    request_handlers.CleanupRequestHandler(delete_pool=delete_pool).enqueue_request(allocation_unit)
+        return None
 
 
 def create_cleanup_request(allocation_unit: SandboxAllocationUnit) -> None:
     """Create cleanup request and enqueue it. Immediately delete sandbox from database."""
-    try:
-        sandbox = allocation_unit.sandbox
-    except ObjectDoesNotExist:
-        sandbox = None
-    else:
-        assert sandbox is not None
-        if hasattr(sandbox, 'lock'):
-            raise exceptions.ValidationError(f'Sandbox ID={sandbox.id} is locked. Unlock it first.')
-
+    sandbox = _get_sandbox(allocation_unit)
+    _ensure_cleanup_not_blocked(allocation_unit, sandbox)
     _ensure_cleanup_allowed(allocation_unit)
 
-    if not allocation_unit.allocation_request.is_finished:
+    if not allocation_unit.allocation_request.is_settled:
         raise exceptions.ValidationError(
             f'Create sandbox allocation request ID={allocation_unit.allocation_request.id}'
             f' has not finished yet. You need to cancel it first.'
         )
 
-    if hasattr(allocation_unit, 'cleanup_request'):
-        raise exceptions.ValidationError(
-            f'Allocation unit ID={allocation_unit.id} already has a cleanup request '
-            f'ID={allocation_unit.cleanup_request.id}. Delete it first.'
-        )
-
-    if sandbox:
-        sandboxes.clear_cache(sandbox)
-        netbird.destroy_netbird_for_sandbox(sandbox)
-        sandbox.delete()
-
-    request_handlers.CleanupRequestHandler().enqueue_request(allocation_unit)
+    _queue_cleanup(allocation_unit, sandbox)
 
 
 def create_cleanup_requests(
@@ -196,9 +265,9 @@ def create_cleanup_requests(
     return skipped_unit_ids
 
 
-def cancel_cleanup_request(cleanup_req: CleanupRequest) -> None:
-    """(Soft) cancel all stages of the Cleanup Request."""
-    request_handlers.CleanupRequestHandler().cancel_request(cleanup_req)
+def cancel_cleanup_request(cleanup_req: CleanupRequest) -> bool:
+    """Cancel all stages of the Cleanup Request; return whether a stop is still pending."""
+    return request_handlers.CleanupRequestHandler().cancel_request(cleanup_req)
 
 
 def delete_cleanup_request(request: CleanupRequest) -> None:
@@ -210,89 +279,23 @@ def delete_cleanup_request(request: CleanupRequest) -> None:
     request.delete()
 
 
-class StuckUnits(enum.Enum):
-    """Kinds of allocation units the pool maintenance actions remove."""
-
-    # Allocation not started yet; nothing exists in the cloud.
-    QUEUED = 'queued'
-    # First (stack) stage running, e.g. hung; its cloud resources stay behind.
-    FIRST_STAGE_RUNNING = 'first_stage_running'
-    # Cleanup not finished, e.g. hung; resources it did not remove stay behind.
-    CLEANUP_UNFINISHED = 'cleanup_unfinished'
-
-    def unit_filter(self) -> Any:
-        """The database filter selecting units of this kind."""
-        match self:
-            case StuckUnits.QUEUED:
-                return unit_filters.allocation_queued()
-            case StuckUnits.FIRST_STAGE_RUNNING:
-                return unit_filters.first_stage_running()
-            case StuckUnits.CLEANUP_UNFINISHED:
-                return unit_filters.cleanup_unfinished()
-
-
-def force_remove_units(pool: Pool, kind: StuckUnits) -> int:
-    """Cancel the requests of the pool's units of the given kind and remove the units.
-
-    Only the database records go, and the sandboxes' NetBird resources, whose ids live only
-    there. Cloud resources the units already have are not touched and must be removed by
-    hand. Each unit is checked again under its row lock, so one that has moved on since is
-    left alone.
-
-    :return: The number of removed units.
+def delete_unit_cleanup_request(allocation_unit: SandboxAllocationUnit) -> None:
     """
-    unit_ids = SandboxAllocationUnit.objects.filter(kind.unit_filter(), pool=pool).values_list(
-        'id', flat=True
-    )
-    return sum(_force_remove_unit(pool.id, unit_id, kind) for unit_id in list(unit_ids))
+    Delete the cleanup request of the unit; refused while the cleanup is queued or running.
 
-
-def _force_remove_unit(pool_id: int, unit_id: int, kind: StuckUnits) -> bool:
-    """Cancel the unit's request and remove the unit; return whether it was removed."""
-    with transaction.atomic():
-        unit = (
-            SandboxAllocationUnit.objects
-            .select_for_update()
-            .filter(kind.unit_filter(), pk=unit_id)
-            .first()
+    :raises ValidationError: The cleanup is queued or running.
+    :raises Http404: The unit has no cleanup request.
+    """
+    try:
+        cleanup_request = allocation_unit.cleanup_request
+    except ObjectDoesNotExist as exc:
+        raise Http404(f'Allocation unit ID={allocation_unit.id} has no cleanup request.') from exc
+    if _has_unfinished_cleanup(allocation_unit):
+        raise exceptions.ValidationError(
+            f'Cleanup request ID={cleanup_request.id} cannot be deleted while it '
+            'is queued or running. Cancel it once it runs.'
         )
-        if unit is None:
-            return False
-        try:
-            if kind is StuckUnits.CLEANUP_UNFINISHED:
-                cancel_cleanup_request(unit.cleanup_request)
-            elif hasattr(unit, 'allocation_request'):
-                cancel_allocation_request(unit.allocation_request)
-        except (exceptions.ValidationError, ObjectDoesNotExist):
-            pass  # Already finished, or its stages do not exist (yet).
-        try:
-            sandbox = unit.sandbox
-        except ObjectDoesNotExist:
-            sandbox = None
-
-    if sandbox is not None:
-        # Talks to NetBird, so it runs outside any transaction.
-        netbird.destroy_netbird_for_sandbox(sandbox)
-
-    with transaction.atomic():
-        pool = Pool.objects.select_for_update().get(pk=pool_id)
-        if sandbox is not None:
-            sandboxes.clear_cache(sandbox)
-            SandboxLock.objects.filter(sandbox=sandbox).delete()
-            Sandbox.objects.filter(pk=sandbox.pk).delete()
-        if not SandboxAllocationUnit.objects.filter(pk=unit_id).exists():
-            return False
-        SandboxAllocationUnit.objects.filter(pk=unit_id).delete()
-        pool.size = max(pool.size - 1, 0)
-        pool.save()
-    LOG.warning(
-        'allocation_unit_force_removed',
-        unit_id=unit_id,
-        pool_id=pool_id,
-        kind=kind.value,
-        sandbox_id=sandbox.pk if sandbox is not None else None,
-    )
-    return True
+    delete_cleanup_request(cleanup_request)
 
 
 @dataclass
@@ -312,7 +315,7 @@ def cleanup_expired_trainee_units(
 ) -> TraineeCleanupReport:
     """Clean up the sandboxes trainees allocated for themselves before older_than.
 
-    Units whose cleanup is running are left alone. A unit whose cleanup failed is cleaned
+    Units whose cleanup is queued or running are left alone. A unit whose cleanup failed is cleaned
     up again: a successful cleanup removes its unit, so a unit with a finished cleanup has a
     failed one. With dry_run, only report what would be done.
     """
@@ -320,7 +323,7 @@ def cleanup_expired_trainee_units(
     units = (
         SandboxAllocationUnit.objects
         .filter(created_by_sub__isnull=False, created_at__lt=older_than)
-        .exclude(unit_filters.cleanup_unfinished())
+        .exclude(SandboxAllocationUnit.has_unfinished_cleanup())
         .select_related('pool', 'allocation_request', 'cleanup_request')
         .order_by('id')
     )

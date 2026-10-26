@@ -100,16 +100,17 @@ class AnsibleRunner:  # pylint: disable=too-many-instance-attributes
             loader=FileSystemLoader(TEMPLATES_DIR_PATH)
         )
 
-    def run_ansible_playbook(
-        self, url: str, rev: str, stage: AnsibleStage, cleanup: bool = False
+    def run_ansible_playbook(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+        self, url: str, rev: str, stage: AnsibleStage, container_name: str, cleanup: bool = False
     ) -> BaseContainer:
         """
-        Run Ansible playbook in container.
+        Run Ansible playbook in a container of the given name.
         """
         return self.container_manager(
             url,
             rev,
             stage,
+            container_name,
             self.ssh_directory,
             self.inventory_path,
             self.containers_path,

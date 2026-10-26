@@ -484,3 +484,40 @@ class TestFactoryHelpers:
         )
         patch_netbird_config(mocker, cfg)
         assert get_client_management_url() == MANAGEMENT_URL
+
+
+class TestUndecodableBody:
+    """A success answer whose body is not JSON is an API error, not a raw decoding error."""
+
+    @staticmethod
+    def answer_with_text_body(session: MagicMock) -> None:
+        """Make the next request answer 200 with a body that is not JSON."""
+        response = make_response(200, text='<html>gateway page</html>')
+        response.json.side_effect = ValueError('Expecting value')
+        session.request.return_value = response
+
+    def test_a_listing_raises_an_api_error(self, client, session):
+        """The collection reads convert the decoding failure."""
+        self.answer_with_text_body(session)
+        with pytest.raises(NetbirdApiError) as exc_info:
+            client.list_groups()
+        assert exc_info.value.status_code == 200
+        assert 'gateway page' in exc_info.value.body
+
+    def test_a_group_read_raises_an_api_error(self, client, session):
+        """The peer listing of a group converts the decoding failure."""
+        self.answer_with_text_body(session)
+        with pytest.raises(NetbirdApiError):
+            client.list_group_peer_ids('group-1')
+
+    def test_a_creation_raises_an_api_error(self, client, session):
+        """A created resource whose answer cannot be read is an API error."""
+        self.answer_with_text_body(session)
+        with pytest.raises(NetbirdApiError):
+            client.create_group('my-group')
+
+    def test_a_setup_key_creation_raises_an_api_error(self, client, session):
+        """A setup key whose answer cannot be read is an API error."""
+        self.answer_with_text_body(session)
+        with pytest.raises(NetbirdApiError):
+            client.create_setup_key('key', ['group-1'], 3600)

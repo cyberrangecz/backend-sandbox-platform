@@ -3,6 +3,7 @@ resource "aws_security_group" "{{ name }}-sandbox-internal-sg" {
     vpc_id = aws_vpc.{{ name }}.id
     tags = {
         Name = "sandbox-internal-sg"
+        "crczp-stack" = "{{ resource_prefix }}"
     }
 }
 resource "aws_security_group" "{{ name }}-sandbox-man-int-sg" {
@@ -10,6 +11,7 @@ resource "aws_security_group" "{{ name }}-sandbox-man-int-sg" {
     vpc_id = aws_vpc.{{ name }}.id
     tags = {
         Name = "sandbox-man-int-sg"
+        "crczp-stack" = "{{ resource_prefix }}"
     }
 }
 resource "aws_security_group" "{{ name }}-sandbox-man-sg" {
@@ -17,6 +19,7 @@ resource "aws_security_group" "{{ name }}-sandbox-man-sg" {
     vpc_id = aws_vpc.{{ name }}.id
     tags = {
         Name = "sandbox-man-sg"
+        "crczp-stack" = "{{ resource_prefix }}"
     }
 }
 resource "aws_vpc_security_group_ingress_rule" "{{ name }}-sandbox-internal-sg-1" {

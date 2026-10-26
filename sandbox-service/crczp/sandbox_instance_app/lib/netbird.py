@@ -2,11 +2,14 @@
 
 import re
 import time
+from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 import structlog
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from rq.job import get_current_job
 
 from crczp.cloud_commons import UsersRoles
 from crczp.sandbox_common_lib.netbird_client import (
@@ -18,7 +21,9 @@ from crczp.sandbox_common_lib.netbird_client import (
 from crczp.sandbox_definition_app.lib import definitions
 from crczp.sandbox_instance_app.models import (
     FLAT_ROLE,
+    AllocationRequest,
     Sandbox,
+    SandboxAllocationUnit,
     SandboxNetbirdAccess,
     SandboxNetbirdEphemeralKey,
     SandboxNetbirdResources,
@@ -38,8 +43,8 @@ _HOST_NAME_ID_PREFIX_LEN = 8
 def _teardown_budget_seconds() -> int:
     """Return the per-sandbox teardown time budget, with a safe fallback.
 
-    Only an unset value falls back to the default; an explicitly configured 0
-    (or negative) is honoured so an operator can disable teardown attempts.
+    Only an unset value falls back to the default; the configuration refuses a budget
+    below 1 second.
     """
     cfg = getattr(settings.CRCZP_CONFIG, 'netbird', None)
     if cfg is None:
@@ -259,7 +264,7 @@ def _discard_failed_entrypoint(
 
     A failed entrypoint is discarded entirely. The row is kept only when the
     teardown does not finish (e.g. NetBird is down or the PAT was revoked
-    mid-run), so the sandbox teardown can retry with the IDs it holds. Its setup
+    mid-run), so the unit teardown can retry with the IDs it holds. Its setup
     key value and route CIDRs are dropped first, so that ansible skips the
     entrypoint VM and the VPN view advertises none of its routes even if the
     teardown raises.
@@ -267,7 +272,7 @@ def _discard_failed_entrypoint(
     nbr.host_setup_key_value = None
     nbr.set_route_cidr_list([])
     try:
-        if _destroy_single_entrypoint(client, nbr, keep_record_on_error=True):
+        if not _destroy_single_entrypoint(client, nbr):
             return False
     except Exception as exc:  # pylint: disable=broad-exception-caught
         log.warning('netbird_provision_cleanup_failed', error=str(exc))
@@ -299,7 +304,11 @@ def _provision_role_access(
     for role in [FLAT_ROLE, *sorted(declared_roles)]:
         access_name = f'{stack_name}-access' if role == FLAT_ROLE else f'{stack_name}-access_{role}'
         try:
-            access, _ = SandboxNetbirdAccess.objects.get_or_create(sandbox=sandbox, role=role)
+            access, _ = SandboxNetbirdAccess.objects.get_or_create(
+                sandbox=sandbox,
+                role=role,
+                defaults={'allocation_unit_id': sandbox.allocation_unit_id},
+            )
             access_rows[role] = access
             _provision_access(client, access, access_name, key_expiry_seconds, flat_group_id)
             LOG.info(
@@ -423,13 +432,46 @@ def provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
     (missing PAT, unreachable NetBird, definition-fetch error) are already
     handled inside the implementation; this outer guard only backstops
     unexpected errors (e.g. a transient DB error in a guard query).
+
+    Run as an RQ job, it does nothing once its allocation request no longer tracks the
+    job, and clears the tracked job id when it ends, whatever the outcome.
     """
+    job = get_current_job()
     try:
-        _provision_netbird_for_sandbox(sandbox)
+        if job is None or _is_tracked_by_allocation_request(sandbox, job.id):
+            _provision_netbird_for_sandbox(sandbox)
+        else:
+            LOG.info(
+                'netbird_provision_skipped', sandbox_id=sandbox.id, reason='job_no_longer_tracked'
+            )
     except Exception as exc:  # pylint: disable=broad-exception-caught
         LOG.warning(
             'netbird_provision_unexpected_error',
             sandbox_id=getattr(sandbox, 'id', None),
+            error=str(exc),
+        )
+    if job is not None:
+        _forget_job(sandbox, job.id)
+
+
+def _is_tracked_by_allocation_request(sandbox: Sandbox, job_id: str) -> bool:
+    """Whether the allocation request of the sandbox's unit tracks the given NetBird job."""
+    return AllocationRequest.objects.filter(
+        allocation_unit_id=sandbox.allocation_unit_id, netbird_job_id=job_id
+    ).exists()
+
+
+def _forget_job(sandbox: Sandbox, job_id: str) -> None:
+    """Clear the NetBird job id of the sandbox's allocation request when it is the given job."""
+    try:
+        AllocationRequest.objects.filter(
+            allocation_unit_id=sandbox.allocation_unit_id, netbird_job_id=job_id
+        ).update(netbird_job_id=None)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        LOG.warning(
+            'netbird_job_forget_failed',
+            sandbox_id=getattr(sandbox, 'id', None),
+            job_id=job_id,
             error=str(exc),
         )
 
@@ -485,7 +527,7 @@ def _provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
         return
 
     # Start guard: bail out before making any cloud calls if the sandbox was
-    # already deleted (e.g. force-cleanup raced with the provisioning worker).
+    # already deleted (e.g. a cleanup raced with the provisioning worker).
     if not Sandbox.objects.filter(pk=sandbox.pk).exists():
         LOG.warning('netbird_provision_skipped', sandbox_id=sandbox.id, reason='sandbox_deleted')
         return
@@ -527,7 +569,9 @@ def _provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
             nbr: SandboxNetbirdResources | None = None
             try:
                 nbr, _ = SandboxNetbirdResources.objects.get_or_create(
-                    sandbox=sandbox, entrypoint_host_name=host_name
+                    sandbox=sandbox,
+                    entrypoint_host_name=host_name,
+                    defaults={'allocation_unit_id': sandbox.allocation_unit_id},
                 )
                 _provision_single_entrypoint(
                     client,
@@ -562,7 +606,7 @@ def _provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
     # transaction — holding one open across network I/O would pin a connection.
     if Sandbox.objects.filter(pk=sandbox.pk).exists():
         return
-    # Same order as destroy_netbird_for_sandbox: role keys name the flat group,
+    # Same order as destroy_netbird_for_unit: role keys name the flat group,
     # so the flat row ('', sorting last) goes after every role row.
     _teardown_provisioned_resources(
         client, sandbox, created, sorted(access_rows.values(), key=lambda a: a.role, reverse=True)
@@ -570,255 +614,245 @@ def _provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
     LOG.warning('netbird_provision_aborted_sandbox_deleted', sandbox_id=sandbox.id)
 
 
-def _delete_group_peers(
-    client: NetbirdClient, group_id: str | None, log: Any, deadline: float | None = None
+BUDGET_EXCEEDED_FAILURE = 'teardown time budget exceeded'
+
+
+def _delete_object(
+    failures: list[str], log: Any, kind: str, object_id: str, delete: Callable[[str], None]
 ) -> None:
-    """Delete every peer registered into `group_id` (best effort)."""
+    """Delete one NetBird object, appending why a failed deletion failed to ``failures``."""
+    try:
+        delete(object_id)
+    except NetbirdApiError as exc:
+        log.warning('netbird_delete_failed', kind=kind, object_id=object_id, error=str(exc))
+        failures.append(f'{kind} {object_id}: {exc}')
+    else:
+        log.info('netbird_object_deleted', kind=kind, object_id=object_id)
+
+
+def _delete_group_peers(
+    client: NetbirdClient,
+    group_id: str | None,
+    log: Any,
+    failures: list[str],
+    deadline: float | None = None,
+) -> None:
+    """Delete every peer registered into `group_id`, appending each failure to ``failures``."""
     if not group_id:
         return
     try:
         peer_ids = client.list_group_peer_ids(group_id)
     except NetbirdApiError as exc:
         log.warning('netbird_list_group_peers_failed', group_id=group_id, error=str(exc))
+        failures.append(f'peers of group {group_id}: {exc}')
         return
     for peer_id in peer_ids:
         if _expired(deadline):
+            failures.append(BUDGET_EXCEEDED_FAILURE)
             return
-        try:
-            client.delete_peer(peer_id)
-            log.info('netbird_peer_deleted', peer_id=peer_id)
-        except NetbirdApiError as exc:
-            log.warning('netbird_delete_peer_failed', peer_id=peer_id, error=str(exc))
+        _delete_object(failures, log, 'peer', peer_id, client.delete_peer)
 
 
 def _destroy_single_entrypoint(
-    client: NetbirdClient,
-    nbr: SandboxNetbirdResources,
-    deadline: float | None = None,
-    *,
-    keep_record_on_error: bool = False,
-) -> bool:
-    """Delete the entrypoint's NetBird objects, then its row; return whether the row was deleted.
-
-    With ``keep_record_on_error`` a failed delete keeps the row, so a later
-    teardown can retry with the IDs it holds. Failed peer deletes do not count:
-    the row records no peer IDs, so keeping it could not help retry them.
+    client: NetbirdClient, nbr: SandboxNetbirdResources, deadline: float | None = None
+) -> list[str]:
     """
-    # `deadline` bounds the teardown time (used by destroy_netbird_for_sandbox,
-    # which runs in the web-request thread); it is checked before every cloud
-    # call so a single entrypoint with many routes/peers cannot overrun. The
-    # provision end-guard passes no deadline, so its teardown is never cut short.
+    Tear down the NetBird objects of one entrypoint and delete its record once none failed.
+
+    `deadline` bounds the teardown time; it is checked before every cloud call so a single
+    entrypoint with many routes/peers cannot overrun. Without a deadline the teardown is
+    never cut short.
+
+    :returns: Why each deletion that failed or was cut short failed; empty once the
+        entrypoint is gone. The record stays while any remain, for a later retry.
+    """
     log = LOG.bind(sandbox_id=nbr.sandbox_id, entrypoint_host=nbr.entrypoint_host_name)
+    failures: list[str] = []
 
     if _expired(deadline):
-        return False
-
-    failed = False
+        return [BUDGET_EXCEEDED_FAILURE]
 
     if nbr.policy_id:
-        try:
-            client.delete_policy(nbr.policy_id)
-            log.info('netbird_policy_deleted', policy_id=nbr.policy_id)
-        except NetbirdApiError as exc:
-            failed = True
-            log.warning('netbird_delete_policy_failed', error=str(exc))
+        _delete_object(failures, log, 'policy', nbr.policy_id, client.delete_policy)
 
     for route_id in nbr.get_route_id_list():
         if _expired(deadline):
-            return False
-        try:
-            client.delete_route(route_id)
-            log.info('netbird_route_deleted', route_id=route_id)
-        except NetbirdApiError as exc:
-            failed = True
-            log.warning('netbird_delete_route_failed', route_id=route_id, error=str(exc))
+            return [*failures, BUDGET_EXCEEDED_FAILURE]
+        _delete_object(failures, log, 'route', route_id, client.delete_route)
 
     if _expired(deadline):
-        return False
+        return [*failures, BUDGET_EXCEEDED_FAILURE]
 
     if nbr.host_setup_key_id:
-        try:
-            client.delete_setup_key(nbr.host_setup_key_id)
-            log.info('netbird_host_key_deleted', key_id=nbr.host_setup_key_id)
-        except NetbirdApiError as exc:
-            failed = True
-            log.warning('netbird_delete_host_key_failed', error=str(exc))
+        _delete_object(failures, log, 'setup key', nbr.host_setup_key_id, client.delete_setup_key)
 
-    _delete_group_peers(client, nbr.host_group_id, log, deadline)
+    _delete_group_peers(client, nbr.host_group_id, log, failures, deadline)
 
     if _expired(deadline):
-        return False
+        return [*failures, BUDGET_EXCEEDED_FAILURE]
 
     if nbr.host_group_id:
-        try:
-            client.delete_group(nbr.host_group_id)
-            log.info('netbird_host_group_deleted', group_id=nbr.host_group_id)
-        except NetbirdApiError as exc:
-            failed = True
-            log.warning('netbird_delete_host_group_failed', error=str(exc))
+        _delete_object(failures, log, 'group', nbr.host_group_id, client.delete_group)
 
-    if failed and keep_record_on_error:
-        return False
-
-    nbr.delete()
-    log.info('netbird_resources_record_deleted')
-    return True
+    if not failures:
+        nbr.delete()
+        log.info('netbird_resources_record_deleted')
+    return failures
 
 
 def _destroy_access(
     client: NetbirdClient, access: SandboxNetbirdAccess, deadline: float | None = None
-) -> None:
-    """Tear down one role's (or the sandbox's flat) access key and group.
+) -> list[str]:
+    """Tear down one role's (or the sandbox's flat) access key and group, then its record.
 
     Must run only after every entrypoint's policy and routes (which reference
     this access group) have been deleted, otherwise the group delete is rejected
     by Netbird for still being in use. `deadline` bounds the teardown time; the
     provision end-guard passes none, so its teardown is never cut short.
+
+    :returns: Why each deletion that failed or was cut short failed; empty once the access
+        is gone. The record stays while any remain, for a later retry.
     """
     log = LOG.bind(sandbox_id=access.sandbox_id)
+    failures: list[str] = []
 
     if _expired(deadline):
-        return
+        return [BUDGET_EXCEEDED_FAILURE]
 
     # Delete the DNS nameserver group first: it lists the access group as its
     # distribution group, so the access-group delete below would be rejected
     # while it still exists.
     if access.dns_nameserver_group_id:
-        try:
-            client.delete_nameserver_group(access.dns_nameserver_group_id)
-            log.info(
-                'netbird_dns_nameserver_group_deleted',
-                nameserver_group_id=access.dns_nameserver_group_id,
-            )
-        except NetbirdApiError as exc:
-            log.warning('netbird_delete_dns_nameserver_group_failed', error=str(exc))
+        _delete_object(
+            failures,
+            log,
+            'nameserver group',
+            access.dns_nameserver_group_id,
+            client.delete_nameserver_group,
+        )
 
     if _expired(deadline):
-        return
+        return [*failures, BUDGET_EXCEEDED_FAILURE]
 
     if access.access_setup_key_id:
-        try:
-            client.delete_setup_key(access.access_setup_key_id)
-            log.info('netbird_access_key_deleted', key_id=access.access_setup_key_id)
-        except NetbirdApiError as exc:
-            log.warning('netbird_delete_access_key_failed', error=str(exc))
+        _delete_object(
+            failures, log, 'setup key', access.access_setup_key_id, client.delete_setup_key
+        )
 
-    _delete_group_peers(client, access.access_group_id, log, deadline)
+    _delete_group_peers(client, access.access_group_id, log, failures, deadline)
 
     if _expired(deadline):
-        return
+        return [*failures, BUDGET_EXCEEDED_FAILURE]
 
     if access.access_group_id:
-        try:
-            client.delete_group(access.access_group_id)
-            log.info('netbird_access_group_deleted', group_id=access.access_group_id)
-        except NetbirdApiError as exc:
-            log.warning('netbird_delete_access_group_failed', error=str(exc))
+        _delete_object(failures, log, 'group', access.access_group_id, client.delete_group)
 
-    access.delete()
-    log.info('netbird_access_record_deleted')
+    if not failures:
+        access.delete()
+        log.info('netbird_access_record_deleted')
+    return failures
 
 
-def destroy_netbird_for_sandbox(sandbox: Sandbox) -> None:
+def _destroy_ephemeral_key(
+    client: NetbirdClient, ephemeral_key: SandboxNetbirdEphemeralKey
+) -> list[str]:
+    """Delete one minted multi-role setup key, then its record.
+
+    :returns: Why the deletion failed; empty once the key is gone. The record stays on a
+        failure, for a later retry.
     """
-    Best-effort teardown of all Netbird resources for `sandbox`.
+    log = LOG.bind(sandbox_id=ephemeral_key.sandbox_id, role_set=ephemeral_key.role_set)
+    failures: list[str] = []
+    _delete_object(failures, log, 'setup key', ephemeral_key.key_id, client.delete_setup_key)
+    if not failures:
+        ephemeral_key.delete()
+        log.info('netbird_ephemeral_key_record_deleted')
+    return failures
 
-    Runs synchronously in the calling thread (the web-request thread that
-    creates the cleanup request), just before the cleanup stages are enqueued.
-    Every per-entrypoint teardown is wrapped in its own try/except so a failure
-    (or a slow Netbird endpoint that exhausts a single DELETE call's timeout)
-    cannot prevent the cleanup stages from being created and enqueued —
-    otherwise the user observes "stuck cleanup with three stages in the queue"
-    while in reality the stages were never enqueued at all. For the same reason,
-    failure to even build the client (e.g. a missing/empty PAT file) is logged
-    and swallowed rather than propagated.
 
-    Because teardown is synchronous, the time spent talking to Netbird for one
-    sandbox is bounded by ``teardown_budget_seconds``: the deadline is checked
-    before every cloud call, so the worst-case overrun is one in-flight call's
-    timeout. Once the budget is exceeded the remaining resources are left behind
-    (the cloud objects are orphaned, exactly as they already are when Netbird is
-    persistently unreachable) so that cleanup is never blocked indefinitely.
-
-    Note: a batched/pool cleanup calls this once per sandbox in a loop, so the
-    overall request is bounded by ``teardown_budget_seconds`` times the number
-    of sandboxes, not by the per-sandbox budget alone.
+def destroy_netbird_for_unit(unit: SandboxAllocationUnit) -> list[str]:
     """
+    Tear down the Netbird resources recorded for the allocation unit,
+    those of every sandbox it held included.
+
+    A unit with no recorded resources, and a deployment without NetBird, are left alone
+    without building a client. The record of an entrypoint or access is deleted only once
+    every object it names is gone, so a later teardown of the unit retries what is left.
+
+    The time spent talking to Netbird for one unit is bounded by
+    ``teardown_budget_seconds``: the deadline is checked before every cloud call,
+    so the worst-case overrun is one in-flight call's timeout. Once the budget is
+    exceeded the remaining resources and their records are left behind.
+
+    :returns: Why each teardown that failed or was cut short failed; empty once every
+        recorded object is gone. A client that cannot be built counts as a failure.
+    """
+    resources = list(SandboxNetbirdResources.objects.filter(allocation_unit=unit))
+    ephemeral_keys = list(SandboxNetbirdEphemeralKey.objects.filter(allocation_unit=unit))
+    # Descending by role: every role-specific key also names the flat group, so
+    # the flat row ('', sorting last) must be destroyed after every other row.
+    accesses = list(SandboxNetbirdAccess.objects.filter(allocation_unit=unit).order_by('-role'))
+    if not resources and not ephemeral_keys and not accesses:
+        return []
+
     try:
         client = get_netbird_client()
     except NetbirdConfigError as exc:
         LOG.warning(
-            'netbird_destroy_skipped', sandbox_id=sandbox.id, reason='config_error', error=str(exc)
+            'netbird_destroy_skipped', unit_id=unit.id, reason='config_error', error=str(exc)
         )
-        return
+        return [f'NetBird client unavailable: {exc}']
     if client is None:
-        return
-
-    nbr_qs = SandboxNetbirdResources.objects.filter(sandbox=sandbox)
-    # Descending by role: every role-specific key also names the flat group, so
-    # the flat row ('', sorting last) must be destroyed after every other row.
-    access_qs = SandboxNetbirdAccess.objects.filter(sandbox=sandbox).order_by('-role')
-    ephemeral_qs = SandboxNetbirdEphemeralKey.objects.filter(sandbox=sandbox)
-    if not nbr_qs.exists() and not access_qs.exists() and not ephemeral_qs.exists():
-        return
+        return []
 
     deadline = time.monotonic() + _teardown_budget_seconds()
+    failures: list[str] = []
 
-    for nbr in nbr_qs:
+    for nbr in resources:
         if _expired(deadline):
             LOG.warning(
-                'netbird_destroy_time_budget_exceeded', sandbox_id=sandbox.id, stage='entrypoints'
+                'netbird_destroy_time_budget_exceeded', unit_id=unit.id, stage='entrypoints'
             )
-            return
-        try:
-            _destroy_single_entrypoint(client, nbr, deadline)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            LOG.warning(
-                'netbird_destroy_entrypoint_failed',
-                sandbox_id=nbr.sandbox_id,
-                entrypoint_host=nbr.entrypoint_host_name,
-                error=str(exc),
-            )
+            return [*failures, BUDGET_EXCEEDED_FAILURE]
+        failures += _guarded(
+            partial(_destroy_single_entrypoint, client, nbr, deadline),
+            LOG.bind(unit_id=unit.id, entrypoint_host=nbr.entrypoint_host_name),
+        )
 
     # Delete every minted multi-role key before the access groups it references:
     # Netbird rejects deleting a group a setup key still names.
-    for ephemeral in ephemeral_qs:
+    for ephemeral_key in ephemeral_keys:
         if _expired(deadline):
             LOG.warning(
-                'netbird_destroy_time_budget_exceeded',
-                sandbox_id=sandbox.id,
-                stage='ephemeral_keys',
+                'netbird_destroy_time_budget_exceeded', unit_id=unit.id, stage='ephemeral_keys'
             )
-            return
-        try:
-            client.delete_setup_key(ephemeral.key_id)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            LOG.warning(
-                'netbird_destroy_ephemeral_key_failed',
-                sandbox_id=sandbox.id,
-                role_set=ephemeral.role_set,
-                error=str(exc),
-            )
-        ephemeral.delete()
+            return [*failures, BUDGET_EXCEEDED_FAILURE]
+        failures += _guarded(
+            partial(_destroy_ephemeral_key, client, ephemeral_key),
+            LOG.bind(unit_id=unit.id, role_set=ephemeral_key.role_set),
+        )
 
     # Tear down every role's access resources last: every entrypoint policy/route
     # and ephemeral key that referenced any access group has now been deleted, so
     # none of the groups are in use any longer and all of them can be removed.
-    for access in access_qs:
+    for access in accesses:
         if _expired(deadline):
-            LOG.warning(
-                'netbird_destroy_time_budget_exceeded', sandbox_id=sandbox.id, stage='access'
-            )
-            return
-        try:
-            _destroy_access(client, access, deadline)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            LOG.warning(
-                'netbird_destroy_access_failed',
-                sandbox_id=sandbox.id,
-                role=access.role,
-                error=str(exc),
-            )
+            LOG.warning('netbird_destroy_time_budget_exceeded', unit_id=unit.id, stage='access')
+            return [*failures, BUDGET_EXCEEDED_FAILURE]
+        failures += _guarded(
+            partial(_destroy_access, client, access, deadline),
+            LOG.bind(unit_id=unit.id, role=access.role),
+        )
+    return failures
+
+
+def _guarded(teardown: Callable[[], list[str]], log: Any) -> list[str]:
+    """Run one teardown, turning an unexpected exception into a failure."""
+    try:
+        return teardown()
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        log.warning('netbird_destroy_failed', error=str(exc))
+        return [str(exc) or type(exc).__name__]
 
 
 def _flat_access_row(sandbox: Sandbox) -> SandboxNetbirdAccess | None:
@@ -929,7 +963,11 @@ def _mint_ephemeral_vpn_setup_key(
     try:
         with transaction.atomic():
             SandboxNetbirdEphemeralKey.objects.create(
-                sandbox=sandbox, role_set=role_set, key_id=key_id, key_value=key_value
+                sandbox=sandbox,
+                allocation_unit_id=sandbox.allocation_unit_id,
+                role_set=role_set,
+                key_id=key_id,
+                key_value=key_value,
             )
     except IntegrityError:
         # A concurrent request for the same role set stored its key first. Hand out
