@@ -11,6 +11,7 @@ from crczp.sandbox_instance_app.models import (
     CleanupStage,
     ExternalDependency,
     ExternalDependencyCleanup,
+    StageOutputRow,
 )
 
 __all__ = [
@@ -114,21 +115,13 @@ class UserAnsibleCleanupStage(AnsibleCleanupStage):
         return str(super().__str__()) + f', REQUEST: {self.cleanup_request}'
 
 
-class AnsibleOutput(models.Model):
+class AnsibleOutput(StageOutputRow):
     """Abstract model representing a single line of Ansible output."""
-
-    content = models.TextField()
-    id: int  # provided by Django for concrete subclasses
 
     class Meta:  # pylint: disable=too-few-public-methods
         """Meta options for AnsibleOutput."""
 
         abstract = True
-        ordering = ['id']
-
-    @override
-    def __str__(self) -> str:
-        return f'ID: {self.id}, CONTENT: {self.content}'
 
 
 class AllocationAnsibleOutput(AnsibleOutput):
