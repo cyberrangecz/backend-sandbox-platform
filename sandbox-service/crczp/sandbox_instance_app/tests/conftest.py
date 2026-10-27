@@ -530,6 +530,17 @@ def sandbox_failed_user_stage(
 
 
 @pytest.fixture
+def sandbox_failed_networking_stage(
+    allocation_stage_stack, allocation_stage_networking, allocation_stage_user, sandbox
+):
+    """Fixture providing a sandbox whose networking allocation stage has failed."""
+    set_stage_finished(allocation_stage_stack)
+    set_stage_failed(allocation_stage_networking)
+    set_stage_failed(allocation_stage_user)
+    return sandbox
+
+
+@pytest.fixture
 def sandbox_lock(sandbox_finished):
     """Fixture providing a SandboxLock for a finished sandbox."""
     return SandboxLock.objects.create(sandbox=sandbox_finished)

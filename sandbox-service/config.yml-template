@@ -168,7 +168,7 @@ application_configuration:
 
     # The name of the Docker image that is able to run Ansible playbook.
     # Hosts with base_box.mgmt_password need sshpass in the runner image (1.2.0 or newer).
-    #ansible_docker_image: ghcr.io/cyberrangecz/crczp-ansible-runner:1.2.0
+    #ansible_docker_image: ghcr.io/cyberrangecz/crczp-ansible-runner:1.3.0
 
     # The name of the Docker network that the Runner will use.
     #ansible_docker_network: bridge

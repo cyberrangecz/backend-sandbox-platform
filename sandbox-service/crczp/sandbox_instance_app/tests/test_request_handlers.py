@@ -18,8 +18,12 @@ from crczp.sandbox_instance_app.lib import request_handlers
 from crczp.sandbox_instance_app.models import (
     AllocationRequest,
     Pool,
+    Sandbox,
     SandboxAllocationUnit,
+    SandboxNetbirdAccess,
+    SandboxNetbirdResources,
     SandboxRequestGroup,
+    SandboxRoleKeypair,
     StackAllocationStage,
     StackCleanupStage,
 )
@@ -145,10 +149,34 @@ class TestAllocationRequestHandlerUnit:
             sandbox,
             'stage_handlers',
             'fake_finalization_fn',
+            True,
         )
         fake_transaction.on_commit.assert_called_once_with(
             'fake_partial'
         )  # partial messes with assert_called_once_with
+
+    @pytest.mark.parametrize('provision_netbird', [True, False])
+    def test_enqueue_allocation_request(self, sandbox, provision_netbird):
+        netbird_job = MagicMock()
+        self.handler._enqueue_netbird_provision = MagicMock(return_value=netbird_job)
+        self.handler._enqueue_request = MagicMock()
+
+        self.handler._enqueue_allocation_request(
+            sandbox,
+            'stage_handlers',  # ty: ignore[invalid-argument-type]
+            'fake_finalization_fn',  # ty: ignore[invalid-argument-type]
+            provision_netbird,
+        )
+
+        if provision_netbird:
+            self.handler._enqueue_netbird_provision.assert_called_once_with(sandbox)
+        else:
+            self.handler._enqueue_netbird_provision.assert_not_called()
+        self.handler._enqueue_request.assert_called_once_with(
+            'stage_handlers',
+            'fake_finalization_fn',
+            ansible_extra_depends=[netbird_job] if provision_netbird else [],
+        )
 
     def test_create_allocation_jobs(self, pool, mocker):
         self.handler._enqueue_stages = MagicMock()
@@ -184,34 +212,75 @@ class TestAllocationRequestHandlerUnit:
             self.handler._create_allocation_jobs, allocation_unit, created_by
         )
 
-    def test_create_restart_jobs(self, allocation_unit, allocation_request, mocker):
-        fake_sandbox = MagicMock()
-        fake_sandbox_class = mocker.patch(
-            'crczp.sandbox_instance_app.lib.request_handlers.Sandbox', return_value=fake_sandbox
+    @pytest.mark.parametrize(
+        ('failed_sandbox', 'rerun_stages'),
+        [
+            ('sandbox_failed_user_stage', [UserAnsibleAllocationStage]),
+            (
+                'sandbox_failed_networking_stage',
+                [NetworkingAnsibleAllocationStage, UserAnsibleAllocationStage],
+            ),
+            (
+                'sandbox_failed_stack_stage',
+                [
+                    StackAllocationStage,
+                    NetworkingAnsibleAllocationStage,
+                    UserAnsibleAllocationStage,
+                ],
+            ),
+        ],
+    )
+    def test_create_restart_jobs_keeps_sandbox_and_credentials(
+        self, failed_sandbox, rerun_stages, request, mocker
+    ):
+        # The sandbox was never ready, so its credentials were never handed out.
+        # Only the networking stage installs them on the hosts; replacing them
+        # when it does not re-run leaves the hosts with the old ones.
+        sandbox = request.getfixturevalue(failed_sandbox)
+        unit = sandbox.allocation_unit
+        mocker.patch('crczp.sandbox_instance_app.lib.request_handlers.sandboxes.clear_cache')
+        SandboxRoleKeypair.objects.create(
+            sandbox=sandbox, role='red', private_key='role-private', public_key='role-public'
+        )
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox,
+            access_group_id='access-group',
+            access_setup_key_id='access-key-id',
+            access_setup_key_value='access-key',
+        )
+        SandboxNetbirdResources.objects.create(
+            sandbox=sandbox,
+            entrypoint_host_name='router',
+            host_group_id='host-group',
+            host_setup_key_id='host-key-id',
+            host_setup_key_value='host-key',
         )
         fake_destroy = mocker.patch(
             'crczp.sandbox_instance_app.lib.request_handlers.netbird.destroy_netbird_for_sandbox'
         )
-        self.handler._restart_stage_handlers = MagicMock()
         self.handler._enqueue_stages = MagicMock()
 
-        self.handler._create_restart_jobs(allocation_unit)
+        self.handler._create_restart_jobs(unit)
 
-        assert self.handler.request == allocation_request
-        # The old sandbox's NetBird resources are torn down before it is deleted.
-        old_sandbox = fake_sandbox_class.objects.get.return_value
-        fake_destroy.assert_called_once_with(old_sandbox)
-        old_sandbox.delete.assert_called_once()
-        fake_sandbox_class.assert_called_once_with(
-            id='123',
-            allocation_unit=allocation_unit,
-            private_user_key='fake_private_key',
-            public_user_key='fake_public_key',
-        )
-        self.handler._restart_stage_handlers.assert_called_once_with(fake_sandbox)
-        self.handler._enqueue_stages.assert_called_once_with(
-            fake_sandbox, self.handler._restart_stage_handlers.return_value
-        )
+        fake_destroy.assert_not_called()
+        self.fake_gen_ssh.assert_not_called()
+        restarted = Sandbox.objects.get(allocation_unit=unit)
+        # The fixture assigns an int to the CharField primary key.
+        assert restarted.pk == str(sandbox.pk)
+        assert restarted.private_user_key == sandbox.private_user_key
+        assert restarted.public_user_key == sandbox.public_user_key
+        assert restarted.role_keypairs.get().public_key == 'role-public'
+        access = SandboxNetbirdAccess.objects.get(sandbox=restarted)
+        assert access.access_setup_key_value == 'access-key'
+        resources = SandboxNetbirdResources.objects.get(sandbox=restarted)
+        assert resources.host_setup_key_value == 'host-key'
+
+        assert self.handler.request == unit.allocation_request
+        self.handler._enqueue_stages.assert_called_once()
+        (enqueued_sandbox, handlers), kwargs = self.handler._enqueue_stages.call_args
+        assert enqueued_sandbox == restarted
+        assert kwargs == {'provision_netbird': False}
+        assert [type(handler.stage) for handler in handlers] == rerun_stages
 
     def test_restart_request(self, allocation_request):
         self.handler.queue_default.enqueue = MagicMock()
@@ -274,8 +343,11 @@ class TestAllocationRequestHandlerUnit:
             == 'All stages finished without failing. Only failed stages can be restarted.'
         )
 
-    def test_restart_stage_handlers(self, sandbox_failed_stack_stage):
+    def test_restart_stage_handlers(self, sandbox_failed_stack_stage, mocker):
         self.handler.request = sandbox_failed_stack_stage.allocation_unit.allocation_request
+        fake_clear_cache = mocker.patch(
+            'crczp.sandbox_instance_app.lib.request_handlers.sandboxes.clear_cache'
+        )
 
         fake_stack_stage = MagicMock()
         fake_network_stage = MagicMock()
@@ -299,9 +371,59 @@ class TestAllocationRequestHandlerUnit:
             ),
         ])
         self.assert_handlers(handlers, [fake_stack_stage, fake_network_stage, fake_user_stage])
+        fake_clear_cache.assert_called_once_with(sandbox_failed_stack_stage)
 
-    def test_restart_stage_handler_user_stage_failed(self, sandbox_failed_user_stage):
+    def test_restart_stage_handlers_reads_failures_before_replacing_stages(
+        self, sandbox_failed_stack_stage
+    ):
+        # The new stack stage is cached on the request once created; the
+        # networking decision must still see that the stack failed.
+        request = sandbox_failed_stack_stage.allocation_unit.allocation_request
+        networking_stage = request.networkingansibleallocationstage
+        networking_stage.failed = False
+        networking_stage.save()
+        self.handler.request = request
+
+        handlers = self.handler._restart_stage_handlers(sandbox_failed_stack_stage)
+
+        assert [type(handler.stage) for handler in handlers] == [
+            StackAllocationStage,
+            NetworkingAnsibleAllocationStage,
+            UserAnsibleAllocationStage,
+        ]
+
+    def test_restart_stage_handler_networking_stage_failed(
+        self, sandbox_failed_networking_stage, mocker
+    ):
+        unit = sandbox_failed_networking_stage.allocation_unit
+        self.handler.request = unit.allocation_request
+        fake_clear_cache = mocker.patch(
+            'crczp.sandbox_instance_app.lib.request_handlers.sandboxes.clear_cache'
+        )
+
+        fake_network_stage = MagicMock()
+        fake_user_stage = MagicMock()
+        self.handler._create_db_stage = MagicMock()
+        self.handler._create_db_stage.side_effect = [fake_network_stage, fake_user_stage]
+
+        handlers = self.handler._restart_stage_handlers(sandbox_failed_networking_stage)
+
+        self.handler._create_db_stage.assert_has_calls([
+            call(NetworkingAnsibleAllocationStage, repo_url='fake_repo_url', rev='fake_rev'),
+            call(
+                UserAnsibleAllocationStage,
+                repo_url=unit.pool.definition.url,
+                rev=unit.pool.rev_sha,
+            ),
+        ])
+        assert [handler.stage for handler in handlers] == [fake_network_stage, fake_user_stage]
+        fake_clear_cache.assert_not_called()
+
+    def test_restart_stage_handler_user_stage_failed(self, sandbox_failed_user_stage, mocker):
         self.handler.request = sandbox_failed_user_stage.allocation_unit.allocation_request
+        fake_clear_cache = mocker.patch(
+            'crczp.sandbox_instance_app.lib.request_handlers.sandboxes.clear_cache'
+        )
 
         fake_user_stage = MagicMock()
         self.handler._create_db_stage = MagicMock(return_value=fake_user_stage)
@@ -315,6 +437,7 @@ class TestAllocationRequestHandlerUnit:
         )
         user_stage = handlers[0]
         assert user_stage.stage == fake_user_stage
+        fake_clear_cache.assert_not_called()
 
     def test_get_stage_handlers(self, allocation_request_started):
         self.handler.request = allocation_request_started
@@ -512,7 +635,7 @@ class TestAllocationRequestHandler:
         NetBird provisioning is enqueued as a SEPARATE job on the ansible queue,
         so running only the ``default``-queue worker creates BOTH pools'
         AllocationRequests (no cross-pool starvation) while provisioning waits on
-        its own queue. The user-ansible stage depends on the provisioning job.
+        its own queue. The networking stage depends on the provisioning job.
         """
         mocker.patch(
             'crczp.sandbox_instance_app.lib.request_handlers.netbird.is_netbird_configured',
@@ -548,15 +671,45 @@ class TestAllocationRequestHandler:
         ]
         assert len(provision_jobs) == 2
 
-        # The user-ansible stage of pool A depends on its provisioning job.
+        # The networking stage of pool A waits for both the stack and its
+        # provisioning job; the user stage waits for networking alone.
         request_a = AllocationRequest.objects.get(allocation_unit=unit_a)
+        networking_job = get_queue('ansible').fetch_job(
+            request_a.networkingansibleallocationstage.rq_job.job_id
+        )
+        dependency_ids = {
+            d.decode() for d in networking_job.connection.smembers(networking_job.dependencies_key)
+        }
+        assert request_a.stackallocationstage.rq_job.job_id in dependency_ids
+        assert any(job.id in dependency_ids for job in provision_jobs)
         user_job = get_queue('ansible').fetch_job(
             request_a.useransibleallocationstage.rq_job.job_id
         )
-        dependency_ids = {
-            d.decode() for d in user_job.connection.smembers(user_job.dependencies_key)
+        assert {d.decode() for d in user_job.connection.smembers(user_job.dependencies_key)} == {
+            networking_job.id
         }
-        assert any(job.id in dependency_ids for job in provision_jobs)
+
+    @pytest.mark.django_db(transaction=True)
+    def test_restart_does_not_provision_netbird(self, sandbox_failed_user_stage, mocker):
+        """A restart keeps the sandbox's NetBird resources, so nothing is provisioned."""
+        mocker.patch(
+            'crczp.sandbox_instance_app.lib.request_handlers.netbird.is_netbird_configured',
+            return_value=True,
+        )
+        unit = sandbox_failed_user_stage.allocation_unit
+
+        request_handlers.AllocationRequestHandler().restart_request(unit)
+        get_worker('default').work(burst=True)
+
+        provision_jobs = [
+            job
+            for job in get_queue('ansible').jobs
+            if job.func_name.endswith('provision_netbird_for_sandbox')
+        ]
+        assert provision_jobs == []
+        request = AllocationRequest.objects.get(allocation_unit=unit)
+        user_job = get_queue('ansible').fetch_job(request.useransibleallocationstage.rq_job.job_id)
+        assert user_job.connection.smembers(user_job.dependencies_key) == set()
 
     @pytest.mark.django_db(transaction=True)
     def test_no_netbird_provision_job_when_unconfigured(self, allocation_unit, mocker):

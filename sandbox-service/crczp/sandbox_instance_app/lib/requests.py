@@ -32,9 +32,7 @@ class StageState(enum.Enum):
 
 
 def restart_allocation_stages(unit: SandboxAllocationUnit) -> SandboxAllocationUnit:
-    """Restarts failed allocation stages and recreates the existing sandbox and request in the
-    database.
-    """
+    """Restarts failed allocation stages on the unit's existing sandbox."""
 
     request_handlers.AllocationRequestHandler().restart_request(unit)
     return unit

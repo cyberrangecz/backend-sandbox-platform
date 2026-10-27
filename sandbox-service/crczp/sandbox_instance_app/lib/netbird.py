@@ -416,8 +416,8 @@ def _teardown_provisioned_resources(
 def provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
     """Best-effort entry point for NetBird provisioning; guaranteed never to raise.
 
-    This is the target of the provisioning RQ job that the user-ansible stage
-    depends on. If the job ended FAILED, RQ would defer the user-ansible stage
+    This is the target of the provisioning RQ job that the networking stage
+    depends on. If the job ended FAILED, RQ would defer the networking stage
     forever and wedge the allocation, so every escaping exception is caught here
     and the job is allowed to finish (degraded). The realistic failure modes
     (missing PAT, unreachable NetBird, definition-fetch error) are already
@@ -440,7 +440,7 @@ def _provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
     Provisioning is best-effort: a misconfigured PAT file or a transient
     definition-fetch error for one sandbox is caught and logged rather than
     propagated (it would otherwise fail the provisioning job and, via the
-    user-ansible dependency, wedge the allocation).
+    networking-stage dependency, wedge the allocation).
     """
     try:
         client = get_netbird_client()
