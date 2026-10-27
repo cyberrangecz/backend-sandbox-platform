@@ -5,6 +5,7 @@
 # diagnostics below are noise here.
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 
+import time
 from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call
@@ -12,8 +13,11 @@ from unittest.mock import MagicMock, call
 import pytest
 from django.contrib.auth.models import AnonymousUser
 from django.db import OperationalError
+from django_rq import get_queue
 from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory
+from rq.job import Job, JobStatus
+from rq.registry import StartedJobRegistry
 
 from crczp.cloud_commons import UNIVERSAL_ROLES
 from crczp.sandbox_common_lib.netbird_client import NetbirdApiError, NetbirdConfigError
@@ -647,6 +651,24 @@ class TestProvision:  # pylint: disable=too-many-public-methods
         client.create_route.assert_not_called()
         client.create_policy.assert_not_called()
 
+    def test_start_guard_skips_when_a_restart_took_over(self, mocker, sandbox, netbird_cfg):
+        """A restart that stopped waiting for this job provisions the sandbox itself."""
+        client = MagicMock()
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_vpn_entrypoints',
+            return_value=[FakeEntrypoint('server', ['10.0.0.0/24'])],
+        )
+        mocker.patch(f'{NETBIRD_MODULE}._superseded', return_value=True)
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        client.create_group.assert_not_called()
+        client.create_setup_key.assert_not_called()
+        netbird.LOG.warning.assert_called_once_with(
+            'netbird_provision_skipped', sandbox_id=sandbox.id, reason='superseded'
+        )
+
     def test_end_guard_tears_down_when_sandbox_deleted_mid_provision(
         self, mocker, sandbox, netbird_cfg
     ):
@@ -1007,6 +1029,571 @@ class TestProvision:  # pylint: disable=too-many-public-methods
         assert kwargs['source_group_ids'] == ['red-grp']
         nbr = SandboxNetbirdResources.objects.get(sandbox=sandbox, entrypoint_host_name='server')
         assert nbr.get_source_role_list() == ['red-team']
+
+
+class TestRestart:  # pylint: disable=too-many-public-methods
+    """Tests for restart_netbird_for_sandbox."""
+
+    @staticmethod
+    def _client(mocker) -> MagicMock:
+        """Patch in a client whose setup keys come out as new-key-id-<n> / new-key-<n>."""
+        client = MagicMock()
+        client.create_setup_key.side_effect = [
+            (f'new-key-id-{n}', f'new-key-{n}') for n in (1, 2, 3)
+        ]
+        client.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        return client
+
+    @staticmethod
+    def _provisioned(
+        sandbox: Sandbox,
+    ) -> tuple[SandboxNetbirdResources, SandboxNetbirdAccess, SandboxNetbirdAccess]:
+        """Record one entrypoint, the flat access row and a 'red' role's row."""
+        nbr = SandboxNetbirdResources.objects.create(
+            sandbox=sandbox,
+            entrypoint_host_name='router',
+            host_group_id='host-grp',
+            host_setup_key_id='host-key-id',
+            host_setup_key_value='host-key',
+            policy_id='pol-1',
+            route_ids='route-1',
+            route_cidrs='10.0.0.0/24',
+        )
+        flat = SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox,
+            access_group_id='flat-grp',
+            access_setup_key_id='flat-key-id',
+            access_setup_key_value='flat-key',
+        )
+        red = SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox,
+            role='red',
+            access_group_id='red-grp',
+            access_setup_key_id='red-key-id',
+            access_setup_key_value='red-key',
+            dns_nameserver_group_id='red-dns',
+        )
+        return nbr, flat, red
+
+    @staticmethod
+    def _key(row: SandboxNetbirdResources | SandboxNetbirdAccess) -> tuple[str | None, str | None]:
+        row.refresh_from_db()
+        if isinstance(row, SandboxNetbirdResources):
+            return row.host_setup_key_id, row.host_setup_key_value
+        return row.access_setup_key_id, row.access_setup_key_value
+
+    @staticmethod
+    def _restart(sandbox: Sandbox, rerun_networking: bool = True) -> None:
+        netbird.restart_netbird_for_sandbox(sandbox, rerun_networking=rerun_networking)
+
+    def test_renews_every_setup_key_in_its_groups(self, mocker, sandbox, netbird_cfg):
+        """Each key is replaced by one of the same name and groups; nothing else changes."""
+        client = self._client(mocker)
+        nbr, flat, red = self._provisioned(sandbox)
+
+        self._restart(sandbox)
+
+        stack_name = netbird._short_stack_name(sandbox.allocation_unit.get_stack_name())
+        assert client.create_setup_key.call_args_list == [
+            call(
+                name=f'{stack_name}-router-host',
+                auto_group_ids=['host-grp'],
+                expires_in_seconds=1209600,
+            ),
+            call(
+                name=f'{stack_name}-access_red',
+                auto_group_ids=['red-grp', 'flat-grp'],
+                expires_in_seconds=1209600,
+            ),
+            call(
+                name=f'{stack_name}-access',
+                auto_group_ids=['flat-grp'],
+                expires_in_seconds=1209600,
+            ),
+        ]
+        assert client.delete_setup_key.call_args_list == [
+            call('host-key-id'),
+            call('red-key-id'),
+            call('flat-key-id'),
+        ]
+        assert self._key(nbr) == ('new-key-id-1', 'new-key-1')
+        assert self._key(red) == ('new-key-id-2', 'new-key-2')
+        assert self._key(flat) == ('new-key-id-3', 'new-key-3')
+        assert (nbr.host_group_id, nbr.policy_id, nbr.get_route_id_list()) == (
+            'host-grp',
+            'pol-1',
+            ['route-1'],
+        )
+        assert red.dns_nameserver_group_id == 'red-dns'
+        for untouched in ('create_group', 'create_policy', 'create_route', 'delete_group'):
+            getattr(client, untouched).assert_not_called()
+        client.delete_peer.assert_not_called()
+
+    def test_keeps_host_keys_when_networking_does_not_rerun(self, mocker, sandbox, netbird_cfg):
+        """Only networking joins the entrypoints, so only the access keys are renewed."""
+        client = self._client(mocker)
+        nbr, flat, red = self._provisioned(sandbox)
+
+        self._restart(sandbox, rerun_networking=False)
+
+        assert self._key(nbr) == ('host-key-id', 'host-key')
+        assert self._key(red) == ('new-key-id-1', 'new-key-1')
+        assert self._key(flat) == ('new-key-id-2', 'new-key-2')
+        assert call('host-key-id') not in client.delete_setup_key.call_args_list
+
+    def test_skips_an_entrypoint_without_a_key(self, mocker, sandbox, netbird_cfg):
+        """A discarded entrypoint kept for its teardown stays out of networking."""
+        client = self._client(mocker)
+        provision = mocker.patch(f'{NETBIRD_MODULE}._provision_netbird_for_sandbox')
+        nbr = SandboxNetbirdResources.objects.create(
+            sandbox=sandbox,
+            entrypoint_host_name='router',
+            host_group_id='host-grp',
+            host_setup_key_id='host-key-id',
+        )
+
+        self._restart(sandbox)
+
+        client.create_setup_key.assert_not_called()
+        provision.assert_not_called()
+        assert self._key(nbr) == ('host-key-id', None)
+
+    @pytest.mark.parametrize('rerun_networking', [True, False])
+    def test_creates_an_access_key_the_first_attempt_failed_to_create(
+        self, mocker, sandbox, netbird_cfg, rerun_networking
+    ):
+        """Users get the access key once the sandbox is ready, so a missing one is created."""
+        client = self._client(mocker)
+        flat = SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_group_id='flat-grp')
+
+        self._restart(sandbox, rerun_networking=rerun_networking)
+
+        stack_name = netbird._short_stack_name(sandbox.allocation_unit.get_stack_name())
+        client.create_setup_key.assert_called_once_with(
+            name=f'{stack_name}-access', auto_group_ids=['flat-grp'], expires_in_seconds=1209600
+        )
+        client.delete_setup_key.assert_not_called()
+        assert self._key(flat) == ('new-key-id-1', 'new-key-1')
+
+    @pytest.mark.parametrize('rerun_networking', [True, False])
+    def test_renews_when_no_entrypoint_was_provisioned(
+        self, mocker, sandbox, netbird_cfg, rerun_networking
+    ):
+        """Access groups without an entrypoint row (all discarded, or a DNS-only VPN) are kept."""
+        self._client(mocker)
+        provision = mocker.patch(f'{NETBIRD_MODULE}._provision_netbird_for_sandbox')
+        nbr, flat, red = self._provisioned(sandbox)
+        nbr.delete()
+
+        self._restart(sandbox, rerun_networking=rerun_networking)
+
+        provision.assert_not_called()
+        assert self._key(red) == ('new-key-id-1', 'new-key-1')
+        assert self._key(flat) == ('new-key-id-2', 'new-key-2')
+
+    @pytest.mark.parametrize('rerun_networking', [True, False])
+    def test_provisions_only_when_nothing_was_provisioned(
+        self, mocker, sandbox, netbird_cfg, rerun_networking
+    ):
+        """An empty first attempt is provisioned again only if networking joins the result."""
+        get_client = mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client')
+        provision = mocker.patch(f'{NETBIRD_MODULE}._provision_netbird_for_sandbox')
+        # A failed access group leaves its row with no NetBird object.
+        SandboxNetbirdAccess.objects.create(sandbox=sandbox)
+
+        self._restart(sandbox, rerun_networking=rerun_networking)
+
+        if rerun_networking:
+            provision.assert_called_once_with(sandbox)
+        else:
+            provision.assert_not_called()
+        get_client.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ('error', 'event'),
+        [
+            (NetbirdApiError('POST', 'url', 500, 'fail'), 'netbird_setup_key_renewal_failed'),
+            (ValueError('malformed response'), 'netbird_setup_key_renewal_error'),
+        ],
+    )
+    def test_keeps_the_old_key_when_creating_a_new_one_fails(
+        self, mocker, sandbox, netbird_cfg, error, event
+    ):
+        """A failed key is logged and the next one is still renewed."""
+        client = self._client(mocker)
+        client.create_setup_key.side_effect = [
+            error,
+            ('new-key-id-2', 'new-key-2'),
+            ('new-key-id-3', 'new-key-3'),
+        ]
+        nbr, flat, red = self._provisioned(sandbox)
+
+        self._restart(sandbox)
+
+        assert self._key(nbr) == ('host-key-id', 'host-key')
+        assert self._key(red) == ('new-key-id-2', 'new-key-2')
+        assert self._key(flat) == ('new-key-id-3', 'new-key-3')
+        assert call('host-key-id') not in client.delete_setup_key.call_args_list
+        assert netbird.LOG.warning.call_args_list[0].args == (event,)
+
+    def test_drops_the_new_key_when_storing_it_fails(self, mocker, sandbox, netbird_cfg):
+        """A key no row records would keep NetBird from deleting the groups it names."""
+        client = self._client(mocker)
+        nbr, flat, _ = self._provisioned(sandbox)
+        mocker.patch(
+            'django.db.models.query.QuerySet.update', side_effect=OperationalError('db down')
+        )
+
+        self._restart(sandbox)
+
+        assert client.delete_setup_key.call_args_list == [
+            call('new-key-id-1'),
+            call('new-key-id-2'),
+            call('new-key-id-3'),
+        ]
+        assert self._key(nbr) == ('host-key-id', 'host-key')
+        assert self._key(flat) == ('flat-key-id', 'flat-key')
+
+    def test_retries_a_failed_delete_of_the_old_key(self, mocker, sandbox, netbird_cfg):
+        """A delete whose response was lost may have gone through; the retry finds out."""
+        client = self._client(mocker)
+        deleted: list[str] = []
+
+        def delete_setup_key(key_id: str) -> None:
+            deleted.append(key_id)
+            if deleted == ['host-key-id']:
+                raise NetbirdApiError('DELETE', 'url', 0, 'connection reset')
+
+        client.delete_setup_key.side_effect = delete_setup_key
+        nbr, _, _ = self._provisioned(sandbox)
+
+        self._restart(sandbox)
+
+        assert self._key(nbr) == ('new-key-id-1', 'new-key-1')
+        assert deleted[:2] == ['host-key-id', 'host-key-id']
+        assert 'new-key-id-1' not in deleted
+
+    def test_goes_back_to_the_old_key_when_it_cannot_be_deleted(self, mocker, sandbox, netbird_cfg):
+        """An old key left unrecorded would block its group's teardown, so the new one goes."""
+        client = self._client(mocker)
+
+        def delete_setup_key(key_id: str) -> None:
+            if key_id == 'host-key-id':
+                raise NetbirdApiError('DELETE', 'url', 503, 'down')
+
+        client.delete_setup_key.side_effect = delete_setup_key
+        nbr, flat, _ = self._provisioned(sandbox)
+
+        self._restart(sandbox)
+
+        assert self._key(nbr) == ('host-key-id', 'host-key')
+        assert call('new-key-id-1') in client.delete_setup_key.call_args_list
+        assert self._key(flat) == ('new-key-id-3', 'new-key-3')
+
+    def test_drops_the_new_key_when_the_row_changed_meanwhile(self, mocker, sandbox, netbird_cfg):
+        """The new key is stored only while the row still holds the old one."""
+        client = self._client(mocker)
+        nbr, _, _ = self._provisioned(sandbox)
+
+        def create_setup_key(**kwargs: object) -> tuple[str, str]:
+            if kwargs['auto_group_ids'] == ['host-grp']:
+                SandboxNetbirdResources.objects.filter(pk=nbr.pk).update(
+                    host_setup_key_id='other-key-id', host_setup_key_value='other-key'
+                )
+            return f'new-{kwargs["name"]}-id', f'new-{kwargs["name"]}'
+
+        client.create_setup_key.side_effect = create_setup_key
+
+        self._restart(sandbox)
+
+        assert self._key(nbr) == ('other-key-id', 'other-key')
+        stack_name = netbird._short_stack_name(sandbox.allocation_unit.get_stack_name())
+        assert call(f'new-{stack_name}-router-host-id') in client.delete_setup_key.call_args_list
+        assert call('host-key-id') not in client.delete_setup_key.call_args_list
+
+    def test_end_guard_tears_down_when_sandbox_deleted_mid_restart(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """A forced cleanup cannot delete the groups that a renewed key names, so the job does."""
+        client = self._client(mocker)
+
+        def delete_setup_key(key_id: str) -> None:
+            if key_id == 'flat-key-id':
+                Sandbox.objects.filter(pk=sandbox.pk).delete()
+
+        client.delete_setup_key.side_effect = delete_setup_key
+        self._provisioned(sandbox)
+
+        self._restart(sandbox)
+
+        deleted_keys = [c.args[0] for c in client.delete_setup_key.call_args_list]
+        assert deleted_keys[-3:] == ['new-key-id-1', 'new-key-id-2', 'new-key-id-3']
+        assert client.delete_group.call_args_list == [
+            call('host-grp'),
+            call('red-grp'),
+            call('flat-grp'),
+        ]
+        client.delete_policy.assert_called_once_with('pol-1')
+
+    def test_end_guard_tears_down_the_key_a_row_went_back_to(self, mocker, sandbox, netbird_cfg):
+        """After going back to the old key, the teardown deletes that one, not the new one."""
+        client = self._client(mocker)
+
+        def delete_setup_key(key_id: str) -> None:
+            if key_id == 'flat-key-id':
+                Sandbox.objects.filter(pk=sandbox.pk).delete()
+                raise NetbirdApiError('DELETE', 'url', 503, 'down')
+
+        client.delete_setup_key.side_effect = delete_setup_key
+        self._provisioned(sandbox)
+
+        self._restart(sandbox)
+
+        deleted_keys = [c.args[0] for c in client.delete_setup_key.call_args_list]
+        assert deleted_keys.count('new-key-id-3') == 1
+        assert deleted_keys[-1] == 'flat-key-id'
+
+    def test_skipped_on_config_error(self, mocker, sandbox, netbird_cfg):
+        """A config error building the client leaves every key as it was."""
+        mocker.patch(
+            f'{NETBIRD_MODULE}.get_netbird_client', side_effect=NetbirdConfigError('missing pat')
+        )
+        nbr, _, _ = self._provisioned(sandbox)
+
+        self._restart(sandbox)
+
+        assert self._key(nbr) == ('host-key-id', 'host-key')
+        netbird.LOG.warning.assert_called_once_with(
+            'netbird_restart_skipped',
+            sandbox_id=sandbox.id,
+            reason='config_error',
+            error='missing pat',
+        )
+
+    def test_skipped_without_a_client(self, mocker, sandbox, netbird_cfg):
+        """A worker without the NetBird config renews nothing."""
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=None)
+        nbr, _, _ = self._provisioned(sandbox)
+
+        self._restart(sandbox)
+
+        assert self._key(nbr) == ('host-key-id', 'host-key')
+        netbird.LOG.debug.assert_called_once_with(
+            'netbird_restart_skipped', sandbox_id=sandbox.id, reason='no_config'
+        )
+
+    @pytest.mark.parametrize('previous_job_id', ['job-1', None])
+    def test_waits_for_the_previous_netbird_job_first(self, mocker, sandbox, previous_job_id):
+        """Nothing is renewed or provisioned while the previous NetBird job may still run."""
+        calls: list[tuple[str, object]] = []
+        mocker.patch(
+            f'{NETBIRD_MODULE}._wait_for_netbird_job',
+            side_effect=lambda job_id: calls.append(('wait', job_id)) or False,
+        )
+        mocker.patch(
+            f'{NETBIRD_MODULE}._restart_netbird_for_sandbox',
+            side_effect=lambda *args: calls.append(('restart', args)),
+        )
+
+        netbird.restart_netbird_for_sandbox(
+            sandbox, rerun_networking=True, previous_job_id=previous_job_id
+        )
+
+        waits = [('wait', previous_job_id)] if previous_job_id else []
+        assert calls == [*waits, ('restart', (sandbox, True, False))]
+
+    def test_a_failed_wait_still_restarts(self, mocker, sandbox):
+        """Like a wait that times out, one that fails goes on."""
+        mocker.patch(
+            f'{NETBIRD_MODULE}._wait_for_netbird_job', side_effect=RuntimeError('unexpected')
+        )
+        restart = mocker.patch(f'{NETBIRD_MODULE}._restart_netbird_for_sandbox')
+
+        netbird.restart_netbird_for_sandbox(sandbox, rerun_networking=True, previous_job_id='job-1')
+
+        restart.assert_called_once_with(sandbox, True, False)
+        netbird.LOG.warning.assert_called_once_with(
+            'netbird_restart_wait_failed', sandbox_id=sandbox.id, job_id='job-1', error='unexpected'
+        )
+
+    def test_keeps_the_keys_while_the_previous_job_still_runs(self, mocker, sandbox, netbird_cfg):
+        """That job made the keys or is making them, and its saves would undo a renewal."""
+        mocker.patch(f'{NETBIRD_MODULE}._wait_for_netbird_job', return_value=True)
+        client = self._client(mocker)
+        nbr, flat, _ = self._provisioned(sandbox)
+
+        netbird.restart_netbird_for_sandbox(sandbox, rerun_networking=True, previous_job_id='job-1')
+
+        client.create_setup_key.assert_not_called()
+        assert self._key(nbr) == ('host-key-id', 'host-key')
+        assert self._key(flat) == ('flat-key-id', 'flat-key')
+        netbird.LOG.warning.assert_called_once_with(
+            'netbird_restart_skipped', sandbox_id=sandbox.id, reason='previous_job_running'
+        )
+
+    def test_provisions_while_the_previous_job_still_runs_but_recorded_nothing(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """A provisioning job stuck before its first NetBird call steps aside once it resumes."""
+        mocker.patch(f'{NETBIRD_MODULE}._wait_for_netbird_job', return_value=True)
+        provision = mocker.patch(f'{NETBIRD_MODULE}._provision_netbird_for_sandbox')
+
+        netbird.restart_netbird_for_sandbox(sandbox, rerun_networking=True, previous_job_id='job-1')
+
+        provision.assert_called_once_with(sandbox)
+
+    def test_steps_aside_for_a_later_restart(self, mocker, sandbox):
+        """A later restart's NetBird job, which waits for this one, does the work instead."""
+        mocker.patch(f'{NETBIRD_MODULE}._superseded', return_value=True)
+        restart = mocker.patch(f'{NETBIRD_MODULE}._restart_netbird_for_sandbox')
+
+        self._restart(sandbox)
+
+        restart.assert_not_called()
+        netbird.LOG.info.assert_called_once_with(
+            'netbird_restart_skipped', sandbox_id=sandbox.id, reason='superseded'
+        )
+
+    def test_entry_point_never_raises_on_unexpected_error(self, mocker, sandbox):
+        """A raised exception would fail the job and wedge the stage that waits for it."""
+        mocker.patch(
+            f'{NETBIRD_MODULE}._restart_netbird_for_sandbox',
+            side_effect=RuntimeError('unexpected db error'),
+        )
+
+        self._restart(sandbox)
+
+        netbird.LOG.warning.assert_called_once_with(
+            'netbird_restart_unexpected_error', sandbox_id=sandbox.id, error='unexpected db error'
+        )
+
+
+@pytest.mark.integration
+class TestWaitForNetbirdJob:
+    """Tests for _wait_for_netbird_job, which a restart's NetBird job runs first."""
+
+    @pytest.fixture
+    def queue(self, mocker):
+        """The ansible queue, with the waiting code running as one of its jobs."""
+        queue = get_queue('ansible')
+        mocker.patch(
+            f'{NETBIRD_MODULE}.get_current_job',
+            return_value=SimpleNamespace(connection=queue.connection, id='this-job'),
+        )
+        return queue
+
+    @staticmethod
+    def _job(queue, status: JobStatus, started_registry_score: float | None = None) -> Job:
+        """Enqueue a job in ``status``, with a started-registry entry when a score is given."""
+        job = queue.enqueue(netbird.is_netbird_configured)
+        job.set_status(status)
+        if started_registry_score is not None:
+            registry = StartedJobRegistry(job.origin, connection=queue.connection)
+            queue.connection.zadd(registry.key, {job.id: started_registry_score})
+        return job
+
+    @staticmethod
+    def _forbid_polling(mocker) -> None:
+        """Fail at the first poll, rather than when the real 600 s bound runs out."""
+        mocker.patch(f'{NETBIRD_MODULE}.time.sleep', side_effect=AssertionError('polled'))
+
+    def test_returns_at_once_outside_a_job(self, mocker):
+        """Without an rq job there is no connection to read the other job's status over."""
+        mocker.patch(f'{NETBIRD_MODULE}.get_current_job', return_value=None)
+        self._forbid_polling(mocker)
+
+        assert netbird._wait_for_netbird_job('job-1') is False
+
+    @pytest.mark.parametrize('status', [JobStatus.FINISHED, JobStatus.FAILED, None])
+    def test_returns_at_once_for_a_settled_or_missing_job(self, mocker, queue, status):
+        """A finished or failed job, or one whose result has expired, holds nothing up."""
+        job_id = self._job(queue, status).id if status is not None else 'missing-job'
+        self._forbid_polling(mocker)
+
+        assert netbird._wait_for_netbird_job(job_id) is False
+
+    def test_returns_at_once_for_a_job_whose_worker_died(self, mocker, queue):
+        """A started job whose registry score has lapsed stays STARTED until rq sweeps it."""
+        job = self._job(queue, JobStatus.STARTED, started_registry_score=time.time() - 30)
+        self._forbid_polling(mocker)
+
+        assert netbird._wait_for_netbird_job(job.id) is False
+
+    @pytest.mark.parametrize(
+        ('status', 'registry_score_offset'),
+        [
+            (JobStatus.QUEUED, None),
+            (JobStatus.DEFERRED, None),
+            (JobStatus.SCHEDULED, None),
+            # A live worker keeps a started job's registry score ahead of now.
+            (JobStatus.STARTED, 90),
+            # The status is set just before the worker registers the job.
+            (JobStatus.STARTED, None),
+        ],
+    )
+    def test_waits_while_the_job_is_pending(self, mocker, queue, status, registry_score_offset):
+        """The wait polls until the job is no longer queued or running."""
+        score = None if registry_score_offset is None else time.time() + registry_score_offset
+        job = self._job(queue, status, started_registry_score=score)
+        mocker.patch(f'{NETBIRD_MODULE}._PREVIOUS_JOB_WAIT_SECONDS', 5)
+        sleep = mocker.patch(
+            f'{NETBIRD_MODULE}.time.sleep',
+            side_effect=lambda _: job.set_status(JobStatus.FINISHED),
+        )
+
+        assert netbird._wait_for_netbird_job(job.id) is False
+
+        sleep.assert_called_once_with(netbird._PREVIOUS_JOB_POLL_SECONDS)
+
+    def test_keeps_waiting_through_a_redis_error(self, mocker, queue):
+        """One failed poll does not end the wait: the job may well still run."""
+        mocker.patch(
+            f'{NETBIRD_MODULE}._netbird_job_pending',
+            side_effect=[RuntimeError('redis down'), False],
+        )
+        sleep = mocker.patch(f'{NETBIRD_MODULE}.time.sleep')
+
+        assert netbird._wait_for_netbird_job('job-1') is False
+
+        sleep.assert_called_once_with(netbird._PREVIOUS_JOB_POLL_SECONDS)
+        netbird.LOG.warning.assert_called_once_with(
+            'netbird_restart_wait_poll_failed', job_id='job-1', error='redis down'
+        )
+
+    def test_gives_up_on_a_job_that_never_finishes(self, mocker, queue):
+        """A job that hangs on a live worker is not waited for past the bound."""
+        job = self._job(queue, JobStatus.STARTED, started_registry_score=time.time() + 90)
+        mocker.patch(f'{NETBIRD_MODULE}._PREVIOUS_JOB_WAIT_SECONDS', 0)
+        self._forbid_polling(mocker)
+
+        assert netbird._wait_for_netbird_job(job.id) is True
+
+        netbird.LOG.warning.assert_called_once_with('netbird_restart_wait_timed_out', job_id=job.id)
+
+    def test_waits_a_bounded_time_and_polls_often(self):
+        """The tests patch these, so pin that they stay sane."""
+        assert 0 < netbird._PREVIOUS_JOB_POLL_SECONDS <= 10
+        assert 60 <= netbird._PREVIOUS_JOB_WAIT_SECONDS <= 3600
+
+    @pytest.mark.parametrize(
+        ('recorded_job_id', 'superseded'),
+        [('this-job', False), ('later-job', True), (None, False)],
+    )
+    def test_superseded_only_by_a_later_recorded_job(
+        self, queue, sandbox, recorded_job_id, superseded
+    ):
+        """A job recorded before this deploy, or one that expired, supersedes nothing."""
+        if recorded_job_id is not None:
+            queue.connection.set(netbird.NETBIRD_JOB_KEY.format(sandbox.id), recorded_job_id)
+
+        assert netbird._superseded(sandbox) is superseded
+
+    def test_not_superseded_outside_a_job(self, mocker, sandbox):
+        """Called outside an rq job, e.g. directly, nothing has taken over."""
+        mocker.patch(f'{NETBIRD_MODULE}.get_current_job', return_value=None)
+
+        assert netbird._superseded(sandbox) is False
 
 
 class TestDestroy:
