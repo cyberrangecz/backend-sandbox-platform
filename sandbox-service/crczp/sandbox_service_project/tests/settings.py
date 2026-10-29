@@ -44,6 +44,7 @@ ALLOWED_HOSTS = tuple(CRCZP_SERVICE_CONFIG.allowed_hosts)
 
 CORS_ORIGIN_ALLOW_ALL = CRCZP_SERVICE_CONFIG.cors_origin_allow_all
 CORS_ORIGIN_WHITELIST = tuple(CRCZP_SERVICE_CONFIG.cors_origin_whitelist)
+CORS_EXPOSE_HEADERS = ['Content-Disposition']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -155,6 +156,7 @@ REST_FRAMEWORK = {
         'crczp.sandbox_common_lib.pagination.PageNumberWithPageSizePagination'
     ),
     'PAGE_SIZE': 50,
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 CACHES = {

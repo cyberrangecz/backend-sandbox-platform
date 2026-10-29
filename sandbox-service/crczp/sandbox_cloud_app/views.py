@@ -1,13 +1,11 @@
 """REST API views for OpenStack cloud project information."""
 
-import datetime
 from typing import Any, override
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import generics
-from rest_framework.pagination import BasePagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -15,11 +13,22 @@ from crczp.sandbox_cloud_app import serializers
 from crczp.sandbox_cloud_app.lib import projects
 from crczp.sandbox_common_lib import utils
 from crczp.sandbox_common_lib.common_cloud import list_images
-from crczp.sandbox_common_lib.pagination import PageNumberWithPageSizePagination
+from crczp.sandbox_common_lib.pagination import SortableViewMixin
 from crczp.sandbox_instance_app.models import Pool
 from crczp.sandbox_uag.permissions import AdminPermission, DesignerPermission, OrganizerPermission
 
 LOG = structlog.get_logger()
+
+
+def contains_filter(value: Any, attribute_filter: str) -> bool:
+    """
+    Tell whether the attribute value contains the filter.
+
+    Text values are compared case-insensitively; any other container is searched as is.
+    """
+    if isinstance(value, str):
+        return attribute_filter.casefold() in value.casefold()
+    return attribute_filter in value
 
 
 class ProjectInfoView(generics.RetrieveAPIView[Any]):
@@ -53,27 +62,29 @@ class ProjectInfoView(generics.RetrieveAPIView[Any]):
         return Response(serialized_project_info.data)
 
 
-class ProjectImagesView(generics.ListAPIView[Any]):
+class ProjectImagesView(SortableViewMixin, generics.ListAPIView[Any]):
     """View to retrieve and filter available OpenStack images."""
 
     queryset = Pool.objects.none()
     serializer_class = serializers.ImageSerializer
-
-    @override
-    @property
-    def paginator(self) -> BasePagination | None:
-        _paginator = super().paginator
-        # Both attributes are defined by PageNumberWithPageSizePagination (the configured
-        # DEFAULT_PAGINATION_CLASS) and only read back by it, so setting them on any other
-        # paginator would have no effect anyway.
-        if isinstance(_paginator, PageNumberWithPageSizePagination):
-            _paginator.sort_by_default_param = 'name'
-            _paginator.sorting_default_values = {
-                # values replace None during sorting
-                'size': float('-inf'),
-                'updated_at': datetime.MINYEAR,
-            }
-        return _paginator
+    permission_classes = [DesignerPermission | OrganizerPermission | AdminPermission]
+    sortable_fields = (
+        'name',
+        'os_distro',
+        'os_type',
+        'disk_format',
+        'container_format',
+        'visibility',
+        'size',
+        'status',
+        'min_ram',
+        'min_disk',
+        'created_at',
+        'updated_at',
+        'default_user',
+    )
+    sort_by_default_param = 'name'
+    sort_tiebreaker_fields = ('name', 'created_at')
 
     @extend_schema(
         tags=['cloud'],
@@ -155,7 +166,7 @@ class ProjectImagesView(generics.ListAPIView[Any]):
                         image
                         for image in image_set
                         if getattr(image, attribute)
-                        and attribute_filter in getattr(image, attribute)
+                        and contains_filter(getattr(image, attribute), attribute_filter)
                     ]
         serialized_image_set = serializers.ImageSerializer(image_set, many=True)
         # DRF's paginate_queryset works on any sized sequence (already-serialized data

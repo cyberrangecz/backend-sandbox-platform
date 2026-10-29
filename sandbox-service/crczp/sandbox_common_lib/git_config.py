@@ -3,15 +3,24 @@
 from typing import cast
 
 from crczp.sandbox_common_lib.crczp_config import CrczpConfiguration, GitType
+from crczp.sandbox_common_lib.exceptions import GitError
 
 
 def get_rest_server(url: str) -> str:
     """
     Takes a https url, for example sandbox definition clone url,
     and returns the base of the url, f.e. https://gitlab.com/.
+
+    :raise: GitError if the url holds no server followed by a path
     """
     git_server = url.replace('https://', '')
-    slash_index = git_server.index('/')
+    slash_index = git_server.find('/')
+    if slash_index <= 0:
+        raise GitError(
+            f'Cannot determine the Git server from the URL: {url}. '
+            'Expected a server followed by a repository path, '
+            'f.e. https://example.gitlab.com/[url path].git'
+        )
     return f'https://{git_server[:slash_index]}/'
 
 

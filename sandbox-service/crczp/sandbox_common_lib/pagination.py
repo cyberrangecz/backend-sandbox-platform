@@ -4,37 +4,73 @@ from collections import OrderedDict
 from typing import Any, override
 
 from django.db.models.query import QuerySet
+from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+SORT_ORDERS = ('asc', 'desc')
+
+
+class SortableViewMixin:
+    """
+    Declares how a paged list view may be sorted by PageNumberWithPageSizePagination.
+
+    - sortable_fields (required): the attributes a request may sort by.
+    - sort_by_default_param: the attribute sorted by when the request names none.
+    - sort_tiebreaker_fields: the attributes appended to every sort, in order, so that
+      rows equal in the requested attribute keep a stable position across pages.
+    """
+
+    sortable_fields: tuple[str, ...]
+    sort_by_default_param = 'id'
+    sort_tiebreaker_fields: tuple[str, ...] = ('id',)
+
 
 class PageNumberWithPageSizePagination(PageNumberPagination):
-    """Custom pagination class with page size specification."""
+    """
+    Custom pagination class with page size specification and deterministic sorting.
+
+    GET results are sorted according to the view's SortableViewMixin attributes; in a list,
+    rows holding None in a sorted attribute come last. Results of other methods keep the
+    order they arrive in.
+    """
 
     page_size_query_param = 'page_size'
-    sort_by_default_param = 'id'
     order_default_param = 'asc'
-    sorting_default_values: dict[str, Any] = {}
 
     @override
     def get_schema_operation_parameters(self, view: Any) -> list[dict[str, Any]]:
         """Extend schema operation parameters with sort_by and order parameters."""
         parameters = super().get_schema_operation_parameters(view)
+        tiebreaker_fields = ', '.join(view.sort_tiebreaker_fields)
         parameters += [
             {
                 'name': 'sort_by',
                 'required': False,
                 'in': 'query',
-                'description': 'Attribute used to sort result set',
-                'schema': {'type': 'string'},
+                'description': (
+                    'Attribute used to sort result set. '
+                    f'The attributes {tiebreaker_fields} '
+                    'are always appended last, in the same direction, '
+                    'so that pages never overlap.'
+                ),
+                'schema': {
+                    'type': 'string',
+                    'enum': list(view.sortable_fields),
+                    'default': view.sort_by_default_param,
+                },
             },
             {
                 'name': 'order',
                 'required': False,
                 'in': 'query',
-                'description': 'Sort order',
-                'schema': {'type': 'string'},
+                'description': 'Sort order, applied to the tiebreaker attributes as well',
+                'schema': {
+                    'type': 'string',
+                    'enum': list(SORT_ORDERS),
+                    'default': self.order_default_param,
+                },
             },
         ]
         return parameters
@@ -59,42 +95,45 @@ class PageNumberWithPageSizePagination(PageNumberPagination):
     def paginate_queryset(
         self, queryset: Any, request: Request, view: Any = None
     ) -> list[Any] | None:
-        sort_by_param = request.GET.get('sort_by', self.sort_by_default_param)
+        if request.method == 'GET':
+            queryset = self._sorted(queryset, request, view)
+        return super().paginate_queryset(queryset, request, view)
+
+    def _sorted(self, queryset: Any, request: Request, view: Any) -> Any:
+        """
+        Sort the queryset or list of dicts by the requested attribute and the view's
+        tiebreaker attributes. In a list, rows holding None in a sorted attribute come last.
+
+        :raise ValidationError: When sort_by is not a sortable attribute or order is invalid.
+        """
+        sort_by_param = request.GET.get('sort_by', view.sort_by_default_param)
         order_param = request.GET.get('order', self.order_default_param)
+        if sort_by_param not in view.sortable_fields:
+            raise ValidationError(
+                f'Cannot sort by {sort_by_param}. Sortable attributes: '
+                f'{", ".join(view.sortable_fields)}.'
+            )
+        if order_param not in SORT_ORDERS:
+            raise ValidationError(f'Invalid order {order_param}. Allowed: asc, desc.')
+
+        sort_keys = [sort_by_param] + [
+            key for key in view.sort_tiebreaker_fields if key != sort_by_param
+        ]
+        descending = order_param == 'desc'
 
         if isinstance(queryset, QuerySet):
-            sort_by_param = '-' + sort_by_param if order_param == 'desc' else sort_by_param
-            queryset = queryset.order_by(sort_by_param)
-        else:
-            queryset = sorted(
-                queryset,
-                key=lambda item: self._ensure_comparable(
-                    item.get(sort_by_param, ''), sort_by_param
-                ),
-                reverse=order_param == 'desc',
-            )
-        # The base implementation only needs a sized sequence (it hands the value to
-        # django.core.paginator.Paginator), which is why this override also accepts the
-        # sorted list; only the stubs narrow the parameter to QuerySet.
-        return super().paginate_queryset(
-            queryset,  # ty: ignore[invalid-argument-type]
-            request,
-            view,
+            prefix = '-' if descending else ''
+            return queryset.order_by(*(prefix + key for key in sort_keys))
+        return sorted(
+            queryset,
+            key=lambda item: tuple(none_last_key(item.get(key), descending) for key in sort_keys),
+            reverse=descending,
         )
 
-    def _ensure_comparable(self, value: Any, sort_by: str) -> Any:
-        """
-        None values in parameters cause problems with sorting. This method
-        replaces None with orderable values in the sorting function.
 
-        If you want to add sorting by a parameter that can be None, adjust
-        paginator.sorting_default_values in the given list view
-        """
-        if value is not None:
-            return value
-
-        default = self.sorting_default_values.get(sort_by, None)
-        if default is not None:
-            return default
-
-        raise ValueError(f'Unexpected None value for the attribute {sort_by}, cannot sort.')
+def none_last_key(value: Any, descending: bool = False) -> tuple[bool, Any]:
+    """
+    Return a sort key placing None after every value, whether the sort is applied
+    ascending or, with reverse=True, descending.
+    """
+    return (value is None) != descending, value

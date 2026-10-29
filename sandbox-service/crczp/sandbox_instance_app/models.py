@@ -31,6 +31,16 @@ DEFAULT_SANDBOX_UUID = '1'
 LOG = structlog.get_logger()
 
 
+class OrderedByIdModel(models.Model):
+    """Abstract base class for models whose rows are ordered by id by default."""
+
+    class Meta:  # pylint: disable=too-few-public-methods
+        """Meta options for OrderedByIdModel."""
+
+        abstract = True
+        ordering = ['id']
+
+
 class Pool(models.Model):
     """Represents a pool of sandboxes sharing a common definition and key-pair."""
 
@@ -106,7 +116,7 @@ class Pool(models.Model):
         return self.get_keypair_name() + '-cert'
 
 
-class SandboxAllocationUnit(models.Model):
+class SandboxAllocationUnit(OrderedByIdModel):
     """Represents a single sandbox allocation unit within a pool."""
 
     id: int
@@ -205,7 +215,7 @@ class SandboxRoleKeypair(models.Model):
         return f'SANDBOX: {self.sandbox_id}, ROLE: {self.role}'
 
 
-class SandboxLock(models.Model):
+class SandboxLock(OrderedByIdModel):
     """Represents a lock on a sandbox preventing concurrent access."""
 
     id: int
@@ -224,7 +234,7 @@ class SandboxLock(models.Model):
         return f'ID: {self.id}, Sandbox: {self.sandbox.id}'
 
 
-class PoolLock(models.Model):
+class PoolLock(OrderedByIdModel):
     """Represents a lock on a pool used during active training sessions."""
 
     id: int
@@ -252,7 +262,7 @@ class SandboxRequest(models.Model):
         """Meta options for SandboxRequest model."""
 
         abstract = True
-        ordering = ['created']
+        ordering = ['created', 'id']
 
     @override
     def __str__(self) -> str:
@@ -425,6 +435,7 @@ class RQJob(models.Model):
         """Meta options for RQJob model."""
 
         abstract = True
+        ordering = ['pk']
 
 
 class AllocationRQJob(RQJob):
@@ -466,6 +477,7 @@ class ExternalDependency(models.Model):
         """Meta options for ExternalDependency model."""
 
         abstract = True
+        ordering = ['id']
 
 
 class ExternalDependencyCleanup(models.Model):
@@ -477,6 +489,7 @@ class ExternalDependencyCleanup(models.Model):
         """Meta options for ExternalDependencyCleanup model."""
 
         abstract = True
+        ordering = ['id']
 
 
 class TerraformOutput(models.Model):
@@ -734,7 +747,7 @@ class SandboxNetbirdEphemeralKey(models.Model):
         verbose_name_plural = 'sandbox netbird ephemeral keys'
 
 
-class SandboxRequestGroup(models.Model):
+class SandboxRequestGroup(OrderedByIdModel):
     """
     Represents allocation/cleanup requests created at the same time.
 
