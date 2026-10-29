@@ -42,6 +42,11 @@ class StageOutputView(APIView):
     stage_attribute: ClassVar[str]
     outputs_attribute: ClassVar[str]
 
+    def _get_stage(self, request_id: int) -> Any | None:
+        """Return the stage of the request, or None when the request has not created it yet."""
+        sandbox_request = utils.get_object_or_404(self.queryset.model, pk=request_id)
+        return getattr(sandbox_request, self.stage_attribute, None)
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -67,8 +72,7 @@ class StageOutputView(APIView):
         except (ValueError, TypeError):
             from_row = 0
 
-        sandbox_request = utils.get_object_or_404(self.queryset.model, pk=request_id)
-        stage = getattr(sandbox_request, self.stage_attribute, None)
+        stage = self._get_stage(request_id)
         if stage is None:
             return utils.create_compressed_response({'content': '', 'rows': from_row})
 

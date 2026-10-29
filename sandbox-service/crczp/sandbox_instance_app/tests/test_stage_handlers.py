@@ -14,7 +14,7 @@ from crczp.sandbox_ansible_app.lib.container import DockerContainer
 from crczp.sandbox_ansible_app.models import NetworkingAnsibleAllocationStage
 from crczp.sandbox_common_lib import exceptions as api_exceptions
 from crczp.sandbox_instance_app.lib import stage_handlers
-from crczp.sandbox_instance_app.models import Stage
+from crczp.sandbox_instance_app.models import AllocationTerraformOutput, Stage
 
 pytestmark = pytest.mark.django_db
 
@@ -359,3 +359,24 @@ class TestCleanupAnsibleStageHandler:
         handler.cancel()
 
         assert_db_stage(cleanup_stage_networking_started, now, failed=True)
+
+
+class TestStackOutputLineBreaks:
+    """Tests for the line breaks of the Terraform output rows a stack handler stores."""
+
+    def test_log_process_output_stores_line_feeds_only(
+        self, mocker, allocation_stage_stack, process
+    ):
+        """A carriage return inside a Terraform output line is stored as a line feed."""
+        client = mocker.Mock()
+        client.get_process_output.return_value = ['plan 1%\rplan 2%\r\n']
+        handler = stage_handlers.AllocationStackStageHandler(allocation_stage_stack)
+        mocker.patch.object(handler, '_client', client)
+
+        handler._log_process_output(  # pylint: disable=protected-access
+            process, AllocationTerraformOutput, allocation_stage=allocation_stage_stack
+        )
+
+        assert list(allocation_stage_stack.terraform_outputs.values_list('content', flat=True)) == [
+            'plan 1%\nplan 2%'
+        ]

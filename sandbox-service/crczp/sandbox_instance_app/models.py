@@ -1,7 +1,8 @@
 """Database models for sandbox instance app."""
 
+import re
 from functools import partial
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, Any, override
 
 import structlog
 from django.conf import settings
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
     )
 
 DEFAULT_SANDBOX_UUID = '1'
+CARRIAGE_RETURN_LINE_BREAK = re.compile(r'\r\n?')
 LOG = structlog.get_logger()
 
 
@@ -39,6 +41,32 @@ class OrderedByIdModel(models.Model):
 
         abstract = True
         ordering = ['id']
+
+
+class StageOutputRow(OrderedByIdModel):
+    """
+    Abstract base class for one line of the output a stage process wrote.
+    Every line break inside the content is stored as a line feed.
+    """
+
+    content = models.TextField()
+
+    id: int
+
+    class Meta:  # pylint: disable=too-few-public-methods
+        """Meta options for StageOutputRow."""
+
+        abstract = True
+
+    @override
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Store the row with every carriage return line break turned into a line feed."""
+        self.content = CARRIAGE_RETURN_LINE_BREAK.sub('\n', self.content)
+        super().save(*args, **kwargs)
+
+    @override
+    def __str__(self) -> str:
+        return f'ID: {self.id}, CONTENT: {self.content}'
 
 
 class Pool(models.Model):
@@ -492,22 +520,13 @@ class ExternalDependencyCleanup(models.Model):
         ordering = ['id']
 
 
-class TerraformOutput(models.Model):
+class TerraformOutput(StageOutputRow):
     """Abstract base class for storing Terraform process output lines."""
-
-    content = models.TextField()
-
-    id: int
 
     class Meta:  # pylint: disable=too-few-public-methods
         """Meta options for TerraformOutput model."""
 
         abstract = True
-        ordering = ['id']
-
-    @override
-    def __str__(self) -> str:
-        return f'ID: {self.id}, CONTENT: {self.content}'
 
 
 class AllocationTerraformOutput(TerraformOutput):
