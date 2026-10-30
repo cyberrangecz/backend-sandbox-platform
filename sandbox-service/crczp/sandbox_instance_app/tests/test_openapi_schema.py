@@ -128,6 +128,22 @@ def test_cancel_allocations_answers_its_unit_results(document, components):
     }
 
 
+def test_pool_roles_body_is_role_names_keyed_by_user_id(document, components):
+    operation = document['paths'][f'{API_PREFIX}/pools/{{pool_id}}/roles']['post']
+    request = operation['requestBody']['content']['application/json']['schema']
+
+    assert request['$ref'] == '#/components/schemas/PoolRoleGrants'
+    assert components['PoolRoleGrants']['additionalProperties'] == {
+        'type': 'array',
+        'items': {'type': 'string'},
+    }
+
+
+def test_vpn_config_carries_the_connect_command(components):
+    assert 'command' in components['SandboxVpnConfig']['properties']
+    assert 'command' not in components['PoolRoleGrants'].get('properties', {})
+
+
 def test_no_repair_or_maintenance_endpoint_is_documented(document):
     removed = ('/repair', '/reconcile', '/maintenance-runs')
 
