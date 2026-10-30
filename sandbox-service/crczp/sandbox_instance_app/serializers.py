@@ -14,7 +14,7 @@ import re
 from typing import Any, ClassVar, override
 
 from django.db import transaction
-from drf_spectacular.extensions import OpenApiSerializerFieldExtension
+from drf_spectacular.extensions import OpenApiSerializerExtension, OpenApiSerializerFieldExtension
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.plumbing import build_choice_field
 from drf_spectacular.utils import Direction, extend_schema_field
@@ -585,6 +585,7 @@ class SandboxVpnConfigSerializer(serializers.Serializer[Any]):
     setup_key = serializers.CharField(allow_null=True)
     reason = serializers.CharField(allow_null=True)
     routes = serializers.ListField(child=serializers.CharField())
+    command = serializers.CharField(allow_null=True)
 
 
 class PoolRoleGrantsSerializer(serializers.Serializer[Any]):
@@ -623,7 +624,18 @@ class PoolRoleGrantsSerializer(serializers.Serializer[Any]):
 
         return result
 
-    command = serializers.CharField(allow_null=True)
+
+class PoolRoleGrantsSerializerExtension(OpenApiSerializerExtension):
+    """Documents pool role grants as role names keyed by user id; the class declares no fields."""
+
+    target_class = PoolRoleGrantsSerializer
+
+    @override
+    def map_serializer(self, auto_schema: AutoSchema, direction: Direction) -> dict[str, Any]:
+        return {
+            'type': 'object',
+            'additionalProperties': {'type': 'array', 'items': {'type': 'string'}},
+        }
 
 
 class UnitCancellationActionField(EnumComponentField):
