@@ -322,6 +322,7 @@ class TestProvision:  # pylint: disable=too-many-public-methods
         )
 
         # Must not raise.
+        netbird.provision_netbird_for_sandbox(sandbox)
 
     @pytest.fixture
     def tracked_request(self, sandbox):
@@ -368,7 +369,6 @@ class TestProvision:  # pylint: disable=too-many-public-methods
 
         tracked_request.refresh_from_db()
         assert tracked_request.netbird_job_id == 'netbird'
-        netbird.provision_netbird_for_sandbox(sandbox)
 
     def test_creates_all_resources(self, mocker, sandbox, netbird_cfg):
         """Happy path: access and per-entrypoint resources are all created."""
