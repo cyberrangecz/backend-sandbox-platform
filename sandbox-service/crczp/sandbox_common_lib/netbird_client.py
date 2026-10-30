@@ -75,16 +75,33 @@ class NetbirdClient:
             raise NetbirdApiError(method, url, response.status_code, response.text)
         return response
 
+    def _decode_json(self, method: str, path: str, response: http_requests.Response) -> Any:
+        """Return the JSON body of a successful response; an undecodable body is an API error."""
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise NetbirdApiError(
+                method, f'{self._base_url}{path}', response.status_code, response.text
+            ) from exc
+
     def _create_and_get_id(self, path: str, payload: dict[str, Any]) -> str:
         """POST ``payload`` to ``path`` and return the created resource's ID."""
         response = self._request('POST', path, json=payload)
-        return str(response.json()['id'])
+        return str(self._decode_json('POST', path, response)['id'])
 
     def _delete_if_present(self, path: str) -> None:
         """DELETE ``path``, tolerating a 404 if the resource is already gone."""
         self._request('DELETE', path, accept_statuses=_NOT_FOUND)
 
+    def _list(self, path: str) -> list[dict[str, Any]]:
+        """GET a management collection, which answers a bare JSON array of objects."""
+        return list(self._decode_json('GET', path, self._request('GET', path)))
+
     # ---- Groups ----
+
+    def list_groups(self) -> list[dict[str, Any]]:
+        """Return every group as the management API describes it (id, name, peers)."""
+        return self._list(_GROUPS_PATH)
 
     def create_group(self, name: str) -> str:
         """Create a group and return its ID."""
@@ -95,6 +112,10 @@ class NetbirdClient:
         self._delete_if_present(f'{_GROUPS_PATH}/{group_id}')
 
     # ---- Setup Keys ----
+
+    def list_setup_keys(self) -> list[dict[str, Any]]:
+        """Return every setup key as the management API describes it (id, name)."""
+        return self._list(_SETUP_KEYS_PATH)
 
     def create_setup_key(
         self,
@@ -113,7 +134,7 @@ class NetbirdClient:
             'allow_extra_dns_labels': False,
         }
         response = self._request('POST', _SETUP_KEYS_PATH, json=payload)
-        data = response.json()
+        data = self._decode_json('POST', _SETUP_KEYS_PATH, response)
         return str(data['id']), str(data['key'])
 
     def delete_setup_key(self, key_id: str) -> None:
@@ -121,6 +142,10 @@ class NetbirdClient:
         self._delete_if_present(f'{_SETUP_KEYS_PATH}/{key_id}')
 
     # ---- Routes ----
+
+    def list_routes(self) -> list[dict[str, Any]]:
+        """Return every route as the management API describes it (id, network_id, description)."""
+        return self._list(_ROUTES_PATH)
 
     def create_route(
         self,
@@ -152,6 +177,10 @@ class NetbirdClient:
         self._delete_if_present(f'{_ROUTES_PATH}/{route_id}')
 
     # ---- Policies ----
+
+    def list_policies(self) -> list[dict[str, Any]]:
+        """Return every policy as the management API describes it (id, name)."""
+        return self._list(_POLICIES_PATH)
 
     def create_policy(
         self,
@@ -186,6 +215,10 @@ class NetbirdClient:
         self._delete_if_present(f'{_POLICIES_PATH}/{policy_id}')
 
     # ---- DNS ----
+
+    def list_nameserver_groups(self) -> list[dict[str, Any]]:
+        """Return every nameserver group as the management API describes it (id, name)."""
+        return self._list(_NAMESERVERS_PATH)
 
     def create_nameserver_group(
         self,
@@ -237,7 +270,7 @@ class NetbirdClient:
         if response.status_code == 404:
             return []
         # Peers come back as {id, name} objects; tolerate plain-string ids too.
-        peers = response.json().get('peers') or []
+        peers = self._decode_json('GET', f'{_GROUPS_PATH}/{group_id}', response).get('peers') or []
         return [
             peer['id'] if isinstance(peer, dict) else peer
             for peer in peers

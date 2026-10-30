@@ -163,6 +163,14 @@ application_configuration:
     # Timeout of sandbox (stack) deletion in cloud in seconds.
     #sandbox_delete_timeout : 3600
 
+    # How many times a failed cleanup of a sandbox runs again by itself before it stays failed.
+    # 0 turns the automatic retries off. Deleting the sandbox again starts a failed cleanup anew.
+    #cleanup_retry_limit: 3
+
+    # Seconds between a failed cleanup and its next run. A delay above 0 needs the RQ worker
+    # of the default queue started with its scheduler (rqworker --with-scheduler).
+    #cleanup_retry_delay: 60
+
     # Timeout for Ansible.
     #sandbox_ansible_timeout: 7200
 
@@ -195,6 +203,29 @@ application_configuration:
     # A path to directory of CA certificates or file of CA certificates, i.e. CA bundle.
     # Use in case of self-signed certificates in related services.
     #ssl_ca_certificate_verify: ""
+
+    # Cleanup of the sandboxes trainees allocate for themselves, done by the
+    # `python manage.py cleanup_trainee_sandboxes` command. Schedule the command in the
+    # deployment, e.g. as a Kubernetes CronJob running hourly.
+    # trainee_sandbox_cleanup:
+        # Whether the command removes anything; while false it only logs that it is disabled.
+        #enabled: false
+
+        # How many hours a trainee keeps their sandbox before the cleanup removes it.
+        #max_age_hours: 24
+
+    # Detection of sandbox work whose job was lost, done by the
+    # `python manage.py observe_lost_jobs` command. Schedule the command in the
+    # deployment, e.g. as a Kubernetes CronJob running every few minutes.
+    # lost_job_observer:
+        # Whether the command recovers anything; while false it only logs that it is disabled.
+        #enabled: true
+
+        # How many seconds a stage job that Redis still holds must be dead before the command
+        # fails the stage. Keep it above the time RQ needs to collect a job of a dead worker
+        # itself (up to 11.5 minutes after its last heartbeat). A job that Redis lost is
+        # recovered at once.
+        #grace_seconds: 900
 
     # Configuration for Terraform client
     terraform_configuration:

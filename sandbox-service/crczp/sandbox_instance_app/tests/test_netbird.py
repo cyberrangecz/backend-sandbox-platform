@@ -19,6 +19,7 @@ from crczp.cloud_commons import UNIVERSAL_ROLES
 from crczp.sandbox_common_lib.netbird_client import NetbirdApiError, NetbirdConfigError
 from crczp.sandbox_instance_app.lib import netbird
 from crczp.sandbox_instance_app.models import (
+    AllocationRequest,
     Sandbox,
     SandboxNetbirdAccess,
     SandboxNetbirdEphemeralKey,
@@ -323,6 +324,52 @@ class TestProvision:  # pylint: disable=too-many-public-methods
         # Must not raise.
         netbird.provision_netbird_for_sandbox(sandbox)
 
+    @pytest.fixture
+    def tracked_request(self, sandbox):
+        """The allocation request of the sandbox's unit, tracking the NetBird job 'netbird'."""
+        allocation_request, _ = AllocationRequest.objects.get_or_create(
+            allocation_unit=sandbox.allocation_unit
+        )
+        allocation_request.netbird_job_id = 'netbird'
+        allocation_request.save()
+        return allocation_request
+
+    @pytest.mark.parametrize('failure', [None, RuntimeError('unexpected db error')])
+    def test_the_job_clears_its_tracked_id_once_it_ends(
+        self, mocker, sandbox, tracked_request, failure
+    ):
+        """Provisioning inside its RQ job forgets the job id, whether it succeeded or not."""
+        mocker.patch(
+            f'{NETBIRD_MODULE}.get_current_job', return_value=SimpleNamespace(id='netbird')
+        )
+        mocker.patch(f'{NETBIRD_MODULE}._provision_netbird_for_sandbox', side_effect=failure)
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        tracked_request.refresh_from_db()
+        assert tracked_request.netbird_job_id is None
+
+    def test_the_job_does_nothing_once_its_request_no_longer_tracks_it(
+        self, mocker, sandbox, tracked_request
+    ):
+        """A job that cancellation already forgot provisions nothing and leaves the id alone."""
+        mocker.patch(f'{NETBIRD_MODULE}.get_current_job', return_value=SimpleNamespace(id='old'))
+        provision = mocker.patch(f'{NETBIRD_MODULE}._provision_netbird_for_sandbox')
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        provision.assert_not_called()
+        tracked_request.refresh_from_db()
+        assert tracked_request.netbird_job_id == 'netbird'
+
+    def test_outside_a_job_the_tracked_id_is_left_alone(self, mocker, sandbox, tracked_request):
+        mocker.patch(f'{NETBIRD_MODULE}._provision_netbird_for_sandbox')
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        tracked_request.refresh_from_db()
+        assert tracked_request.netbird_job_id == 'netbird'
+
     def test_creates_all_resources(self, mocker, sandbox, netbird_cfg):
         """Happy path: access and per-entrypoint resources are all created."""
         client = MagicMock()
@@ -602,7 +649,7 @@ class TestProvision:  # pylint: disable=too-many-public-methods
         teardown = MagicMock()
         teardown.list_group_peer_ids.return_value = []
         mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=teardown)
-        netbird.destroy_netbird_for_sandbox(sandbox)
+        netbird.destroy_netbird_for_unit(sandbox.allocation_unit)
 
         calls = list(teardown.mock_calls)
         host_group_delete = calls.index(call.delete_group('host-grp'))
@@ -733,7 +780,7 @@ class TestProvision:  # pylint: disable=too-many-public-methods
         """Regression: Netbird refuses to delete a group a setup key still names.
 
         Every role key also names the flat group, so the end guard must delete the
-        role rows before the flat one, as destroy_netbird_for_sandbox does.
+        role rows before the flat one, as destroy_netbird_for_unit does.
         """
         mocker.patch(f'{NETBIRD_MODULE}._get_declared_roles', return_value={'red-team'})
         client = MagicMock()
@@ -865,6 +912,7 @@ class TestProvision:  # pylint: disable=too-many-public-methods
         netbird.provision_netbird_for_sandbox(sandbox)
 
         access = SandboxNetbirdAccess.objects.get(sandbox=sandbox)
+        assert access.allocation_unit_id == sandbox.allocation_unit_id
         assert access.access_group_id == 'access-grp'
         assert access.dns_nameserver_group_id == 'ns-1'
         # No entrypoints, so no per-host policy or resources rows.
@@ -1010,18 +1058,20 @@ class TestProvision:  # pylint: disable=too-many-public-methods
 
 
 class TestDestroy:
-    """Tests for destroy_netbird_for_sandbox."""
+    """Tests for destroy_netbird_for_unit."""
 
     @staticmethod
     def _create_full_resources(sandbox: Sandbox) -> SandboxNetbirdResources:
         SandboxNetbirdAccess.objects.create(
             sandbox=sandbox,
+            allocation_unit_id=sandbox.allocation_unit_id,
             access_group_id='access-grp',
             access_setup_key_id='access-key',
             access_setup_key_value='akv',
         )
         nbr = SandboxNetbirdResources.objects.create(
             sandbox=sandbox,
+            allocation_unit_id=sandbox.allocation_unit_id,
             entrypoint_host_name='server',
             host_group_id='host-grp',
             host_setup_key_id='host-key',
@@ -1038,19 +1088,48 @@ class TestDestroy:
         self._create_full_resources(sandbox)
         mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=None)
 
-        netbird.destroy_netbird_for_sandbox(sandbox)
+        failures = netbird.destroy_netbird_for_unit(sandbox.allocation_unit)
+
+        assert failures == []
 
         assert SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
 
     def test_no_op_when_no_resources(self, mocker, sandbox):
-        """Nothing to delete: no API calls are made."""
+        """A unit with no NetBird rows builds no client and makes no API call."""
+        get_client = mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client')
+
+        netbird.destroy_netbird_for_unit(sandbox.allocation_unit)
+
+        get_client.assert_not_called()
+
+    def test_rows_outlive_the_sandbox_and_go_by_unit(self, mocker, sandbox):
+        """Rows kept past the sandbox delete are torn down through the unit."""
+        self._create_full_resources(sandbox)
+        unit = sandbox.allocation_unit
+        sandbox.delete()
+        assert SandboxNetbirdAccess.objects.filter(allocation_unit=unit).exists()
+        assert SandboxNetbirdResources.objects.filter(allocation_unit=unit).exists()
         client = MagicMock()
+        client.list_group_peer_ids.return_value = []
         mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
 
-        netbird.destroy_netbird_for_sandbox(sandbox)
+        netbird.destroy_netbird_for_unit(unit)
 
-        client.delete_policy.assert_not_called()
-        client.delete_group.assert_not_called()
+        client.delete_policy.assert_called_once_with('pol-1')
+        client.delete_group.assert_has_calls([call('host-grp'), call('access-grp')])
+        assert not SandboxNetbirdAccess.objects.filter(allocation_unit=unit).exists()
+        assert not SandboxNetbirdResources.objects.filter(allocation_unit=unit).exists()
+
+    def test_rows_go_with_their_unit(self, sandbox):
+        """Deleting the allocation unit deletes its NetBird rows."""
+        self._create_full_resources(sandbox)
+        unit = sandbox.allocation_unit
+        unit_id = unit.id
+        sandbox.delete()
+        unit.delete()
+
+        assert not SandboxNetbirdAccess.objects.filter(allocation_unit_id=unit_id).exists()
+        assert not SandboxNetbirdResources.objects.filter(allocation_unit_id=unit_id).exists()
 
     def test_skipped_on_config_error_keeps_rows(self, mocker, sandbox):
         """A config error building the client must not propagate or drop rows."""
@@ -1061,7 +1140,9 @@ class TestDestroy:
         )
 
         # Must not raise: cleanup must proceed even if Netbird is misconfigured.
-        netbird.destroy_netbird_for_sandbox(sandbox)
+        failures = netbird.destroy_netbird_for_unit(sandbox.allocation_unit)
+
+        assert failures == ['NetBird client unavailable: missing pat file']
 
         assert SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
         assert SandboxNetbirdAccess.objects.filter(sandbox=sandbox).exists()
@@ -1081,7 +1162,9 @@ class TestDestroy:
         mocker.patch(f'{NETBIRD_MODULE}.time.monotonic', side_effect=lambda: now[0])
         client.delete_policy.side_effect = lambda *_a, **_k: now.__setitem__(0, 1000.0)
 
-        netbird.destroy_netbird_for_sandbox(sandbox)
+        failures = netbird.destroy_netbird_for_unit(sandbox.allocation_unit)
+
+        assert netbird.BUDGET_EXCEEDED_FAILURE in failures
 
         # The first call happened; everything after the budget expired is skipped.
         client.delete_policy.assert_called_once_with('pol-1')
@@ -1099,7 +1182,7 @@ class TestDestroy:
         client.list_group_peer_ids.return_value = []
         mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
 
-        netbird.destroy_netbird_for_sandbox(sandbox)
+        netbird.destroy_netbird_for_unit(sandbox.allocation_unit)
 
         client.delete_policy.assert_called_once_with('pol-1')
         client.delete_setup_key.assert_has_calls([call('host-key'), call('access-key')])
@@ -1108,9 +1191,10 @@ class TestDestroy:
         assert not SandboxNetbirdAccess.objects.filter(sandbox=sandbox).exists()
 
     def test_every_roles_access_resources_are_torn_down(self, mocker, sandbox):
-        """Every SandboxNetbirdAccess row for the sandbox is torn down, not just one."""
+        """Every SandboxNetbirdAccess row of the unit is torn down, not just one."""
         red = SandboxNetbirdAccess.objects.create(
             sandbox=sandbox,
+            allocation_unit_id=sandbox.allocation_unit_id,
             role='red-team',
             access_group_id='red-grp',
             access_setup_key_id='red-key-id',
@@ -1118,6 +1202,7 @@ class TestDestroy:
         )
         blue = SandboxNetbirdAccess.objects.create(
             sandbox=sandbox,
+            allocation_unit_id=sandbox.allocation_unit_id,
             role='blue-team',
             access_group_id='blue-grp',
             access_setup_key_id='blue-key-id',
@@ -1127,7 +1212,7 @@ class TestDestroy:
         client.list_group_peer_ids.return_value = []
         mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
 
-        netbird.destroy_netbird_for_sandbox(sandbox)
+        netbird.destroy_netbird_for_unit(sandbox.allocation_unit)
 
         client.delete_group.assert_has_calls([call('red-grp'), call('blue-grp')], any_order=True)
         client.delete_setup_key.assert_has_calls(
@@ -1137,20 +1222,28 @@ class TestDestroy:
 
     def test_deletes_ephemeral_keys_before_the_access_groups_they_reference(self, mocker, sandbox):
         """A minted multi-role key is deleted before the access groups it names."""
+        unit_id = sandbox.allocation_unit_id
         SandboxNetbirdAccess.objects.create(
-            sandbox=sandbox, role='red-team', access_group_id='red-grp'
+            sandbox=sandbox, allocation_unit_id=unit_id, role='red-team', access_group_id='red-grp'
         )
         SandboxNetbirdAccess.objects.create(
-            sandbox=sandbox, role='blue-team', access_group_id='blue-grp'
+            sandbox=sandbox,
+            allocation_unit_id=unit_id,
+            role='blue-team',
+            access_group_id='blue-grp',
         )
         SandboxNetbirdEphemeralKey.objects.create(
-            sandbox=sandbox, role_set='blue-team,red-team', key_id='ephemeral-id', key_value='v'
+            sandbox=sandbox,
+            allocation_unit_id=unit_id,
+            role_set='blue-team,red-team',
+            key_id='ephemeral-id',
+            key_value='v',
         )
         client = MagicMock()
         client.list_group_peer_ids.return_value = []
         mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
 
-        netbird.destroy_netbird_for_sandbox(sandbox)
+        netbird.destroy_netbird_for_unit(sandbox.allocation_unit)
 
         calls = [c[0] for c in client.method_calls]
         ephemeral_calls = [
@@ -1172,11 +1265,15 @@ class TestDestroy:
         self, mocker, sandbox, netbird_cfg
     ):
         """A key minted through the real resolution path is fully torn down afterward."""
+        unit_id = sandbox.allocation_unit_id
         SandboxNetbirdAccess.objects.create(
-            sandbox=sandbox, role='red-team', access_group_id='red-grp'
+            sandbox=sandbox, allocation_unit_id=unit_id, role='red-team', access_group_id='red-grp'
         )
         SandboxNetbirdAccess.objects.create(
-            sandbox=sandbox, role='blue-team', access_group_id='blue-grp'
+            sandbox=sandbox,
+            allocation_unit_id=unit_id,
+            role='blue-team',
+            access_group_id='blue-grp',
         )
         client = MagicMock()
         client.create_setup_key.return_value = ('ephemeral-id', 'ephemeral-key')
@@ -1185,7 +1282,7 @@ class TestDestroy:
         result = netbird.resolve_vpn_setup_key(sandbox, frozenset({'red-team', 'blue-team'}))
         assert result == 'ephemeral-key'
 
-        netbird.destroy_netbird_for_sandbox(sandbox)
+        netbird.destroy_netbird_for_unit(sandbox.allocation_unit)
 
         calls = list(client.method_calls)
         ephemeral_delete = next(
@@ -1203,6 +1300,53 @@ class TestDestroy:
         assert not SandboxNetbirdEphemeralKey.objects.filter(sandbox=sandbox).exists()
         assert not SandboxNetbirdAccess.objects.filter(sandbox=sandbox).exists()
 
+    def test_ephemeral_keys_outlive_the_sandbox_and_go_by_unit(self, mocker, sandbox):
+        """A minted key kept past the sandbox delete is deleted through the unit."""
+        SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox,
+            allocation_unit_id=sandbox.allocation_unit_id,
+            role='red-team',
+            access_group_id='red-grp',
+        )
+        SandboxNetbirdEphemeralKey.objects.create(
+            sandbox=sandbox,
+            allocation_unit_id=sandbox.allocation_unit_id,
+            role_set='blue-team,red-team',
+            key_id='ephemeral-id',
+            key_value='v',
+        )
+        unit = sandbox.allocation_unit
+        sandbox.delete()
+        assert SandboxNetbirdEphemeralKey.objects.filter(allocation_unit=unit).exists()
+        client = MagicMock()
+        client.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+
+        failures = netbird.destroy_netbird_for_unit(unit)
+
+        assert failures == []
+        client.delete_setup_key.assert_called_once_with('ephemeral-id')
+        assert not SandboxNetbirdEphemeralKey.objects.filter(allocation_unit=unit).exists()
+
+    def test_failed_ephemeral_key_delete_is_reported_and_keeps_the_record(self, mocker, sandbox):
+        """A minted key NetBird does not delete stays recorded for a later teardown."""
+        SandboxNetbirdEphemeralKey.objects.create(
+            sandbox=sandbox,
+            allocation_unit_id=sandbox.allocation_unit_id,
+            role_set='blue-team,red-team',
+            key_id='ephemeral-id',
+            key_value='v',
+        )
+        client = MagicMock()
+        client.delete_setup_key.side_effect = NetbirdApiError('DELETE', 'url', 503, 'down')
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+
+        failures = netbird.destroy_netbird_for_unit(sandbox.allocation_unit)
+
+        assert len(failures) == 1
+        assert failures[0].startswith('setup key ephemeral-id:')
+        assert SandboxNetbirdEphemeralKey.objects.filter(sandbox=sandbox).exists()
+
     def test_destroys_the_flat_access_row_last(self, mocker, sandbox):
         """The flat row's group is destroyed only after every role row's key is gone.
 
@@ -1210,10 +1354,14 @@ class TestDestroy:
         group before a role's key is gone would be rejected by Netbird.
         """
         SandboxNetbirdAccess.objects.create(
-            sandbox=sandbox, access_group_id='flat-grp', access_setup_key_id='flat-key-id'
+            sandbox=sandbox,
+            allocation_unit_id=sandbox.allocation_unit_id,
+            access_group_id='flat-grp',
+            access_setup_key_id='flat-key-id',
         )
         SandboxNetbirdAccess.objects.create(
             sandbox=sandbox,
+            allocation_unit_id=sandbox.allocation_unit_id,
             role='red-team',
             access_group_id='red-grp',
             access_setup_key_id='red-key-id',
@@ -1222,7 +1370,7 @@ class TestDestroy:
         client.list_group_peer_ids.return_value = []
         mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
 
-        netbird.destroy_netbird_for_sandbox(sandbox)
+        netbird.destroy_netbird_for_unit(sandbox.allocation_unit)
 
         calls = list(client.method_calls)
         red_key_delete = next(
@@ -1242,7 +1390,7 @@ class TestDestroy:
         client.list_group_peer_ids.return_value = []
         mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
 
-        netbird.destroy_netbird_for_sandbox(sandbox)
+        netbird.destroy_netbird_for_unit(sandbox.allocation_unit)
 
         client.delete_policy.assert_called_once_with('pol-1')
         client.delete_route.assert_has_calls([call('route-1'), call('route-2')])
@@ -1264,7 +1412,7 @@ class TestDestroy:
         client.list_group_peer_ids.return_value = []
         mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
 
-        netbird.destroy_netbird_for_sandbox(sandbox)
+        netbird.destroy_netbird_for_unit(sandbox.allocation_unit)
 
         client.delete_nameserver_group.assert_called_once_with('ns-1')
         # The nameserver group references the access group as its distribution
@@ -1273,19 +1421,20 @@ class TestDestroy:
         assert order < client.mock_calls.index(call.delete_group('access-grp'))
         assert not SandboxNetbirdAccess.objects.filter(sandbox=sandbox).exists()
 
-    def test_tolerates_api_error_and_still_removes_row(self, mocker, sandbox):
-        """A NetbirdApiError during teardown still removes the records."""
+    def test_api_error_is_reported_and_keeps_the_records(self, mocker, sandbox):
+        """A NetbirdApiError during teardown is reported and its records are kept for a retry."""
         self._create_full_resources(sandbox)
         client = MagicMock()
         client.list_group_peer_ids.return_value = []
         client.delete_policy.side_effect = NetbirdApiError('DELETE', 'url', 500, 'fail')
         mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
 
-        netbird.destroy_netbird_for_sandbox(sandbox)
+        failures = netbird.destroy_netbird_for_unit(sandbox.allocation_unit)
 
-        # Remaining resources are still cleaned up and the records are removed.
+        # Remaining resources are still cleaned up; the records stay.
         client.delete_group.assert_has_calls([call('host-grp'), call('access-grp')])
-        assert not SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
+        assert failures
+        assert SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
         assert not SandboxNetbirdAccess.objects.filter(sandbox=sandbox).exists()
 
     def test_tolerates_unexpected_exception_keeps_row(self, mocker, sandbox):
@@ -1294,12 +1443,14 @@ class TestDestroy:
         client = MagicMock()
         client.list_group_peer_ids.return_value = []
         # A non-NetbirdApiError is not swallowed inside _destroy_single_entrypoint;
-        # the per-entrypoint guard in destroy_netbird_for_sandbox must still
+        # the per-entrypoint guard in destroy_netbird_for_unit must still
         # prevent it from propagating, but the row is left for a later retry.
         client.delete_policy.side_effect = ValueError('boom')
         mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
 
-        netbird.destroy_netbird_for_sandbox(sandbox)
+        failures = netbird.destroy_netbird_for_unit(sandbox.allocation_unit)
+
+        assert failures
 
         assert SandboxNetbirdResources.objects.filter(sandbox=sandbox).exists()
 
@@ -1311,7 +1462,7 @@ class TestDestroy:
         client.list_group_peer_ids.side_effect = lambda gid: peer_map[gid]
         mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
 
-        netbird.destroy_netbird_for_sandbox(sandbox)
+        netbird.destroy_netbird_for_unit(sandbox.allocation_unit)
 
         client.delete_peer.assert_any_call('hp1')
         client.delete_peer.assert_any_call('ap1')

@@ -4,8 +4,10 @@ Module containing CyberRangeCZ Platform Terraform client manager.
 
 import json
 import os
+import re
 import shutil
 import subprocess  # noqa: S404  # tofu runs with argument lists, never through a shell
+import tempfile
 from collections.abc import Iterator
 from typing import IO, Any
 
@@ -13,6 +15,7 @@ from crczp.cloud_commons import (
     CrczpCloudClientBase,
     CrczpException,
     Image,
+    StackNameScheme,
     StackNotFound,
     TopologyInstance,
     TransformationConfiguration,
@@ -22,10 +25,18 @@ from crczp.terraform_driver.terraform_backend import (
     TERRAFORM_STATE_FILE_NAME,
     CrczpTerraformBackend,
 )
-from crczp.terraform_driver.terraform_client_elements import TerraformInstance
-from crczp.terraform_driver.terraform_exc_handlers import command_error_handler
+from crczp.terraform_driver.terraform_client_elements import (
+    CrczpTerraformBackendType,
+    TerraformInstance,
+)
+from crczp.terraform_driver.terraform_exc_handlers import (
+    command_error_handler,
+    find_state_lock_id,
+)
 from crczp.terraform_driver.terraform_exceptions import (
     TerraformInitFailed,
+    TerraformStateLocked,
+    TerraformUnlockFailed,
     TerraformWorkspaceFailed,
 )
 
@@ -35,6 +46,8 @@ TEMPLATE_FILE_NAME = 'deploy.tf'
 TERRAFORM_BACKEND_FILE_NAME = 'backend.tf'
 TERRAFORM_PROVIDER_FILE_NAME = 'provider.tf'
 TERRAFORM_WORKSPACE_PATH = 'terraform.tfstate.d/{}/' + TERRAFORM_STATE_FILE_NAME
+TERRAFORM_LOCAL_WORKSPACES_DIR = 'terraform.tfstate.d'
+LOCK_ID_PATTERN = re.compile(r'\w[\w.-]*')
 TERRAFORM_DEFAULT_WORKSPACE = 'default'
 TERRAFORM_RETRY_NEW_WORKSPACE_COMMAND = 5
 INSTANCE_RESOURCE_TYPES = ('openstack_compute_instance_v2', 'aws_instance')
@@ -388,6 +401,61 @@ class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
             stderr=subprocess.STDOUT,
         )
 
+    def wait_for_destroy(
+        self, process: subprocess.Popen[str], timeout: float | None = None
+    ) -> tuple[str, str, int]:
+        """
+        Wait for a destroy process to finish and report a state lock that blocked it.
+
+        :param process: The process executing the destroy
+        :param timeout: The timeout in seconds
+        :return: Tuple of stdout, stderr and return code
+        :raise TerraformStateLocked: The destroy failed on a held state lock
+        :raise CrczpException: The destroy outlived the timeout; its process has been killed
+        """
+        try:
+            stdout, stderr, return_code = self.wait_for_process(process, timeout)
+        except subprocess.TimeoutExpired as exc:
+            process.kill()
+            process.communicate()
+            raise CrczpException(f'Destroy did not finish within {timeout} seconds') from exc
+        if return_code:
+            lock_id = find_state_lock_id(f'{stdout or ""}\n{stderr}')
+            if lock_id:
+                raise TerraformStateLocked(lock_id)
+        return stdout, stderr, return_code
+
+    def force_unlock_stack(self, stack_name: str, lock_id: str) -> None:
+        """
+        Release the state lock of a stack. Only safe once nothing holds the lock any more.
+
+        :param stack_name: Name of the stack whose workspace is locked
+        :param lock_id: The id of the lock, as reported by the blocked command
+        :return: None
+        :raise ValueError: The lock id is not a plain identifier
+        :raise TerraformUnlockFailed: The unlock command fails
+        :raise TerraformInitFailed: The stack directory cannot be initialized
+        :raise TerraformWorkspaceFailed: The stack workspace cannot be selected
+        """
+        if not LOCK_ID_PATTERN.fullmatch(lock_id):
+            raise ValueError('Invalid state lock id')
+        stack_dir = self.get_stack_dir(stack_name)
+        self._initialize_stack_dir(stack_name)
+        self._switch_terraform_workspace(stack_name, stack_dir)
+        command = ['tofu', 'force-unlock', '-force', '-no-color', lock_id]
+        process = self._execute_command(
+            command, cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        _, stderr, return_code = self.wait_for_process(process)
+        if return_code:
+            command_error_handler(
+                TerraformUnlockFailed,
+                'Failed to unlock Terraform state',
+                command=' '.join(command),
+                stack_name=stack_name,
+                stderr=stderr,
+            )
+
     def delete_stack_directory(self, stack_name: str) -> None:
         """
         Delete the stack directory.
@@ -399,17 +467,18 @@ class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
         stack_dir = self.get_stack_dir(stack_name)
         self.remove_directory(stack_dir)
 
-    def delete_terraform_workspace(self, stack_name: str) -> None:
+    def delete_terraform_workspace(self, stack_name: str, *, force: bool = False) -> None:
         """
         Delete Terraform workspace.
 
         :param stack_name: Name of stack
+        :param force: Delete the workspace even when its state still tracks resources
         :return: None
         :raise CrczpException: Terraform workspace is not found
         """
         stack_dir = self.get_stack_dir(stack_name)
         self._switch_terraform_workspace(TERRAFORM_DEFAULT_WORKSPACE, stack_dir)
-        command = ['tofu', 'workspace', 'delete', stack_name]
+        command = ['tofu', 'workspace', 'delete', *(['-force'] if force else []), stack_name]
         process = self._execute_command(
             command, cwd=stack_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
@@ -438,6 +507,61 @@ class CrczpTerraformClientManager:  # pylint: disable=too-many-public-methods
         :return: The list containing stack names
         """
         return os.listdir(self.stacks_dir)
+
+    def list_workspaces(self, stack_names: StackNameScheme) -> list[str]:
+        """
+        List the workspaces of the configured backend that are named after a stack of one
+        deployment.
+
+        :param stack_names: The stack names of the deployment
+        :return: The list containing workspace names
+        :raise TerraformInitFailed: The backend cannot be initialized
+        :raise CrczpException: The workspace listing fails
+        """
+        return stack_names.select_stack_names(self._list_backend_workspaces(), 'the workspaces')
+
+    def _list_backend_workspaces(self) -> list[str]:
+        """
+        List every workspace of the configured backend, the default workspace excluded.
+
+        :return: The list containing workspace names
+        :raise TerraformInitFailed: The backend cannot be initialized
+        :raise CrczpException: The workspace listing fails
+        """
+        if self.terraform_backend.backend_type == CrczpTerraformBackendType.LOCAL:
+            return self._list_local_workspaces()
+        with tempfile.TemporaryDirectory() as scratch_dir:
+            self._create_terraform_backend_file(scratch_dir)
+            self.init_terraform(scratch_dir, 'workspace listing')
+            command = ['tofu', 'workspace', 'list', '-no-color']
+            process = self._execute_command(
+                command, cwd=scratch_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, stderr, return_code = self.wait_for_process(process)
+        if return_code:
+            command_error_handler(
+                CrczpException,
+                'Failed to list Terraform workspaces',
+                command=' '.join(command),
+                stderr=stderr,
+            )
+        names = (line.strip().removeprefix('*').strip() for line in stdout.splitlines())
+        return [name for name in names if name and name != TERRAFORM_DEFAULT_WORKSPACE]
+
+    def _list_local_workspaces(self) -> list[str]:
+        """
+        List the workspaces kept in the stack directories of the local backend.
+
+        :return: The list containing workspace names
+        """
+        workspaces: list[str] = []
+        for stack_name in self.list_stacks():
+            workspaces_dir = os.path.join(
+                self.get_stack_dir(stack_name), TERRAFORM_LOCAL_WORKSPACES_DIR
+            )
+            if os.path.isdir(workspaces_dir):
+                workspaces.extend(os.listdir(workspaces_dir))
+        return sorted(workspaces)
 
     def list_stack_resources(self, stack_name: str) -> list[dict[str, Any]]:
         """

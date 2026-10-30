@@ -24,7 +24,18 @@ class NetworkingAnsibleAllocationStageSerializer(
         """Meta options for NetworkingAnsibleAllocationStageSerializer."""
 
         model = models.NetworkingAnsibleAllocationStage
-        fields = ('id', 'request_id', 'start', 'end', 'failed', 'error_message', 'repo_url', 'rev')
+        fields = (
+            'id',
+            'request_id',
+            'start',
+            'end',
+            'failed',
+            'error_message',
+            'stop_pending',
+            'stop_requested_at',
+            'repo_url',
+            'rev',
+        )
         read_only_fields = fields
 
 
@@ -39,7 +50,18 @@ class UserAnsibleAllocationStageSerializer(
         """Meta options for UserAnsibleAllocationStageSerializer."""
 
         model = models.UserAnsibleAllocationStage
-        fields = ('id', 'request_id', 'start', 'end', 'failed', 'error_message', 'repo_url', 'rev')
+        fields = (
+            'id',
+            'request_id',
+            'start',
+            'end',
+            'failed',
+            'error_message',
+            'stop_pending',
+            'stop_requested_at',
+            'repo_url',
+            'rev',
+        )
         read_only_fields = fields
 
 
@@ -61,6 +83,8 @@ class NetworkingAnsibleCleanupStageSerializer(
             'end',
             'failed',
             'error_message',
+            'stop_pending',
+            'stop_requested_at',
         )
         read_only_fields = fields
 
@@ -83,5 +107,7 @@ class UserAnsibleCleanupStageSerializer(
             'end',
             'failed',
             'error_message',
+            'stop_pending',
+            'stop_requested_at',
         )
         read_only_fields = fields

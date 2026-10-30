@@ -55,3 +55,30 @@ def validate_netbird_key_expiry(obj: object, key_expiry_seconds: int) -> bool:
         )
 
     return True
+
+
+def validate_trainee_cleanup_max_age_hours(obj: object, max_age_hours: int) -> bool:
+    """Validate that trainee sandboxes are kept for at least an hour before the cleanup."""
+    if max_age_hours < 1:
+        _msg = 'Cannot set {}.max_age_hours to {}. It must be at least 1 hour.'
+        raise ValueError(_msg.format(obj.__class__.__name__, max_age_hours))
+
+    return True
+
+
+def validate_lost_job_observer_grace_seconds(obj: object, grace_seconds: int) -> bool:
+    """Validate that a dead job is given a positive time to be collected by RQ."""
+    if grace_seconds < 1:
+        _msg = 'Cannot set {}.grace_seconds to {}. It must be at least 1 second.'
+        raise ValueError(_msg.format(obj.__class__.__name__, grace_seconds))
+
+    return True
+
+
+def validate_netbird_teardown_budget_seconds(obj: object, budget_seconds: int) -> bool:
+    """Validate that the Netbird teardown of a sandbox is given a positive time budget."""
+    if budget_seconds < 1:
+        _msg = 'Cannot set {}.teardown_budget_seconds to {}. It must be at least 1 second.'
+        raise ValueError(_msg.format(obj.__class__.__name__, budget_seconds))
+
+    return True

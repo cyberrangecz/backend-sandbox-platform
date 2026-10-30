@@ -10,10 +10,11 @@ from crczp.cloud_commons.cloud_client_elements import (
     NodeDetails,
     QuotaSet,
 )
+from crczp.cloud_commons.cloud_stacks import ResourceDeletion, StackInventory, StackNameScheme
 from crczp.cloud_commons.topology_instance import TopologyInstance
 
 
-class CrczpCloudClientBase(ABC):
+class CrczpCloudClientBase(ABC):  # pylint: disable=too-many-public-methods
     """
     Base class for CyberRangeCZ Platform cloud clients.
     """
@@ -203,4 +204,29 @@ class CrczpCloudClientBase(ABC):
         Get resources limits of cloud project.
 
         :return: Limits object
+        """
+
+    @abstractmethod
+    def list_stack_inventories(self, stack_names: StackNameScheme) -> dict[str, StackInventory]:
+        """
+        List the stacks of one deployment that have resources in the cloud project, whether
+        or not Terraform knows them.
+
+        :param stack_names: The stack names of the deployment
+        :return: The resources of each stack and the RAM in GB they hold, keyed by full
+                 stack name
+        """
+
+    @abstractmethod
+    def delete_stack_resources(
+        self, stack_name: str, stack_names: StackNameScheme
+    ) -> list[ResourceDeletion]:
+        """
+        Delete the resources of one stack that the cloud listing finds, dependents first.
+        Failures are reported in the results, never raised.
+
+        :param stack_name: The full stack name
+        :param stack_names: The stack names of the deployment
+        :return: The result of deleting each resource, in deletion order
+        :raise ValueError: The name is not a full stack name of the deployment
         """

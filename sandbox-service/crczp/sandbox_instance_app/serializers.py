@@ -11,10 +11,13 @@ Swagger can utilise type hints to determine type, so use them in your own method
 from __future__ import annotations
 
 import re
-from typing import Any, override
+from typing import Any, ClassVar, override
 
 from django.db import transaction
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.extensions import OpenApiSerializerExtension, OpenApiSerializerFieldExtension
+from drf_spectacular.openapi import AutoSchema
+from drf_spectacular.plumbing import build_choice_field
+from drf_spectacular.utils import Direction, extend_schema_field
 from rest_framework import serializers
 
 from crczp.sandbox_cloud_app import serializers as cloud_serializers
@@ -23,6 +26,7 @@ from crczp.sandbox_definition_app.models import Definition
 from crczp.sandbox_definition_app.serializers import DefinitionSerializer
 from crczp.sandbox_instance_app import models
 from crczp.sandbox_instance_app.lib import pools, requests
+from crczp.sandbox_instance_app.lib.allocation_cancellation import CancellationAction
 from crczp.topology_definition.validators import ROLE_NAME_REGEX
 
 
@@ -190,6 +194,25 @@ class PoolCleanupRequestSerializer(serializers.Serializer[Any]):
     reason = serializers.CharField(required=False)
 
 
+class PoolCleanupResultSerializer(serializers.Serializer[Any]):
+    """Result of cleaning up several allocation units of a pool."""
+
+    skipped_unit_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text='Units a forced cleanup skipped because they cannot be cleaned up yet: their '
+        'first stage is running, or their allocation is queued. Retry them later.',
+    )
+
+
+class StopPendingSerializer(serializers.Serializer[Any]):
+    """Result of cancelling a request."""
+
+    stop_pending = serializers.BooleanField(
+        help_text='Whether a stage job outlived the wait for its end; that stage stays '
+        'unfinished, stop pending, until the job ends.'
+    )
+
+
 class PoolCleanupRequestFailedSerializer(serializers.Serializer[Any]):
     """Serializer for failed pool cleanup request data."""
 
@@ -205,6 +228,7 @@ class SandboxAllocationUnitSerializer(serializers.ModelSerializer[models.Sandbox
     pool_id = serializers.PrimaryKeyRelatedField(source='pool', read_only=True)
     created_by = serializers.SerializerMethodField()
     locked = serializers.SerializerMethodField()
+    sandbox_id = serializers.SerializerMethodField()
 
     class Meta:  # pylint: disable=too-few-public-methods
         """Meta options for SandboxAllocationUnitSerializer."""
@@ -216,7 +240,10 @@ class SandboxAllocationUnitSerializer(serializers.ModelSerializer[models.Sandbox
             'allocation_request',
             'cleanup_request',
             'created_by',
+            'created_by_sub',
+            'created_at',
             'locked',
+            'sandbox_id',
             'comment',
         )
         read_only_fields = (
@@ -225,7 +252,10 @@ class SandboxAllocationUnitSerializer(serializers.ModelSerializer[models.Sandbox
             'allocation_request',
             'cleanup_request',
             'created_by',
+            'created_by_sub',
+            'created_at',
             'locked',
+            'sandbox_id',
         )
 
     @override
@@ -249,11 +279,62 @@ class SandboxAllocationUnitSerializer(serializers.ModelSerializer[models.Sandbox
         """Return True if the sandbox allocation unit has a lock."""
         return hasattr(obj, 'sandbox') and hasattr(obj.sandbox, 'lock')
 
+    @extend_schema_field(field=serializers.CharField(allow_null=True))
+    @staticmethod
+    def get_sandbox_id(obj: models.SandboxAllocationUnit) -> str | None:
+        """Return the id of the unit's sandbox, or None until the sandbox is created."""
+        return obj.sandbox.id if hasattr(obj, 'sandbox') else None
+
 
 class SandboxAllocationUnitIdListSerializer(serializers.Serializer[Any]):
     """Serializer for a list of sandbox allocation unit IDs."""
 
     unit_ids = serializers.ListField(child=serializers.IntegerField())
+
+
+class EnumComponentField(serializers.ChoiceField):
+    """A choice field over a fixed choice set, documented as one named OpenAPI enum component."""
+
+    component_name: ClassVar[str]
+    fixed_choices: ClassVar[list[tuple[str, str]]]
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(choices=self.fixed_choices, **kwargs)
+
+
+class EnumComponentFieldExtension(OpenApiSerializerFieldExtension):
+    """Documents an EnumComponentField as a reference to the enum component it names."""
+
+    target_class = EnumComponentField
+    match_subclasses = True
+
+    @override
+    def get_name(self) -> str:
+        return self.target.component_name
+
+    @override
+    def map_serializer_field(self, auto_schema: AutoSchema, direction: Direction) -> dict[str, Any]:
+        return build_choice_field(serializers.ChoiceField(choices=self.target.fixed_choices))
+
+
+class AllocationUnitByCreatorStateField(EnumComponentField):
+    """A state filter of the listing of allocation units by creator."""
+
+    component_name = 'AllocationUnitByCreatorStateEnum'
+    fixed_choices = [('ACTIVE', 'ACTIVE')]
+
+
+class AllocationUnitByCreatorQuerySerializer(serializers.Serializer[Any]):
+    """Query parameters of the listing of allocation units by creator."""
+
+    created_by_sub = serializers.CharField(
+        max_length=255, help_text='OIDC sub of the trainee who allocated the units.'
+    )
+    state = AllocationUnitByCreatorStateField(
+        required=False,
+        help_text='ACTIVE lists only units that hold or are building a sandbox: their '
+        'allocation has not failed, and they are not cleaned up or their cleanup is running.',
+    )
 
 
 class TerraformAllocationStageSerializer(serializers.ModelSerializer[models.StackAllocationStage]):
@@ -272,6 +353,8 @@ class TerraformAllocationStageSerializer(serializers.ModelSerializer[models.Stac
             'end',
             'failed',
             'error_message',
+            'stop_pending',
+            'stop_requested_at',
             'status',
             'status_reason',
         )
@@ -296,6 +379,8 @@ class TerraformCleanupStageSerializer(serializers.ModelSerializer[models.StackCl
             'end',
             'failed',
             'error_message',
+            'stop_pending',
+            'stop_requested_at',
             # 'allocation_stage_id',
         )
         read_only_fields = fields
@@ -500,6 +585,7 @@ class SandboxVpnConfigSerializer(serializers.Serializer[Any]):
     setup_key = serializers.CharField(allow_null=True)
     reason = serializers.CharField(allow_null=True)
     routes = serializers.ListField(child=serializers.CharField())
+    command = serializers.CharField(allow_null=True)
 
 
 class PoolRoleGrantsSerializer(serializers.Serializer[Any]):
@@ -538,4 +624,42 @@ class PoolRoleGrantsSerializer(serializers.Serializer[Any]):
 
         return result
 
-    command = serializers.CharField(allow_null=True)
+
+class PoolRoleGrantsSerializerExtension(OpenApiSerializerExtension):
+    """Documents pool role grants as role names keyed by user id; the class declares no fields."""
+
+    target_class = PoolRoleGrantsSerializer
+
+    @override
+    def map_serializer(self, auto_schema: AutoSchema, direction: Direction) -> dict[str, Any]:
+        return {
+            'type': 'object',
+            'additionalProperties': {'type': 'array', 'items': {'type': 'string'}},
+        }
+
+
+class UnitCancellationActionField(EnumComponentField):
+    """What the cancellation did to one unit."""
+
+    component_name = 'UnitCancellationActionEnum'
+    fixed_choices = [(action.value, action.name.title()) for action in CancellationAction]
+
+
+class UnitCancellationSerializer(serializers.Serializer[Any]):
+    """Serializer for the result of cancelling one unit."""
+
+    unit_id = serializers.IntegerField()
+    stack_name = serializers.CharField()
+    action = UnitCancellationActionField()
+    stop_pending = serializers.BooleanField(
+        help_text='Whether the stop of the build is not confirmed yet; its cleanup is not queued.'
+    )
+    reason = serializers.CharField(
+        allow_blank=True, help_text='Why the unit was skipped or failed; empty otherwise.'
+    )
+
+
+class PoolCancelAllocationsResultSerializer(serializers.Serializer[Any]):
+    """Serializer for the results of Cancel all allocations."""
+
+    units = UnitCancellationSerializer(many=True)

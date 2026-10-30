@@ -175,11 +175,11 @@ def test_forwarding_emits_mirror_resources(
     target = resource_block(template, 'aws_ec2_traffic_mirror_target', _TARGET)
     assert f'network_interface_id = aws_network_interface.{_MONITORING_ENI}.id' in target
     assert f'depends_on = [aws_instance.{_PREFIX}-monitoring]' in target
-    assert f'tags = {{ Name = "{_TARGET}" }}' in target
+    assert f'tags = {{ Name = "{_TARGET}" "crczp-stack" = "{_PREFIX}" }}' in target
 
     mirror_filter = resource_block(template, 'aws_ec2_traffic_mirror_filter', _FILTER)
     assert 'network_services = ["amazon-dns"]' in mirror_filter
-    assert f'tags = {{ Name = "{_FILTER}" }}' in mirror_filter
+    assert f'tags = {{ Name = "{_FILTER}" "crczp-stack" = "{_PREFIX}" }}' in mirror_filter
 
     for number, direction in enumerate(('ingress', 'egress'), start=1):
         rule = resource_block(
@@ -197,7 +197,7 @@ def test_forwarding_emits_mirror_resources(
     assert f'traffic_mirror_filter_id = aws_ec2_traffic_mirror_filter.{_FILTER}.id' in session
     assert 'session_number = 1 ' in session
     assert f'depends_on = [aws_instance.{_PREFIX}-server]' in session
-    assert f'tags = {{ Name = "{_PREFIX}-tms-0" }}' in session
+    assert f'tags = {{ Name = "{_PREFIX}-tms-0" "crczp-stack" = "{_PREFIX}" }}' in session
     _assert_blocks_newline_separated(template)
 
 

@@ -38,6 +38,11 @@ urlpatterns = [
         views.PoolCleanupRequestUnlockedCreateView.as_view(),
         name='pool-cleanup-request-unlocked',
     ),
+    path(
+        'pools/<int:pool_id>/cancel-allocations',
+        views.PoolCancelAllocationsView.as_view(),
+        name='pool-cancel-allocations',
+    ),
     path('pools/<int:pool_id>/variables', views.PoolVariablesView.as_view(), name='pool-variables'),
     path('pools/<int:pool_id>/roles', views.PoolRolesView.as_view(), name='pool-roles'),
     path(
@@ -46,6 +51,11 @@ urlpatterns = [
         name='sandbox-allocation-unit-list',
     ),
     # Sandbox allocation units
+    path(
+        'sandbox-allocation-units/by-creator',
+        views.SandboxAllocationUnitByCreatorListView.as_view(),
+        name='sandbox-allocation-units-by-creator',
+    ),
     path(
         'sandbox-allocation-units/<int:unit_id>',
         views.SandboxAllocationUnitDetailUpdateView.as_view(),

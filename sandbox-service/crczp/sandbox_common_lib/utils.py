@@ -159,7 +159,7 @@ def get_simple_uuid() -> str:
     return str(uuid.uuid4()).split('-', maxsplit=1)[0]
 
 
-class ErrorSerilizer(serializers.Serializer[Any]):
+class ErrorSerializer(serializers.Serializer[Any]):
     """Serializer for error responses."""
 
     detail = serializers.CharField(help_text='String message describing the error.')
@@ -167,20 +167,22 @@ class ErrorSerilizer(serializers.Serializer[Any]):
 
 ERROR_RESPONSES = {
     status.HTTP_400_BAD_REQUEST: OpenApiResponse(
-        ErrorSerilizer(), description='Client sent invalid data.'
+        ErrorSerializer(), description='Client sent invalid data.'
     ),
     status.HTTP_401_UNAUTHORIZED: OpenApiResponse(
-        ErrorSerilizer(), description='Authentication failed.'
+        ErrorSerializer(), description='Authentication failed.'
     ),
     status.HTTP_403_FORBIDDEN: OpenApiResponse(
-        ErrorSerilizer(), description='You do not have permission to perform this action.'
+        ErrorSerializer(), description='You do not have permission to perform this action.'
     ),
-    status.HTTP_404_NOT_FOUND: OpenApiResponse(ErrorSerilizer(), description='Resource not found.'),
+    status.HTTP_404_NOT_FOUND: OpenApiResponse(
+        ErrorSerializer(), description='Resource not found.'
+    ),
     status.HTTP_422_UNPROCESSABLE_ENTITY: OpenApiResponse(
-        ErrorSerilizer(), description='The sandbox definition Git repository cannot be read.'
+        ErrorSerializer(), description='The sandbox definition Git repository cannot be read.'
     ),
     status.HTTP_500_INTERNAL_SERVER_ERROR: OpenApiResponse(
-        ErrorSerilizer(), description='Server encountered an unexpected error.'
+        ErrorSerializer(), description='Server encountered an unexpected error.'
     ),
 }
 

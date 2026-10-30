@@ -3,6 +3,9 @@
 from typing import override
 
 import structlog
+from django.core.exceptions import ObjectDoesNotExist
+from django.db.models import Model
+from django.http import Http404
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import generics
 
@@ -19,6 +22,23 @@ from crczp.sandbox_instance_app.models import AllocationRequest, CleanupRequest
 
 LOG = structlog.get_logger()
 
+
+class StageDetailView[StageT: Model](SortableViewMixin, generics.RetrieveAPIView[StageT]):
+    """Retrieves the stage a request holds under `stage_attribute`; 404 while it does not exist."""
+
+    stage_attribute: str
+    lookup_url_kwarg = 'request_id'
+    sortable_fields = ('id',)
+
+    @override
+    def get_object(self) -> StageT:
+        request = super().get_object()
+        try:
+            return getattr(request, self.stage_attribute)
+        except ObjectDoesNotExist as exc:
+            raise Http404('The request has no such stage.') from exc
+
+
 COMMON_RESPONSE_PATTERNS = {
     401: OpenApiResponse(description='Unauthorized'),
     403: OpenApiResponse(description='Forbidden'),
@@ -34,22 +54,14 @@ COMMON_RESPONSE_PATTERNS = {
         **COMMON_RESPONSE_PATTERNS,
     },
 )
-class NetworkingAnsibleAllocationStageDetailView(
-    SortableViewMixin, generics.RetrieveAPIView[NetworkingAnsibleAllocationStage]
-):
+class NetworkingAnsibleAllocationStageDetailView(StageDetailView[NetworkingAnsibleAllocationStage]):
     """
     get: Retrieve a `Networking Ansible` Allocation stage.
     """
 
     serializer_class = serializers.NetworkingAnsibleAllocationStageSerializer
     queryset = AllocationRequest.objects.all()
-    lookup_url_kwarg = 'request_id'
-    sortable_fields = ('id',)
-
-    @override
-    def get_object(self) -> NetworkingAnsibleAllocationStage:
-        request = super().get_object()
-        return request.networkingansibleallocationstage
+    stage_attribute = 'networkingansibleallocationstage'
 
 
 @extend_schema(
@@ -59,22 +71,14 @@ class NetworkingAnsibleAllocationStageDetailView(
         **COMMON_RESPONSE_PATTERNS,
     },
 )
-class UserAnsibleAllocationStageDetailView(
-    SortableViewMixin, generics.RetrieveAPIView[UserAnsibleAllocationStage]
-):
+class UserAnsibleAllocationStageDetailView(StageDetailView[UserAnsibleAllocationStage]):
     """
     get: Retrieve a `User Ansible` Allocation stage.
     """
 
     serializer_class = serializers.UserAnsibleAllocationStageSerializer
     queryset = AllocationRequest.objects.all()
-    lookup_url_kwarg = 'request_id'
-    sortable_fields = ('id',)
-
-    @override
-    def get_object(self) -> UserAnsibleAllocationStage:
-        request = super().get_object()
-        return request.useransibleallocationstage
+    stage_attribute = 'useransibleallocationstage'
 
 
 @extend_schema(
@@ -84,22 +88,14 @@ class UserAnsibleAllocationStageDetailView(
         **COMMON_RESPONSE_PATTERNS,
     },
 )
-class NetworkingAnsibleCleanupStageDetailView(
-    SortableViewMixin, generics.RetrieveAPIView[NetworkingAnsibleCleanupStage]
-):
+class NetworkingAnsibleCleanupStageDetailView(StageDetailView[NetworkingAnsibleCleanupStage]):
     """
     get: Retrieve a `Networking Ansible` Cleanup stage.
     """
 
     serializer_class = serializers.NetworkingAnsibleCleanupStageSerializer
     queryset = CleanupRequest.objects.all()
-    lookup_url_kwarg = 'request_id'
-    sortable_fields = ('id',)
-
-    @override
-    def get_object(self) -> NetworkingAnsibleCleanupStage:
-        request = super().get_object()
-        return request.networkingansiblecleanupstage
+    stage_attribute = 'networkingansiblecleanupstage'
 
 
 @extend_schema(
@@ -109,22 +105,14 @@ class NetworkingAnsibleCleanupStageDetailView(
         **COMMON_RESPONSE_PATTERNS,
     },
 )
-class UserAnsibleCleanupStageDetailView(
-    SortableViewMixin, generics.RetrieveAPIView[UserAnsibleCleanupStage]
-):
+class UserAnsibleCleanupStageDetailView(StageDetailView[UserAnsibleCleanupStage]):
     """
     get: Retrieve a `User Ansible` Cleanup stage.
     """
 
     serializer_class = serializers.UserAnsibleCleanupStageSerializer
     queryset = CleanupRequest.objects.all()
-    lookup_url_kwarg = 'request_id'
-    sortable_fields = ('id',)
-
-    @override
-    def get_object(self) -> UserAnsibleCleanupStage:
-        request = super().get_object()
-        return request.useransiblecleanupstage
+    stage_attribute = 'useransiblecleanupstage'
 
 
 class NetworkingAnsibleOutputListView(stage_outputs.StageOutputView):
