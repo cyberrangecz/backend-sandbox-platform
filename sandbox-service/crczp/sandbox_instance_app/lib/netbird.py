@@ -7,6 +7,10 @@ from typing import Any
 import structlog
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from rq import get_current_job
+from rq.exceptions import NoSuchJobError
+from rq.job import Job, JobStatus
+from rq.registry import StartedJobRegistry
 
 from crczp.cloud_commons import UsersRoles
 from crczp.sandbox_common_lib.netbird_client import (
@@ -28,6 +32,23 @@ LOG = structlog.get_logger()
 
 # Fallback teardown budget used when the Netbird config does not specify one.
 _DEFAULT_TEARDOWN_BUDGET_SECONDS = 60
+
+# How long a restart's NetBird job waits for the sandbox's previous NetBird job,
+# which takes seconds; the bound covers one that hangs.
+_PREVIOUS_JOB_WAIT_SECONDS = 600
+_PREVIOUS_JOB_POLL_SECONDS = 2
+_PENDING_JOB_STATUSES = frozenset({
+    JobStatus.QUEUED,
+    JobStatus.DEFERRED,
+    JobStatus.SCHEDULED,
+    JobStatus.STARTED,
+})
+
+# Holds the ID of a sandbox's latest NetBird job, its provisioning or a restart's:
+# the next restart's NetBird job waits for it, and an earlier job that finds a
+# later one recorded leaves the sandbox to it. It outlives any job still pending.
+NETBIRD_JOB_KEY = 'netbird-job:{}'
+NETBIRD_JOB_KEY_TTL_SECONDS = 7 * 24 * 3600
 
 # Netbird's route `network_id` accepts at most 40 characters.
 _NETBIRD_NETWORK_ID_MAX_LEN = 40
@@ -114,6 +135,23 @@ def _make_network_id(stack_name: str, host_name: str, cidr: str) -> str:
     return raw[:_NETBIRD_NETWORK_ID_MAX_LEN]
 
 
+def _access_name(stack_name: str, role: str) -> str:
+    """Name of a role's (or the sandbox's flat) access group and setup key."""
+    return f'{stack_name}-access' if role == FLAT_ROLE else f'{stack_name}-access_{role}'
+
+
+def _access_key_group_ids(access_group_id: str, flat_group_id: str | None) -> list[str]:
+    """Groups an access setup key names: its own, plus the flat group for a role's key."""
+    if flat_group_id and flat_group_id != access_group_id:
+        return [access_group_id, flat_group_id]
+    return [access_group_id]
+
+
+def _host_key_name(stack_name: str, host_name: str) -> str:
+    """Name of an entrypoint's host setup key."""
+    return f'{stack_name}-{host_name}-host'
+
+
 def _provision_access(
     client: NetbirdClient,
     access: SandboxNetbirdAccess,
@@ -134,13 +172,9 @@ def _provision_access(
     access.access_group_id = access_group_id
     access.save()
 
-    auto_group_ids = [access_group_id]
-    if flat_group_id and flat_group_id != access_group_id:
-        auto_group_ids.append(flat_group_id)
-
     access_key_id, access_key_value = client.create_setup_key(
         name=access_name,
-        auto_group_ids=auto_group_ids,
+        auto_group_ids=_access_key_group_ids(access_group_id, flat_group_id),
         expires_in_seconds=key_expiry_seconds,
     )
     access.access_setup_key_id = access_key_id
@@ -210,7 +244,7 @@ def _provision_single_entrypoint(
     nbr.save()
 
     host_key_id, host_key_value = client.create_setup_key(
-        name=f'{stack_name}-{host_name}-host',
+        name=_host_key_name(stack_name, host_name),
         auto_group_ids=[host_group_id],
         expires_in_seconds=key_expiry_seconds,
     )
@@ -297,7 +331,7 @@ def _provision_role_access(
     access_rows: dict[str, SandboxNetbirdAccess] = {}
     flat_group_id: str | None = None
     for role in [FLAT_ROLE, *sorted(declared_roles)]:
-        access_name = f'{stack_name}-access' if role == FLAT_ROLE else f'{stack_name}-access_{role}'
+        access_name = _access_name(stack_name, role)
         try:
             access, _ = SandboxNetbirdAccess.objects.get_or_create(sandbox=sandbox, role=role)
             access_rows[role] = access
@@ -388,8 +422,9 @@ def _teardown_provisioned_resources(
 ) -> None:
     """Best-effort teardown of every NetBird object created during provisioning.
 
-    Used by the end guard when the sandbox is deleted mid-provision: every cloud
-    object we already created is destroyed so we don't leave orphans behind.
+    Used by the end guards when the sandbox is deleted mid-provision or
+    mid-restart: every cloud object we already created is destroyed so we don't
+    leave orphans behind.
     """
     for nbr in created:
         try:
@@ -416,8 +451,8 @@ def _teardown_provisioned_resources(
 def provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
     """Best-effort entry point for NetBird provisioning; guaranteed never to raise.
 
-    This is the target of the provisioning RQ job that the user-ansible stage
-    depends on. If the job ended FAILED, RQ would defer the user-ansible stage
+    This is the target of the provisioning RQ job that the networking stage
+    depends on. If the job ended FAILED, RQ would defer the networking stage
     forever and wedge the allocation, so every escaping exception is caught here
     and the job is allowed to finish (degraded). The realistic failure modes
     (missing PAT, unreachable NetBird, definition-fetch error) are already
@@ -434,13 +469,27 @@ def provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
         )
 
 
+def _start_guard_blocks(sandbox: Sandbox) -> bool:
+    """Whether provisioning must make no cloud call for the sandbox; logs why."""
+    if not Sandbox.objects.filter(pk=sandbox.pk).exists():
+        # E.g. a forced cleanup raced with the provisioning worker.
+        reason = 'sandbox_deleted'
+    elif _superseded(sandbox):
+        # A restart that stopped waiting for this job provisions the sandbox itself.
+        reason = 'superseded'
+    else:
+        return False
+    LOG.warning('netbird_provision_skipped', sandbox_id=sandbox.id, reason=reason)
+    return True
+
+
 def _provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
     """Provision the shared access resources and per-entrypoint NetBird objects.
 
     Provisioning is best-effort: a misconfigured PAT file or a transient
     definition-fetch error for one sandbox is caught and logged rather than
     propagated (it would otherwise fail the provisioning job and, via the
-    user-ansible dependency, wedge the allocation).
+    networking-stage dependency, wedge the allocation).
     """
     try:
         client = get_netbird_client()
@@ -484,10 +533,8 @@ def _provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
         )
         return
 
-    # Start guard: bail out before making any cloud calls if the sandbox was
-    # already deleted (e.g. force-cleanup raced with the provisioning worker).
-    if not Sandbox.objects.filter(pk=sandbox.pk).exists():
-        LOG.warning('netbird_provision_skipped', sandbox_id=sandbox.id, reason='sandbox_deleted')
+    # Start guard: bail out before making any cloud calls.
+    if _start_guard_blocks(sandbox):
         return
 
     stack_name = _short_stack_name(sandbox.allocation_unit.get_stack_name())
@@ -568,6 +615,282 @@ def _provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
         client, sandbox, created, sorted(access_rows.values(), key=lambda a: a.role, reverse=True)
     )
     LOG.warning('netbird_provision_aborted_sandbox_deleted', sandbox_id=sandbox.id)
+
+
+def restart_netbird_for_sandbox(
+    sandbox: Sandbox, *, rerun_networking: bool, previous_job_id: str | None = None
+) -> None:
+    """Best-effort NetBird step of a restart; guaranteed never to raise.
+
+    This is the target of the job that the first re-run ansible stage of a
+    restart depends on, so, like provision_netbird_for_sandbox, it must never
+    end FAILED and wedge that stage. It first waits for the sandbox's previous
+    NetBird job: cancelling a failed request stops only its stages, so that job
+    may still be queued or running, and two of them at once could each
+    provision, or one overwrite the keys the other renews. A later restart's
+    NetBird job takes over from this one.
+    """
+    previous_job_running = False
+    if previous_job_id is not None:
+        try:
+            previous_job_running = _wait_for_netbird_job(previous_job_id)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            # Like a wait that times out, one that fails goes on with the restart.
+            LOG.warning(
+                'netbird_restart_wait_failed',
+                sandbox_id=getattr(sandbox, 'id', None),
+                job_id=previous_job_id,
+                error=str(exc),
+            )
+    try:
+        if _superseded(sandbox):
+            LOG.info('netbird_restart_skipped', sandbox_id=sandbox.id, reason='superseded')
+            return
+        _restart_netbird_for_sandbox(sandbox, rerun_networking, previous_job_running)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        LOG.warning(
+            'netbird_restart_unexpected_error',
+            sandbox_id=getattr(sandbox, 'id', None),
+            error=str(exc),
+        )
+
+
+def _wait_for_netbird_job(job_id: str) -> bool:
+    """Wait, for at most _PREVIOUS_JOB_WAIT_SECONDS, while the job ``job_id`` is pending.
+
+    The wait is made here rather than through an rq dependency, which would
+    never be released if the worker running ``job_id`` died. Returns whether it
+    gave up on a job still pending.
+    """
+    current_job = get_current_job()
+    if current_job is None:
+        return False
+    deadline = time.monotonic() + _PREVIOUS_JOB_WAIT_SECONDS
+    while True:
+        try:
+            if not _netbird_job_pending(job_id, current_job):
+                return False
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            # A Redis hiccup must not end the wait: the job may well still run.
+            LOG.warning('netbird_restart_wait_poll_failed', job_id=job_id, error=str(exc))
+        if time.monotonic() >= deadline:
+            LOG.warning('netbird_restart_wait_timed_out', job_id=job_id)
+            return True
+        time.sleep(_PREVIOUS_JOB_POLL_SECONDS)
+
+
+def _superseded(sandbox: Sandbox) -> bool:
+    """Whether a later NetBird job has been recorded for the sandbox than the running one."""
+    current_job = get_current_job()
+    if current_job is None:
+        return False
+    latest_job_id = current_job.connection.get(NETBIRD_JOB_KEY.format(sandbox.id))
+    return isinstance(latest_job_id, bytes) and latest_job_id.decode() != current_job.id
+
+
+def _netbird_job_pending(job_id: str, current_job: Job) -> bool:
+    """Whether the job ``job_id`` is queued or running, as read over ``current_job``'s Redis.
+
+    A job whose worker died stays STARTED until a worker's maintenance sweeps it,
+    which can take a quarter of an hour. Its started-registry score, which a live
+    worker keeps pushing a minute and a half ahead, then lies in the past.
+    """
+    connection = current_job.connection
+    try:
+        job = Job.fetch(job_id, connection=connection)
+    except NoSuchJobError:
+        return False
+    status = job.get_status()
+    if status == JobStatus.STARTED and job.origin:
+        registry = StartedJobRegistry(job.origin, connection=connection)
+        expires_at = connection.zscore(registry.key, job_id)
+        if isinstance(expires_at, float) and expires_at < time.time():
+            return False
+    return status in _PENDING_JOB_STATUSES
+
+
+def _has_netbird_objects(sandbox: Sandbox) -> bool:
+    """Whether provisioning recorded any NetBird object for the sandbox.
+
+    Every object hangs off an access group or an entrypoint's host group, which
+    provisioning creates first and records at once.
+    """
+    return (
+        SandboxNetbirdAccess.objects.filter(sandbox=sandbox, access_group_id__isnull=False).exists()
+        or SandboxNetbirdResources.objects.filter(
+            sandbox=sandbox, host_group_id__isnull=False
+        ).exists()
+    )
+
+
+def _restart_netbird_for_sandbox(
+    sandbox: Sandbox, rerun_networking: bool, previous_job_running: bool = False
+) -> None:
+    """Bring the sandbox's NetBird resources up to date for the re-run stages.
+
+    A sandbox whose first provisioning created nothing is provisioned afresh,
+    but only when networking re-runs: no other stage joins the entrypoints.
+    Otherwise its groups, policies, routes and peers are kept and its setup keys
+    are replaced, because they may have expired since the first attempt and
+    NetBird cannot extend a key's lifetime: every access key, created where the
+    first attempt failed to, and, when networking re-runs, the host keys it
+    joins with. A restartable sandbox was never ready, so none of the keys was
+    handed out, and a peer that already joined logs in by its WireGuard key,
+    not by the setup key. The keys are kept while the previous NetBird job still
+    runs: it made them within its own timeout, or is making them, and its saves
+    would undo the renewal.
+    """
+    if not _has_netbird_objects(sandbox):
+        if rerun_networking:
+            _provision_netbird_for_sandbox(sandbox)
+        else:
+            LOG.info('netbird_restart_skipped', sandbox_id=sandbox.id, reason='not_provisioned')
+        return
+    if previous_job_running:
+        LOG.warning('netbird_restart_skipped', sandbox_id=sandbox.id, reason='previous_job_running')
+        return
+
+    try:
+        client = get_netbird_client()
+    except NetbirdConfigError as exc:
+        LOG.warning(
+            'netbird_restart_skipped', sandbox_id=sandbox.id, reason='config_error', error=str(exc)
+        )
+        return
+    if client is None:
+        LOG.debug('netbird_restart_skipped', sandbox_id=sandbox.id, reason='no_config')
+        return
+    _renew_setup_keys(client, sandbox, rerun_networking)
+
+
+def _renew_setup_keys(client: NetbirdClient, sandbox: Sandbox, rerun_networking: bool) -> None:
+    """Replace the sandbox's access keys and, when networking re-runs, its host keys."""
+    stack_name = _short_stack_name(sandbox.allocation_unit.get_stack_name())
+    nbr_rows = (
+        list(
+            SandboxNetbirdResources.objects.filter(
+                sandbox=sandbox, host_setup_key_value__isnull=False
+            )
+        )
+        if rerun_networking
+        else []
+    )
+    # Descending by role, the order the end guard's teardown needs.
+    access_rows = list(SandboxNetbirdAccess.objects.filter(sandbox=sandbox).order_by('-role'))
+    flat_access = _flat_access_row(sandbox)
+    flat_group_id = flat_access.access_group_id if flat_access else None
+
+    renewals: list[tuple[SandboxNetbirdResources | SandboxNetbirdAccess, str, str, list[str]]] = [
+        (nbr, 'host', _host_key_name(stack_name, nbr.entrypoint_host_name), [nbr.host_group_id])
+        for nbr in nbr_rows
+        if nbr.host_group_id
+    ]
+    renewals.extend(
+        (
+            access,
+            'access',
+            _access_name(stack_name, access.role),
+            _access_key_group_ids(access.access_group_id, flat_group_id),
+        )
+        for access in access_rows
+        if access.access_group_id
+    )
+    for row, prefix, name, auto_group_ids in renewals:
+        try:
+            if _replace_setup_key(client, row, prefix, name, auto_group_ids):
+                LOG.info('netbird_setup_key_renewed', sandbox_id=sandbox.id, key_name=name)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            event = (
+                'netbird_setup_key_renewal_failed'
+                if isinstance(exc, NetbirdApiError)
+                else 'netbird_setup_key_renewal_error'
+            )
+            LOG.warning(event, sandbox_id=sandbox.id, key_name=name, error=str(exc))
+
+    # End guard, as in provisioning: a forced cleanup that ran meanwhile could not
+    # delete the groups a renewed key names, so tear down what the rows now hold.
+    if Sandbox.objects.filter(pk=sandbox.pk).exists():
+        return
+    _teardown_provisioned_resources(client, sandbox, nbr_rows, access_rows)
+    LOG.warning('netbird_restart_aborted_sandbox_deleted', sandbox_id=sandbox.id)
+
+
+def _replace_setup_key(
+    client: NetbirdClient,
+    row: SandboxNetbirdResources | SandboxNetbirdAccess,
+    prefix: str,
+    name: str,
+    auto_group_ids: list[str],
+) -> bool:
+    """Replace the ``<prefix>_setup_key`` that ``row`` stores, if any, with a new key in its groups.
+
+    NetBird refuses to delete a group that any setup key names, so every such
+    key must stay recorded for the teardown. The new key is therefore stored
+    only while the row still holds the old one, and if the old key cannot be
+    deleted the row goes back to it and the new key is deleted instead. The
+    in-memory ``row`` follows what is stored. Returns whether the key was replaced.
+    """
+    id_field, value_field = f'{prefix}_setup_key_id', f'{prefix}_setup_key_value'
+    old_id, old_value = getattr(row, id_field), getattr(row, value_field)
+    new_id, new_value = client.create_setup_key(
+        name=name,
+        auto_group_ids=auto_group_ids,
+        expires_in_seconds=settings.CRCZP_CONFIG.netbird.key_expiry_seconds,
+    )
+    stored = type(row).objects.filter(pk=row.pk)
+    try:
+        swapped = stored.filter(**{id_field: old_id}).update(**{
+            id_field: new_id,
+            value_field: new_value,
+        })
+    except Exception:
+        _delete_unrecorded_setup_key(client, row.sandbox_id, new_id)
+        raise
+    if not swapped:
+        # The row was deleted or rekeyed meanwhile, e.g. by a forced cleanup.
+        LOG.warning(
+            'netbird_setup_key_renewal_skipped',
+            sandbox_id=row.sandbox_id,
+            key_name=name,
+            reason='row_changed',
+        )
+        _delete_unrecorded_setup_key(client, row.sandbox_id, new_id)
+        return False
+    setattr(row, id_field, new_id)
+    setattr(row, value_field, new_value)
+    if not old_id:
+        return True
+    try:
+        _delete_replaced_setup_key(client, old_id)
+    except NetbirdApiError:
+        stored.filter(**{id_field: new_id}).update(**{id_field: old_id, value_field: old_value})
+        setattr(row, id_field, old_id)
+        setattr(row, value_field, old_value)
+        _delete_unrecorded_setup_key(client, row.sandbox_id, new_id)
+        raise
+    return True
+
+
+def _delete_replaced_setup_key(client: NetbirdClient, key_id: str) -> None:
+    """Delete a replaced setup key, retrying once.
+
+    A delete that failed may still have gone through with its response lost;
+    the retry then gets a 404, which counts as deleted.
+    """
+    try:
+        client.delete_setup_key(key_id)
+    except NetbirdApiError:
+        client.delete_setup_key(key_id)
+
+
+def _delete_unrecorded_setup_key(client: NetbirdClient, sandbox_id: str, key_id: str) -> None:
+    """Delete a setup key that no row records, logging instead of raising on failure."""
+    try:
+        client.delete_setup_key(key_id)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        LOG.warning(
+            'netbird_setup_key_cleanup_failed', sandbox_id=sandbox_id, key_id=key_id, error=str(exc)
+        )
 
 
 def _delete_group_peers(

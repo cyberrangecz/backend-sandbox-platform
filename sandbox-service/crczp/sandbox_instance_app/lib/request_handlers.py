@@ -103,7 +103,7 @@ class RequestHandler(abc.ABC):
         self,
         stage_handlers: list[StageHandler],
         finalizing_stage: Callable[[], None],
-        user_ansible_extra_depends: list[Job] | None = None,
+        ansible_extra_depends: list[Job] | None = None,
     ) -> None:
         """
         Enqueue methods of the given stage handlers.
@@ -111,13 +111,15 @@ class RequestHandler(abc.ABC):
         The order of stage handlers is important.
           Every subsequent stage depends on the previous one, and it is enqueued as such.
 
-        ``user_ansible_extra_depends`` lists extra jobs that the user-ansible
-        stage must additionally wait for — the NetBird provisioning job, whose
-        output the user-ansible inventory consumes. Stage sets without a
-        user-ansible allocation stage (e.g. cleanup) never match, so the
-        parameter is harmless there.
+        ``ansible_extra_depends`` lists extra jobs that the first ansible
+        allocation stage must additionally wait for — the NetBird provisioning
+        job, or a restart's NetBird job, whose setup keys both ansible
+        inventories hand to the VPN entrypoints. The later stages wait for it
+        through the chain. Stage sets without an ansible allocation stage (e.g.
+        cleanup) never match, so the parameter is harmless there.
         """
         previous_job = None
+        extra_depends = ansible_extra_depends or []
         for stage_handler in stage_handlers:
             if isinstance(stage_handler, StackStageHandler):
                 queue = self.queue_stack
@@ -126,12 +128,9 @@ class RequestHandler(abc.ABC):
             else:
                 queue = self.queue_default
             depends_on: Job | list[Job] | None = previous_job
-            if user_ansible_extra_depends and isinstance(
-                stage_handler.stage, UserAnsibleAllocationStage
-            ):
-                depends_on = [
-                    job for job in (previous_job, *user_ansible_extra_depends) if job is not None
-                ]
+            if extra_depends and isinstance(stage_handler.stage, AnsibleAllocationStage):
+                depends_on = [job for job in (previous_job, *extra_depends) if job is not None]
+                extra_depends = []
             previous_job = queue.enqueue(stage_handler.execute, depends_on=depends_on)
             stage_handler.set_job_id(previous_job.id)
 
@@ -176,7 +175,9 @@ class AllocationRequestHandler(RequestHandler):
     request: AllocationRequest
 
     @transaction.atomic
-    def _enqueue_stages(self, sandbox: Sandbox, stage_handlers: list[StageHandler]) -> None:
+    def _enqueue_stages(
+        self, sandbox: Sandbox, stage_handlers: list[StageHandler], restart: bool = False
+    ) -> None:
         """
         Handles request stages creation (or restart) and their enqueuing.
         """
@@ -184,7 +185,11 @@ class AllocationRequestHandler(RequestHandler):
             self._mark_sandbox_as_ready, sandbox
         )
         on_commit_method = partial(
-            self._enqueue_allocation_request, sandbox, stage_handlers, finalizing_stage_function
+            self._enqueue_allocation_request,
+            sandbox,
+            stage_handlers,
+            finalizing_stage_function,
+            restart,
         )
 
         transaction.on_commit(on_commit_method)
@@ -194,24 +199,33 @@ class AllocationRequestHandler(RequestHandler):
         sandbox: Sandbox,
         stage_handlers: list[StageHandler],
         finalizing_stage: Callable[[], None],
+        restart: bool = False,
     ) -> None:
         """
-        Enqueue the NetBird provisioning job, then the stage chain.
+        Enqueue the NetBird job (provisioning, or a restart's), then the stage chain.
 
         Runs from the post-commit hook so the committed Sandbox row is visible to
         the job. NetBird provisioning needs a git definition fetch, so it is its
         own job on the ansible queue — never inline on the default queue — so a
         slow NetBird endpoint cannot block this orchestration job and starve other
-        pools' allocation requests. The user-ansible stage depends on it so its
-        output exists before that stage runs. Per-role SSH keypairs are instead
-        generated inside the tracked networking stage (stage_handlers.py), which
-        already needs the same definition fetch to build its own inventory.
+        pools' allocation requests. The first ansible stage depends on it,
+        because the networking stage joins the VPN entrypoints with its setup
+        keys. Per-role SSH keypairs are instead generated inside the tracked
+        networking stage (stage_handlers.py), which already needs the same
+        definition fetch to build its own inventory.
+
+        A restart keeps the sandbox with its NetBird resources, so it enqueues
+        the restart's NetBird job instead (_enqueue_netbird_restart).
         """
-        netbird_job = self._enqueue_netbird_provision(sandbox)
+        netbird_job = (
+            self._enqueue_netbird_restart(sandbox, stage_handlers)
+            if restart
+            else self._enqueue_netbird_provision(sandbox)
+        )
         self._enqueue_request(
             stage_handlers,
             finalizing_stage,
-            user_ansible_extra_depends=[job for job in (netbird_job,) if job is not None],
+            ansible_extra_depends=[job for job in (netbird_job,) if job is not None],
         )
 
     def _enqueue_netbird_provision(self, sandbox: Sandbox) -> Job | None:
@@ -222,11 +236,49 @@ class AllocationRequestHandler(RequestHandler):
         inside the job, off the default queue. When NetBird is not configured no
         job is enqueued and no dependency is added, so non-NetBird deployments are
         unaffected. The job and its dependency are added together, so the
-        user-ansible stage never waits on a job that was never enqueued.
+        networking stage never waits on a job that was never enqueued.
         """
         if not netbird.is_netbird_configured():
             return None
-        return self.queue_ansible.enqueue(netbird.provision_netbird_for_sandbox, sandbox)
+        job = self.queue_ansible.enqueue(netbird.provision_netbird_for_sandbox, sandbox)
+        self._record_netbird_job(sandbox, job)
+        return job
+
+    def _enqueue_netbird_restart(
+        self, sandbox: Sandbox, stage_handlers: list[StageHandler]
+    ) -> Job | None:
+        """Enqueue a restart's NetBird job, or None when NetBird is unconfigured.
+
+        The job is told the sandbox's previous NetBird job, which it waits for:
+        cancelling a failed request stops only its stages, so the provisioning job
+        or an earlier restart's NetBird job may still be queued or running.
+        """
+        if not netbird.is_netbird_configured():
+            return None
+        previous_job_id = self.queue_ansible.connection.get(
+            netbird.NETBIRD_JOB_KEY.format(sandbox.id)
+        )
+        job = self.queue_ansible.enqueue(
+            netbird.restart_netbird_for_sandbox,
+            sandbox,
+            rerun_networking=any(
+                isinstance(handler.stage, NetworkingAnsibleAllocationStage)
+                for handler in stage_handlers
+            ),
+            previous_job_id=(
+                previous_job_id.decode() if isinstance(previous_job_id, bytes) else None
+            ),
+        )
+        self._record_netbird_job(sandbox, job)
+        return job
+
+    def _record_netbird_job(self, sandbox: Sandbox, job: Job) -> None:
+        """Record ``job`` as the sandbox's latest NetBird job."""
+        self.queue_ansible.connection.set(
+            netbird.NETBIRD_JOB_KEY.format(sandbox.id),
+            job.id,
+            ex=netbird.NETBIRD_JOB_KEY_TTL_SECONDS,
+        )
 
     def _create_allocation_jobs(
         self, units: list[SandboxAllocationUnit], created_by: User | None
@@ -270,25 +322,21 @@ class AllocationRequestHandler(RequestHandler):
         self.queue_default.enqueue(self._create_allocation_jobs, units, created_by)
 
     def _create_restart_jobs(self, unit: SandboxAllocationUnit) -> None:
+        """
+        Re-run the failed stages on the unit's existing sandbox.
+
+        Only a failed allocation can be restarted, so its sandbox was never ready
+        and none of its credentials was handed out. Its SSH keys are kept as they
+        are: only the networking stage installs them on the hosts, and it re-runs
+        only when it or the stack failed. Its NetBird resources are kept too, but
+        the restart's NetBird job replaces their setup keys, which may have
+        expired since the first attempt.
+        """
         LOG.info('Restarting sandbox allocation unit: %s', unit.id)
         self.request = unit.allocation_request
-        old_sandbox = Sandbox.objects.get(allocation_unit=unit)
-        # Tear down the old sandbox's NetBird resources before the cascade delete
-        # removes their DB rows; otherwise the cloud-side objects are orphaned
-        # (cleanup would never find them again). Re-provisioning for the new
-        # sandbox is handled by _enqueue_stages below.
-        netbird.destroy_netbird_for_sandbox(old_sandbox)
-        old_sandbox.delete()
-        pri_key, pub_key = utils.generate_ssh_keypair()
-        sandbox = Sandbox(
-            id=sandboxes.generate_new_sandbox_uuid(),
-            allocation_unit=unit,
-            private_user_key=pri_key,
-            public_user_key=pub_key,
-        )
-        sandbox.save()
+        sandbox = Sandbox.objects.get(allocation_unit=unit)
         stage_handlers = self._restart_stage_handlers(sandbox)
-        self._enqueue_stages(sandbox, stage_handlers)
+        self._enqueue_stages(sandbox, stage_handlers, restart=True)
 
     def restart_request(self, unit: SandboxAllocationUnit) -> None:
         """Enqueue a restart job for the given allocation unit."""
@@ -355,16 +403,21 @@ class AllocationRequestHandler(RequestHandler):
                 'All stages finished without failing. Only failed stages can be restarted.'
             )
 
+        # Read both flags before any stage is replaced: creating the new stack
+        # stage caches it on self.request, hiding the failed one.
+        rerun_stack = self.request.stackallocationstage.failed
+        rerun_networking = rerun_stack or self.request.networkingansibleallocationstage.failed
+
         stage_handlers: list[StageHandler] = []
-        if self.request.stackallocationstage.failed:
+        if rerun_stack:
             self.request.stackallocationstage.delete()
             stack_stage = self._create_db_stage(StackAllocationStage)
             stage_handlers.append(AllocationStackStageHandler(stack_stage))
+            # The topology cache never expires and is keyed by the sandbox,
+            # which survives the restart, while the rebuilt stack may differ.
+            sandboxes.clear_cache(sandbox)
 
-        if (
-            self.request.stackallocationstage.failed
-            or self.request.networkingansibleallocationstage.failed
-        ):
+        if rerun_networking:
             self.request.networkingansibleallocationstage.delete()
             networking_stage = self._create_db_stage(
                 NetworkingAnsibleAllocationStage,
