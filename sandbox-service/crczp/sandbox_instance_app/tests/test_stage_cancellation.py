@@ -553,13 +553,17 @@ class TestStateLockRelease:
     def client(self, mocker):
         """Stub the Terraform client of the cleanup stack stage handler."""
         client = mocker.Mock()
+        client.delete_stack_resources.return_value = []
         mocker.patch.object(stage_handlers.CleanupStackStageHandler, '_client', client)
         return client
 
     def test_lock_of_ended_allocation_is_released(
         self, mocker, client, cleanup_stage_stack_started
     ):
-        """A destroy blocked by the lock of an ended allocation releases it and runs again."""
+        """
+        A destroy blocked by the lock of an ended allocation releases it, runs again, and the
+        resources of the stack are deleted by name after it.
+        """
         destroy = mocker.patch.object(
             stage_handlers.CleanupStackStageHandler,
             '_destroy_stack',
@@ -574,6 +578,7 @@ class TestStateLockRelease:
 
         client.force_unlock_stack.assert_called_once_with(unit.get_stack_name(), 'lock-id')
         assert destroy.call_count == 2
+        client.delete_stack_resources.assert_called_once()
         assert not SandboxAllocationUnit.objects.filter(pk=unit.pk).exists()
 
     def test_lock_of_running_allocation_is_kept(self, mocker, client, cleanup_stage_stack_started):

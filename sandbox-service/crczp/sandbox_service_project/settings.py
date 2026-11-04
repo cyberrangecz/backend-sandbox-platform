@@ -299,6 +299,10 @@ RQ_QUEUES = {
     for queue_name in ['default', 'openstack', 'ansible']
 }
 
+RQ = {
+    'WORKER_CLASS': 'crczp.sandbox_instance_app.lib.work_horse_stop.GracefulStopWorker',
+}
+
 RQ_SHOW_ADMIN_LINK = True
 RQ_EXCEPTION_HANDLERS = [
     'crczp.sandbox_instance_app.lib.request_handlers.request_exception_handler'

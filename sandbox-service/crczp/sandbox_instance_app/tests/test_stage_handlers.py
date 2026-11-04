@@ -252,13 +252,16 @@ class TestCleanupStackStageHandler:
         return mocker.patch('crczp.sandbox_instance_app.lib.pools.delete_pool')
 
     def test_execute_success(self, now, cleanup_stage_stack, unit, removal, destroy, delete_pool):
-        """A destroy that succeeds deletes nothing by name and removes the unit."""
+        """A destroy that succeeds is followed by the deletion by name and removes the unit."""
         handler = stage_handlers.CleanupStackStageHandler(cleanup_stage_stack)
 
         handler.execute()
 
         assert_db_stage(cleanup_stage_stack, now, failed=False)
-        removal.delete_resources_by_name.assert_not_called()
+        assert removal.delete_resources_by_name.call_args.args[:2] == (
+            handler._client,
+            unit.get_stack_name(),
+        )
         removal.delete_workspace.assert_called_once_with(
             handler._client, unit.get_stack_name(), force=False
         )
@@ -340,7 +343,28 @@ class TestCleanupStackStageHandler:
         handler.execute()
 
         force_unlock.assert_called_once_with(unit.get_stack_name(), 'lock-id')
-        removal.delete_resources_by_name.assert_not_called()
+        removal.delete_resources_by_name.assert_called_once()
+
+    def test_resources_a_stopped_build_left_out_of_the_state_keep_the_unit(
+        self, mocker, cleanup_stage_stack, unit, removal, destroy
+    ):
+        """
+        A destroy that succeeds after releasing the lock of a stopped build, on a state missing
+        the servers the build created, leaves the unit while those servers remain.
+        """
+        destroy.side_effect = [TerraformStateLocked('lock-id'), True]
+        mocker.patch.object(
+            stage_handlers.CleanupStackStageHandler, '_may_release_state_lock', return_value=True
+        )
+        removal.delete_resources_by_name.return_value = ['server web: still there']
+        handler = stage_handlers.CleanupStackStageHandler(cleanup_stage_stack)
+        mocker.patch.object(handler._client, 'force_unlock_stack')
+
+        with pytest.raises(api_exceptions.StackError, match='server web: still there'):
+            handler.execute()
+
+        removal.delete_workspace.assert_not_called()
+        assert SandboxAllocationUnit.objects.filter(pk=unit.pk).exists()
 
     def test_the_unit_is_removed_after_the_stage_row_is_saved(
         self, mocker, cleanup_stage_stack, unit, removal, destroy

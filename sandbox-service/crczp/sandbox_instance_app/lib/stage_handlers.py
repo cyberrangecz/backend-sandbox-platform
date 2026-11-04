@@ -31,7 +31,7 @@ from crczp.sandbox_ansible_app.models import (
 )
 from crczp.sandbox_common_lib import exceptions, utils
 from crczp.sandbox_definition_app.lib import definitions
-from crczp.sandbox_instance_app.lib import netbird, sandboxes, stack_removal
+from crczp.sandbox_instance_app.lib import netbird, sandboxes, stack_removal, work_horse_stop
 from crczp.sandbox_instance_app.lib.job_liveness import JobLiveness, get_stages_job_liveness
 from crczp.sandbox_instance_app.lib.jump_proxy_cleanup import delete_jump_ssh_key
 from crczp.sandbox_instance_app.models import (
@@ -266,8 +266,9 @@ class StageHandler(CancellableJob):
         Stop the job of the stage and run the stage-specific cancellation in _cancel.
 
         A job that is not executing is deleted together with its dependents. An executing job
-          gets the RQ stop command, which makes its worker kill the job's whole process group;
-          its dependents are deleted and the stage records when the stop was first requested.
+          gets the RQ stop command, which makes its worker stop the job's work horse, letting
+          a running OpenTofu process stop first; its dependents are deleted and the stage
+          records when the stop was first requested.
           The stage stays unfinished until mark_cancelled.
         Warning: Do not override this method. Any changes should be made to _cancel method.
         """
@@ -413,12 +414,11 @@ class NetbirdProvisioningHandler(CancellableJob):
 def _process_ended_on_exit(process: Popen[str]) -> Iterator[None]:
     """
     Leave the block only once the process has exited, ending a process still running when
-    the block is cut short, as by the job timeout of its RQ job.
+    the block is cut short, as by the job timeout of its RQ job. A stop of the work horse
+    interrupts the process and exits the work horse once the process has exited.
     """
-    try:
+    with work_horse_stop.interruptible_process(process.pid, lambda: _end_process(process)):
         yield
-    finally:
-        _end_process(process)
 
 
 def _end_process(process: Popen[str]) -> None:
@@ -622,7 +622,7 @@ class AllocationStackStageHandler(StackStageHandler):
         """
         Stop the OpenStack stack allocation.
 
-        INFO: Nothing to be done. The stop of the stage job kills its OpenTofu process.
+        INFO: Nothing to be done. The stop of the stage job interrupts its OpenTofu process.
         """
 
 
@@ -639,10 +639,11 @@ class CleanupStackStageHandler(StackStageHandler):
         """
         Delete allocated stack in the OpenStack platform.
 
-        The stack is destroyed through its OpenTofu state. Where the destroy fails or the stack
-          has no state, the cloud resources of the stack are deleted by name instead. Then the
-          OpenTofu workspace and the local stack directory are removed. A destroy blocked by
-          a state lock that a job may still hold fails the stage, deleting nothing by name.
+        The stack is destroyed through its OpenTofu state, then the cloud resources of the
+          stack that remain, such as those a build stopped mid-way never recorded in the
+          state, are deleted by name. Then the OpenTofu workspace and the local stack directory
+          are removed. A destroy blocked by a state lock that a job may still hold fails the
+          stage, deleting nothing by name.
 
         :raise StackError: The destroy is blocked by a live lock, or resources remain.
         """
@@ -659,20 +660,18 @@ class CleanupStackStageHandler(StackStageHandler):
 
         if destroy_error is not None:
             LOG.warning(
-                'Deleting the resources of the stack by name',
-                stack_name=stack_name,
-                reason=destroy_error,
+                'The destroy of the stack failed', stack_name=stack_name, reason=destroy_error
             )
-            failures = stack_removal.delete_resources_by_name(
-                self._client,
-                stack_name,
-                StackNameScheme(settings.CRCZP_SERVICE_CONFIG.stack_name_prefix),
+        failures = stack_removal.delete_resources_by_name(
+            self._client,
+            stack_name,
+            StackNameScheme(settings.CRCZP_SERVICE_CONFIG.stack_name_prefix),
+        )
+        if failures:
+            raise exceptions.StackError(
+                f'Sandbox deletion failed: {destroy_error or "The stack was destroyed."} '
+                f'Resources left: {"; ".join(failures)}.'
             )
-            if failures:
-                raise exceptions.StackError(
-                    f'Sandbox deletion failed: {destroy_error} '
-                    f'Resources left: {"; ".join(failures)}.'
-                )
         stack_removal.delete_workspace(self._client, stack_name, force=destroy_error is not None)
         stack_removal.delete_stack_directory(self._client, stack_name)
 
