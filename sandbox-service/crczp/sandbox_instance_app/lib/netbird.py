@@ -936,7 +936,9 @@ def _delete_replaced_setup_key(client: NetbirdClient, key_id: str) -> None:
         client.delete_setup_key(key_id)
 
 
-def _delete_unrecorded_setup_key(client: NetbirdClient, sandbox_id: str, key_id: str) -> None:
+def _delete_unrecorded_setup_key(
+    client: NetbirdClient, sandbox_id: str | None, key_id: str
+) -> None:
     """Delete a setup key that no row records, logging instead of raising on failure."""
     try:
         client.delete_setup_key(key_id)

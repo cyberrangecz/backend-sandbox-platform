@@ -2,7 +2,7 @@
 
 # pylint: disable=missing-function-docstring
 from datetime import timedelta
-from typing import Any, override
+from typing import Any, cast, override
 from unittest.mock import MagicMock, call
 
 import pytest
@@ -874,17 +874,14 @@ class TestAllocationRequestHandler:
         networking_job = get_queue('ansible').fetch_job(
             request_a.networkingansibleallocationstage.rq_job.job_id
         )
-        dependency_ids = {
-            d.decode() for d in networking_job.connection.smembers(networking_job.dependencies_key)
-        }
+        assert networking_job is not None
+        dependency_ids = self._dependency_ids(networking_job)
         assert request_a.stackallocationstage.rq_job.job_id in dependency_ids
         assert any(job.id in dependency_ids for job in provision_jobs)
         user_job = get_queue('ansible').fetch_job(
             request_a.useransibleallocationstage.rq_job.job_id
         )
-        assert {d.decode() for d in user_job.connection.smembers(user_job.dependencies_key)} == {
-            networking_job.id
-        }
+        assert self._dependency_ids(user_job) == {networking_job.id}
 
     @staticmethod
     def _restart(sandbox: Sandbox, mocker: Any, netbird_configured: bool = True) -> Any:
@@ -913,7 +910,7 @@ class TestAllocationRequestHandler:
         return [
             job
             for job in get_queue('ansible').jobs
-            if job.func_name.endswith('restart_netbird_for_sandbox')
+            if (job.func_name or '').endswith('restart_netbird_for_sandbox')
         ]
 
     @staticmethod
@@ -944,7 +941,7 @@ class TestAllocationRequestHandler:
         provision_jobs = [
             job
             for job in get_queue('ansible').jobs
-            if job.func_name.endswith('provision_netbird_for_sandbox')
+            if (job.func_name or '').endswith('provision_netbird_for_sandbox')
         ]
         assert provision_jobs == []
         [restart_job] = self._netbird_restart_jobs()
@@ -971,21 +968,23 @@ class TestAllocationRequestHandler:
             public_user_key='public-key',
         )
         handler = request_handlers.AllocationRequestHandler()
+        queue = get_queue('ansible')
 
-        provision_job = handler._enqueue_netbird_provision(sandbox)
-        first_restart_job = handler._enqueue_netbird_restart(sandbox, [])
-        second_restart_job = handler._enqueue_netbird_restart(sandbox, [])
+        handler._enqueue_netbird_provision(sandbox, 'provision-job')
+        handler._enqueue_netbird_restart(sandbox, [], 'first-restart-job')
+        handler._enqueue_netbird_restart(sandbox, [], 'second-restart-job')
 
-        assert provision_job is not None
+        first_restart_job = queue.fetch_job('first-restart-job')
+        second_restart_job = queue.fetch_job('second-restart-job')
         assert first_restart_job is not None
         assert second_restart_job is not None
-        assert first_restart_job.kwargs['previous_job_id'] == provision_job.id
-        assert second_restart_job.kwargs['previous_job_id'] == first_restart_job.id
-        connection = get_queue('ansible').connection
+        assert first_restart_job.kwargs['previous_job_id'] == 'provision-job'
+        assert second_restart_job.kwargs['previous_job_id'] == 'first-restart-job'
+        connection = queue.connection
         key = f'netbird-job:{sandbox.id}'
-        assert connection.get(key) == second_restart_job.id.encode()
+        assert connection.get(key) == b'second-restart-job'
         # It must outlive any job still pending, however long the ansible queue's backlog.
-        assert 6 * 24 * 3600 < connection.ttl(key) <= 7 * 24 * 3600
+        assert 6 * 24 * 3600 < cast(int, connection.ttl(key)) <= 7 * 24 * 3600
 
     @pytest.mark.django_db(transaction=True)
     def test_restart_job_runs_once_its_previous_job_is_gone(

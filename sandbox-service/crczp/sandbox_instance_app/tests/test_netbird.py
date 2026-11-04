@@ -1518,6 +1518,7 @@ class TestRestart:  # pylint: disable=too-many-public-methods
 
 
 @pytest.mark.integration
+@pytest.mark.django_db(transaction=True)
 class TestWaitForNetbirdJob:
     """Tests for _wait_for_netbird_job, which a restart's NetBird job runs first."""
 
