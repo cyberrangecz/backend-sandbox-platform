@@ -6,16 +6,22 @@ from __future__ import annotations
 
 import os
 import re
+import time
+from collections.abc import Sequence
+from contextlib import suppress
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import novaclient.v2.keypairs
 import structlog
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from neutronclient.common.exceptions import NotFound as NeutronNotFound
 from novaclient.base import TupleWithMeta
 from novaclient.exceptions import ClientException as NovaClientException
+from novaclient.exceptions import NotFound as NovaNotFound
 from novaclient.exceptions import UnsupportedConsoleType as NovaUnsupportedConsoleType
 
 from crczp.cloud_commons import (
+    CloudResource,
     CrczpException,
     HardwareUsage,
     Image,
@@ -23,11 +29,19 @@ from crczp.cloud_commons import (
     Limits,
     Quota,
     QuotaSet,
+    ResourceDeletion,
+    ResourceKind,
     SecurityGroups,
     StackException,
+    StackInventory,
+    StackNameScheme,
+    TaggedResource,
     TopologyInstance,
     TransformationConfiguration,
+    delete_in_order,
+    group_by_stack,
     hcl_string,
+    select_stack,
 )
 from crczp.openstack_driver.network_forwarding import (
     TapMirror,
@@ -52,6 +66,16 @@ TEMPLATES_DIR_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), '
 TERRAFORM_DEPLOY_TEMPLATE_FILE = 'terraform-deploy-template.j2'
 TERRAFORM_PROVIDER_TEMPLATE_FILE = 'terraform-provider-template.j2'
 VALIDATION_RESOURCE_PREFIX = 'stack-name'
+TAP_MIRROR = 'tap_mirror'
+FLOATING_IP = 'floating_ip'
+SERVER = 'server'
+ROUTER = 'router'
+PORT = 'port'
+SUBNET = 'subnet'
+NETWORK = 'network'
+TAP_MIRRORS_PATH = '/taas/tap_mirrors'
+SERVER_DELETION_TIMEOUT_SECONDS = 300
+SERVER_DELETION_POLL_SECONDS = 2
 
 
 def regex_replace(string: str, pattern: str = '', replace: str = '') -> str:
@@ -436,3 +460,127 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
             raise InvalidTopologyDefinition('Error while generating template: ', e) from e
 
         return str(template_str)
+
+    def _list_neutron_resources(
+        self, kind: str, items: list[dict[str, Any]], name_key: str = 'name'
+    ) -> list[TaggedResource]:
+        return [
+            TaggedResource(
+                CloudResource(kind, item['id'], item.get(name_key) or ''),
+                tuple(item.get('tags', ())),
+            )
+            for item in items
+        ]
+
+    def _list_tap_mirrors(self) -> list[dict[str, Any]]:
+        try:
+            return list(self.neutron.list('tap_mirrors', TAP_MIRRORS_PATH)['tap_mirrors'])
+        except NeutronNotFound:
+            return []
+
+    def _discover_resources(self, servers: list[Any]) -> list[TaggedResource]:
+        """
+        List every server, network, subnet, port, router, floating IP and tap mirror of the
+        project with the tags Neutron reports for it. Nova servers carry no tags here.
+        """
+        neutron = self.neutron
+        return [
+            *(TaggedResource(CloudResource(SERVER, server.id, server.name)) for server in servers),
+            *self._list_neutron_resources(NETWORK, neutron.list_networks()['networks']),
+            *self._list_neutron_resources(SUBNET, neutron.list_subnets()['subnets']),
+            *self._list_neutron_resources(PORT, neutron.list_ports()['ports']),
+            *self._list_neutron_resources(ROUTER, neutron.list_routers()['routers']),
+            *self._list_neutron_resources(
+                FLOATING_IP, neutron.list_floatingips()['floatingips'], 'floating_ip_address'
+            ),
+            *self._list_neutron_resources(TAP_MIRROR, self._list_tap_mirrors()),
+        ]
+
+    def _get_server_ram_gb(self, servers: list[Any]) -> dict[str, float]:
+        if not servers:
+            return {}
+        flavor_ram_gb = {
+            flavor.id: round(flavor.ram / 1000.0, 1) for flavor in self.nova.flavors.list()
+        }
+        return {server.id: flavor_ram_gb.get(server.flavor['id'], 0.0) for server in servers}
+
+    def list_stack_inventories(self, stack_names: StackNameScheme) -> dict[str, StackInventory]:
+        """
+        List the stacks of one deployment that have resources in the project.
+
+        :param stack_names: The stack names of the deployment
+        :return: Resources and the RAM in GB held by the servers, keyed by full stack name
+        """
+        servers = list(self.nova.servers.list())
+        return group_by_stack(
+            self._discover_resources(servers), self._get_server_ram_gb(servers), stack_names
+        )
+
+    def delete_stack_resources(
+        self, stack_name: str, stack_names: StackNameScheme
+    ) -> list[ResourceDeletion]:
+        """
+        Delete the resources of one stack, dependents first.
+
+        :param stack_name: The full stack name
+        :param stack_names: The stack names of the deployment
+        :return: The result of deleting each resource, in deletion order
+        :raise ValueError: The name is not a full stack name of the deployment
+        """
+        stack_names.require(stack_name)
+        resources = select_stack(
+            self._discover_resources(list(self.nova.servers.list())), stack_name, stack_names
+        )
+        return delete_in_order(resources, self._resource_kinds(), _is_not_found)
+
+    def _resource_kinds(self) -> tuple[ResourceKind, ...]:
+        """The kinds of stack resources, dependents first, with how each is deleted."""
+        return (
+            ResourceKind(
+                TAP_MIRROR,
+                lambda mirror_id: self.neutron.delete(f'{TAP_MIRRORS_PATH}/{mirror_id}'),
+            ),
+            ResourceKind(FLOATING_IP, self.neutron.delete_floatingip),
+            ResourceKind(SERVER, self.nova.servers.delete, self._await_servers_gone),
+            ResourceKind(ROUTER, self._delete_router),
+            ResourceKind(PORT, self.neutron.delete_port),
+            ResourceKind(SUBNET, self.neutron.delete_subnet),
+            ResourceKind(NETWORK, self.neutron.delete_network),
+        )
+
+    def _delete_router(self, router_id: str) -> None:
+        """Detach the router's interfaces and gateway, then delete it."""
+        for port in self.neutron.list_ports(device_id=router_id)['ports']:
+            if port['device_owner'].startswith('network:router_interface'):
+                with suppress(NeutronNotFound):
+                    self.neutron.remove_interface_router(router_id, {'port_id': port['id']})
+        self.neutron.update_router(router_id, {'router': {'external_gateway_info': {}}})
+        self.neutron.delete_router(router_id)
+
+    def _await_servers_gone(self, servers: Sequence[CloudResource]) -> dict[str, str]:
+        """
+        Wait until Nova has removed the servers, so that their ports can be deleted.
+
+        :return: An error per ID of a server still present when the wait ends
+        """
+        pending = {server.resource_id for server in servers}
+        deadline = time.monotonic() + SERVER_DELETION_TIMEOUT_SECONDS
+        while pending and time.monotonic() < deadline:
+            for server_id in list(pending):
+                try:
+                    self.nova.servers.get(server_id)
+                except NovaNotFound:
+                    pending.discard(server_id)
+                except NovaClientException as error:
+                    LOG.warning('Server lookup failed', server_id=server_id, error=str(error))
+            if pending:
+                time.sleep(SERVER_DELETION_POLL_SECONDS)
+        return {
+            server_id: f'Still present after {SERVER_DELETION_TIMEOUT_SECONDS} seconds'
+            for server_id in pending
+        }
+
+
+def _is_not_found(error: Exception) -> bool:
+    """Whether a Nova or Neutron error says the resource does not exist."""
+    return isinstance(error, (NeutronNotFound, NovaNotFound))

@@ -69,7 +69,6 @@ def add_cleanup(unit: Any, state: str) -> None:
 @pytest.fixture(name='cleanup_handler')
 def fixture_cleanup_handler(mocker):
     """The cleanup request handler, which enqueues the cleanup stages."""
-    mocker.patch('crczp.sandbox_instance_app.lib.requests.netbird.destroy_netbird_for_sandbox')
     return mocker.patch(
         'crczp.sandbox_instance_app.lib.requests.request_handlers.CleanupRequestHandler'
     )

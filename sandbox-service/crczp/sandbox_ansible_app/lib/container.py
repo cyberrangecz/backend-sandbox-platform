@@ -55,6 +55,7 @@ class BaseContainer(abc.ABC):  # pylint: disable=too-many-instance-attributes
         url: str,
         rev: str,
         stage: AnsibleStage,
+        container_name: str,
         ssh_directory: str,
         inventory_path: str,
         containers_path: str,
@@ -65,6 +66,7 @@ class BaseContainer(abc.ABC):  # pylint: disable=too-many-instance-attributes
         self.url = url
         self.rev = rev
         self.stage = stage
+        self.container_name = container_name
         self.cleanup = cleanup
         self.ssh_directory = ssh_directory
         self.inventory_path = inventory_path
@@ -83,9 +85,9 @@ class BaseContainer(abc.ABC):  # pylint: disable=too-many-instance-attributes
     def _run_container(self) -> Any:
         """Run the container."""
 
-    @abc.abstractmethod
     def get_container_name(self) -> str:
-        """Get the container ID."""
+        """Get the name the container runs under."""
+        return self.container_name
 
     @abc.abstractmethod
     def get_container_outputs(self) -> None:
@@ -117,6 +119,7 @@ class DockerContainer(BaseContainer):
         url: str,
         rev: str,
         stage: AnsibleStage,
+        container_name: str,
         ssh_directory: str,
         inventory_path: str,
         containers_path: str,
@@ -128,6 +131,7 @@ class DockerContainer(BaseContainer):
             url,
             rev,
             stage,
+            container_name,
             ssh_directory,
             inventory_path,
             containers_path,
@@ -161,16 +165,12 @@ class DockerContainer(BaseContainer):
         LOG.debug('Ansible container options', command=command)
         return self.CLIENT().containers.run(
             settings.CRCZP_CONFIG.ansible_docker_image,
+            name=self.container_name,
             detach=True,
             command=command,
             volumes=volumes,
             network=self.DOCKER_NETWORK,
         )
-
-    @override
-    def get_container_name(self) -> str:
-        """Get the container ID."""
-        return str(self.container.id)
 
     @override
     def get_container_outputs(self) -> None:
@@ -217,8 +217,6 @@ class DockerContainer(BaseContainer):
 class KubernetesContainer(BaseContainer):
     """Kubernetes container."""
 
-    ALLOCATION_JOB_NAME = 'ansible-allocation-{}'
-    CLEANUP_JOB_NAME = 'ansible-cleanup-{}'
     KUBERNETES_NAMESPACE = settings.CRCZP_CONFIG.ansible_runner_settings.namespace
     CORE_API = client.CoreV1Api()
     BATCH_API = client.BatchV1Api()
@@ -232,6 +230,7 @@ class KubernetesContainer(BaseContainer):
         url: str,
         rev: str,
         stage: AnsibleStage,
+        container_name: str,
         ssh_directory: str,
         inventory_path: str,
         containers_path: str,
@@ -243,16 +242,12 @@ class KubernetesContainer(BaseContainer):
             url,
             rev,
             stage,
+            container_name,
             ssh_directory,
             inventory_path,
             containers_path,
             credentials_path,
             cleanup,
-        )
-        self.job_name = (
-            self.ALLOCATION_JOB_NAME.format(self.stage.id)
-            if not self.cleanup
-            else self.CLEANUP_JOB_NAME.format(self.stage.id)
         )
         self._initialize_kube_config()
         self.container = self._run_container()
@@ -271,7 +266,7 @@ class KubernetesContainer(BaseContainer):
     def _create_container(self) -> client.V1Container:
         """Create the container."""
         kuber_container = client.V1Container(
-            name=self.job_name,
+            name=self.container_name,
             image=settings.CRCZP_CONFIG.ansible_docker_image,
             args=[
                 '-u',
@@ -337,12 +332,14 @@ class KubernetesContainer(BaseContainer):
         pvc_name = settings.CRCZP_CONFIG.ansible_runner_settings.persistent_volume_claim_name
 
         job = client.V1Job(
-            metadata=client.V1ObjectMeta(name=self.job_name, namespace=self.KUBERNETES_NAMESPACE),
+            metadata=client.V1ObjectMeta(
+                name=self.container_name, namespace=self.KUBERNETES_NAMESPACE
+            ),
             spec=client.V1JobSpec(
                 backoff_limit=0,
                 template=client.V1PodTemplateSpec(
                     metadata=client.V1ObjectMeta(
-                        name=self.job_name, namespace=self.KUBERNETES_NAMESPACE
+                        name=self.container_name, namespace=self.KUBERNETES_NAMESPACE
                     ),
                     spec=client.V1PodSpec(
                         restart_policy='Never',
@@ -368,11 +365,6 @@ class KubernetesContainer(BaseContainer):
         """Run the container."""
         return self._create_kube_job()
 
-    @override
-    def get_container_name(self) -> str:
-        """Return the container name."""
-        return self.job_name
-
     def _wait_for_pod_start(self) -> str | None:
         """
         Wait for pod to start.
@@ -381,7 +373,7 @@ class KubernetesContainer(BaseContainer):
         for event in w.stream(
             self.CORE_API.list_namespaced_pod,
             namespace=self.KUBERNETES_NAMESPACE,
-            label_selector=f'job-name={self.job_name}',
+            label_selector=f'job-name={self.container_name}',
         ):
             pod_phase = event['object'].status.phase
             if pod_phase in ('Running', *self.FINISHED_POD_PHASES):
@@ -400,7 +392,7 @@ class KubernetesContainer(BaseContainer):
         for event in w.stream(
             self.BATCH_API.list_namespaced_job,
             namespace=self.KUBERNETES_NAMESPACE,
-            label_selector=f'job-name={self.job_name}',
+            label_selector=f'job-name={self.container_name}',
         ):
             job_status = event['object'].status
             if job_status.failed or job_status.succeeded:
@@ -489,7 +481,7 @@ class KubernetesContainer(BaseContainer):
                 namespace=cls.KUBERNETES_NAMESPACE,
                 body=client.V1DeleteOptions(propagation_policy='Background'),
             )
-        except client.ApiException as exc:
+        except (client.ApiException, urllib3.exceptions.HTTPError) as exc:
             raise CrczpException(f'Failed to delete job: {exc}') from exc
 
     @override

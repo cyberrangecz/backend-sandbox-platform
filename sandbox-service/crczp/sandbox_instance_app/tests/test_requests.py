@@ -5,11 +5,12 @@ from typing import Any
 from unittest.mock import call
 
 import pytest
+from django.db import transaction
 from django.db.models import ObjectDoesNotExist
 from django.utils import timezone
 
 from crczp.sandbox_common_lib import exceptions as api_exceptions
-from crczp.sandbox_instance_app.lib import requests
+from crczp.sandbox_instance_app.lib import netbird, requests
 from crczp.sandbox_instance_app.models import (
     AllocationRequest,
     CleanupRequest,
@@ -17,6 +18,7 @@ from crczp.sandbox_instance_app.models import (
     Sandbox,
     SandboxAllocationUnit,
     SandboxLock,
+    SandboxNetbirdAccess,
     StackAllocationStage,
 )
 from crczp.sandbox_instance_app.tests.conftest import set_stage_finished
@@ -63,6 +65,31 @@ class TestAllocationRequest:
         assert expected_partial.func == actual_partial.func
         assert expected_partial.args == actual_partial.args
         assert expected_partial.keywords == actual_partial.keywords
+
+    def test_create_allocation_requests_grows_the_pool_size_with_the_units(
+        self, pool, created_by, mocker
+    ):
+        mocker.patch('django.db.transaction.on_commit')
+        size_before = pool.size
+
+        requests.create_allocations_requests(pool, 2, created_by)
+
+        assert Pool.objects.get(pk=pool.pk).size == size_before + 2
+
+    def test_create_allocation_requests_leaves_the_pool_size_when_a_unit_fails(
+        self, pool, created_by, mocker
+    ):
+        mocker.patch('django.db.transaction.on_commit')
+        mocker.patch.object(
+            AllocationRequest.objects, 'create', side_effect=[None, RuntimeError('database error')]
+        )
+        size_before = pool.size
+
+        with pytest.raises(RuntimeError, match='database error'), transaction.atomic():
+            requests.create_allocations_requests(pool, 2, created_by)
+
+        assert Pool.objects.get(pk=pool.pk).size == size_before
+        assert not SandboxAllocationUnit.objects.filter(pool=pool).exists()
 
     def test_create_allocation_requests_creates_request_synchronously(
         self, pool, created_by, mocker
@@ -166,6 +193,23 @@ class TestCleanupRequest:  # pylint: disable=too-many-public-methods
         allocation_unit = sandbox_finished.allocation_unit
         self.assert_cleanup_request_success(allocation_unit)
 
+    @pytest.mark.parametrize('force', [False, True])
+    def test_create_cleanup_request_leaves_netbird_to_the_cleanup_job(
+        self, mocker, sandbox_finished, force
+    ):
+        """The sandbox row goes, while its NetBird rows stay with the unit for the cleanup."""
+        destroy = mocker.patch.object(netbird, 'destroy_netbird_for_unit')
+        allocation_unit = sandbox_finished.allocation_unit
+        access = SandboxNetbirdAccess.objects.create(
+            sandbox=sandbox_finished, allocation_unit=allocation_unit, access_group_id='group'
+        )
+
+        self.assert_cleanup_request_success(allocation_unit, force)
+
+        destroy.assert_not_called()
+        access.refresh_from_db()
+        assert (access.sandbox_id, access.allocation_unit_id) == (None, allocation_unit.id)
+
     def test_create_cleanup_request_failed_locked_sandbox(self, sandbox_lock):
         """Test that cleanup request fails for a locked sandbox."""
         allocation_unit = sandbox_lock.sandbox.allocation_unit
@@ -191,7 +235,7 @@ class TestCleanupRequest:  # pylint: disable=too-many-public-methods
         allocation_unit = allocation_stage_user_started.allocation_request.allocation_unit
         mocker.patch(
             'crczp.sandbox_instance_app.lib.requests.request_handlers.AllocationRequestHandler'
-        )
+        ).return_value.cancel_request.return_value = False
         self.assert_cleanup_request_success(allocation_unit, True)
 
     def test_create_cleanup_request_failed_already_cleaning(  # pylint: disable=unused-argument
@@ -250,7 +294,7 @@ class TestCleanupRequest:  # pylint: disable=too-many-public-methods
         """Test that force cleanup succeeds for multiple units including a locked sandbox."""
         mocker.patch(
             'crczp.sandbox_instance_app.lib.requests.request_handlers.AllocationRequestHandler'
-        )
+        ).return_value.cancel_request.return_value = False
         unit_alloc_unfinished = SandboxAllocationUnit.objects.get(pk=1)
         allocation_units = [unit_alloc_unfinished, sandbox_lock.sandbox.allocation_unit]
 
@@ -361,3 +405,17 @@ class TestCleanupRequest:  # pylint: disable=too-many-public-methods
             requests.StageState.FAILED.value,
             requests.StageState.FINISHED.value,
         ]
+
+
+def test_no_creation_job_is_queued_for_an_empty_batch(
+    pool, mocker, django_capture_on_commit_callbacks
+):
+    enqueue = mocker.patch(
+        'crczp.sandbox_instance_app.lib.request_handlers.AllocationRequestHandler.enqueue_request'
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        units = requests.create_allocations_requests(pool, 0, None)
+
+    assert not units
+    enqueue.assert_not_called()

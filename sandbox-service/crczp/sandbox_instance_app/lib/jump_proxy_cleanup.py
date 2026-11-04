@@ -8,6 +8,8 @@ import structlog
 from django.conf import settings
 from paramiko import PKey, SSHClient
 
+from crczp.cloud_commons import StackNameScheme
+from crczp.sandbox_common_lib import exceptions
 from crczp.sandbox_instance_app.models import SandboxAllocationUnit
 
 LOG = structlog.get_logger()
@@ -19,20 +21,82 @@ CONNECT_RETRY_DELAY_SECONDS = 1
 
 
 def delete_jump_ssh_key(allocation_unit: SandboxAllocationUnit) -> None:
-    """Delete the SSH key for the given allocation unit from the jump proxy."""
-    name = allocation_unit.get_stack_name()
+    """
+    Delete the home directory of the allocation unit's stack, with its SSH key, from the jump proxy.
+
+    :raise NetworkError: The jump proxy cannot be reached or the removal fails on it
+    """
+    stack_name = allocation_unit.get_stack_name()
+    try:
+        error = _remove_home(stack_name)
+    except (OSError, paramiko.SSHException, ValueError) as exc:
+        error = str(exc) or type(exc).__name__
+    if error:
+        raise exceptions.NetworkError(
+            f'Failed to remove the home of {stack_name} from proxy jump: {error}'
+        )
+
+
+def list_jump_homes(stack_names: StackNameScheme) -> list[str]:
+    """
+    List the home directory names on the jump proxy that are stack names of one deployment.
+
+    :param stack_names: The stack names of the deployment
+    :return: The full stack names that have a home directory
+    :raise NetworkError: The listing fails on the jump proxy
+    """
+    return stack_names.select_stack_names(list_jump_home_names(), 'the jump host homes')
+
+
+def list_jump_home_names() -> list[str]:
+    """
+    List the name of every home directory on the jump proxy.
+
+    :raise NetworkError: The listing fails on the jump proxy
+    """
+    exit_status, listing, error = _run_on_jump('ls -1 /home')
+    if exit_status:
+        raise exceptions.NetworkError(
+            f'Failed to list homes on proxy jump (exit status {exit_status}): {error}'
+        )
+    return listing.splitlines()
+
+
+def remove_jump_home(stack_name: str, stack_names: StackNameScheme) -> None:
+    """
+    Remove the home directory of one stack from the jump proxy.
+
+    :param stack_name: The full stack name
+    :param stack_names: The stack names of the deployment
+    :raise ValueError: The name is not a full stack name of the deployment; nothing connects
+    :raise NetworkError: The removal fails on the jump proxy
+    """
+    stack_names.require(stack_name)
+    error = _remove_home(stack_name)
+    if error:
+        raise exceptions.NetworkError(
+            f'Failed to remove the home of {stack_name} from proxy jump: {error}'
+        )
+
+
+def _remove_home(stack_name: str) -> str:
+    """Remove the home directory of a stack, returning the error of a failed removal or ''."""
+    # The command runs through the jump host's shell as root, so the path is shell-quoted.
+    home_dir = shlex.quote(f'/home/{stack_name}')
+    exit_status, _output, error = _run_on_jump(f'sudo rm -rf {home_dir}')
+    if exit_status:
+        return error or f'exit status {exit_status}'
+    return ''
+
+
+def _run_on_jump(command: str) -> tuple[int, str, str]:
+    """Run a command on the jump proxy until it ends; returns its exit status, output and errors."""
     ssh = connect_to_jump_with_retry()
     try:
-        # The command runs through the jump host's shell as root, and the stack name
-        # starts with the configured stack_name_prefix, which is only length-checked.
-        home_dir = shlex.quote(f'/home/{name}')
-        _stdin, stdout, stderr = ssh.exec_command(f'sudo rm -rf {home_dir}')
-
-        # Wait for the command to finish
-        stdout.channel.recv_exit_status()
+        _stdin, stdout, stderr = ssh.exec_command(command)
+        output = stdout.read().decode()
         error = stderr.read().decode()
-        if error:
-            LOG.warning(f'Failed to delete key for {name} from proxy jump: {error}')
+        return stdout.channel.recv_exit_status(), output, error
     finally:
         ssh.close()
 

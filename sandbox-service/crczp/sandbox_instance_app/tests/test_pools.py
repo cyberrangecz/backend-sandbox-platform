@@ -283,6 +283,18 @@ class TestCreateSandboxesInPool:
         with pytest.raises(ApiException):
             pools.create_sandboxes_in_pool(pool, created_by, 1)
 
+    @pytest.mark.parametrize('count', [0, -2, None])
+    def test_a_count_below_one_is_refused_and_leaves_the_pool_size(self, created_by, count):
+        pool = pools.get_pool(FULL_POOL_ID)
+        size_before = pool.size
+
+        with pytest.raises(ApiValidationError):
+            pools.create_sandboxes_in_pool(pool, created_by, count)
+
+        self.fake_create_allocation_requests.assert_not_called()
+        pool.refresh_from_db()
+        assert pool.size == size_before
+
     def test_create_sandboxes_in_pool_limits_exceeded(self, created_by):
         """Test that sandbox creation fails when hardware limits are exceeded."""
         self.client.validate_hardware_usage_of_stacks.side_effect = exceptions.StackCreationFailed(

@@ -1,6 +1,7 @@
 """Database models for sandbox instance app."""
 
 import re
+from datetime import timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any, override
 
@@ -8,6 +9,7 @@ import structlog
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import models, transaction
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 from crczp.sandbox_common_lib import utils
@@ -31,6 +33,9 @@ if TYPE_CHECKING:
 DEFAULT_SANDBOX_UUID = '1'
 CARRIAGE_RETURN_LINE_BREAK = re.compile(r'\r\n?')
 LOG = structlog.get_logger()
+
+ENQUEUE_GRACE = timedelta(minutes=1)
+"""How long a requested job may go unqueued before it counts as lost."""
 
 
 class OrderedByIdModel(models.Model):
@@ -183,6 +188,34 @@ class SandboxAllocationUnit(OrderedByIdModel):
 
         indexes = [models.Index(fields=['created_by_sub'], name='sau_created_by_sub_idx')]
 
+    @staticmethod
+    def has_unfinished_cleanup() -> Exists:
+        """
+        Expression selecting units whose cleanup is queued or running: their cleanup request
+        has no stages yet, or an unfinished one. A failed cleanup is finished.
+        """
+        return Exists(
+            CleanupRequest.objects.filter(
+                Q(stages__isnull=True) | Q(stages__finished=False), allocation_unit=OuterRef('pk')
+            )
+        )
+
+    @staticmethod
+    def is_active() -> Q:
+        """
+        Expression selecting units that hold, or are still building, a sandbox.
+
+        The allocation has not failed, and the unit is either not being cleaned up or its
+        cleanup is still queued or running.
+        """
+        allocation_failed = Exists(
+            AllocationStage.objects.filter(
+                allocation_request_fk_many__allocation_unit=OuterRef('pk'), failed=True
+            )
+        )
+        has_cleanup = Exists(CleanupRequest.objects.filter(allocation_unit=OuterRef('pk')))
+        return ~allocation_failed & (~has_cleanup | SandboxAllocationUnit.has_unfinished_cleanup())
+
     def get_stack_name(self) -> str:
         """Returns a name of the stack for this sandbox"""
         return f'{self.pool.get_pool_prefix()}-s{self.id:010d}'
@@ -191,6 +224,7 @@ class SandboxAllocationUnit(OrderedByIdModel):
 class Sandbox(models.Model):
     """Represents an allocated sandbox with user access keys."""
 
+    allocation_unit_id: int
     lock: 'SandboxLock'
     netbird_access: models.Manager['SandboxNetbirdAccess']
     netbird_resources: models.Manager['SandboxNetbirdResources']
@@ -326,11 +360,52 @@ class AllocationRequest(SandboxRequest):
         on_delete=models.CASCADE,
         related_name='allocation_request',
     )
+    netbird_job_id = models.TextField(
+        null=True,
+        blank=True,
+        help_text='The RQ job that provisions NetBird for the sandbox; null once it is settled.',
+    )
+    request_group = models.ForeignKey(
+        'SandboxRequestGroup',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='allocation_requests',
+        help_text='The request group the sandbox build counts in; null once the build is '
+        'counted, or when it counts in none.',
+    )
 
     @property
     def is_finished(self) -> bool:
         """Whether all stages are finished."""
         return self.stages.filter(finished=False).count() == 0
+
+    @property
+    def is_settled(self) -> bool:
+        """Whether all stages are finished and the NetBird provisioning job has ended."""
+        return self.is_finished and self.netbird_job_id is None
+
+    def count_build_in_request_group(self, failure: Exception | None = None) -> None:
+        """
+        Count the end of the sandbox build in its request group, as failed when a failure
+        is given.
+
+        The request leaves the group as the build is counted, so the build is counted once
+        and every later call does nothing.
+
+        :param failure: What made the build fail; None for a build that succeeded.
+        """
+        with transaction.atomic():
+            request = AllocationRequest.objects.select_for_update().get(pk=self.pk)
+            group = request.request_group
+            if group is None:
+                return
+            request.request_group = None
+            request.save(update_fields=['request_group'])
+            if failure is None:
+                group.on_allocation_end()
+            else:
+                group.on_allocation_fail(failure)
 
     @override
     def __str__(self) -> str:
@@ -350,11 +425,24 @@ class CleanupRequest(SandboxRequest):
         on_delete=models.CASCADE,
         related_name='cleanup_request',
     )
+    delete_pool = models.BooleanField(
+        default=False,
+        help_text='Whether the pool is deleted once this cleanup removes its last unit.',
+    )
+    retry_count = models.PositiveSmallIntegerField(
+        default=0,
+        help_text='How many times the failed cleanup has been started again by itself.',
+    )
 
     @property
     def is_finished(self) -> bool:
         """Whether all stages are finished."""
         return self.stages.filter(finished=False).count() == 0
+
+    @property
+    def is_settled(self) -> bool:
+        """Whether all stages are finished; no other job outlives them."""
+        return self.is_finished
 
     @property
     def is_failed(self) -> bool:
@@ -384,6 +472,16 @@ class Stage(models.Model):
     finished = models.BooleanField(
         default=False, help_text='Indicates whether the stage execution has finished.'
     )
+    stop_requested_at = models.DateTimeField(
+        null=True,
+        default=None,
+        help_text='When a stop of the running stage job was first requested.',
+    )
+    job_requested_at = models.DateTimeField(
+        null=True,
+        default=None,
+        help_text='When the stage was created for a job that is queued once its request commits.',
+    )
 
     id: int
 
@@ -392,6 +490,29 @@ class Stage(models.Model):
 
         abstract = True
         ordering = ['id']
+
+    @property
+    def stop_pending(self) -> bool:
+        """Whether a stop of the stage job was requested and its end is not confirmed yet."""
+        return self.stop_requested_at is not None and not self.finished
+
+    @property
+    def within_enqueue_grace(self) -> bool:
+        """
+        Whether the job of the stage was requested so recently that it may still be queued.
+        """
+        return (
+            self.job_requested_at is not None
+            and timezone.now() - self.job_requested_at < ENQUEUE_GRACE
+        )
+
+    @property
+    def enqueue_pending(self) -> bool:
+        """
+        Whether the job of the stage is yet to be queued: the stage has no job row, and its
+        job was requested within the enqueue grace.
+        """
+        return getattr(self, 'rq_job', None) is None and self.within_enqueue_grace
 
     @override
     def __str__(self) -> str:
@@ -603,18 +724,28 @@ class SandboxNetbirdAccess(models.Model):
 
     All fields except role are nullable so that a partial-failure state can be
     persisted: the cleanup path tolerates nulls and issues 404-tolerant deletes.
+    The row outlives its sandbox and goes with its allocation unit.
     """
 
     id: int
 
-    # Implicit FK attribute; Sandbox has a CharField primary key.
-    sandbox_id: str
+    # Implicit FK attributes; Sandbox has a CharField primary key.
+    sandbox_id: str | None
+    allocation_unit_id: int | None
 
     sandbox = models.ForeignKey(
         Sandbox,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
         related_name='netbird_access',
-        help_text='Sandbox these access resources belong to.',
+        help_text='Sandbox these access resources belong to; null once it is deleted.',
+    )
+    allocation_unit = models.ForeignKey(
+        SandboxAllocationUnit,
+        on_delete=models.CASCADE,
+        null=True,
+        related_name='netbird_accesses',
+        help_text='Allocation unit whose cleanup tears these access resources down.',
     )
     role = models.CharField(
         max_length=128,
@@ -665,17 +796,27 @@ class SandboxNetbirdResources(models.Model):
     therefore creates the policy before the routes.
 
     All fields are nullable so that a partial-failure state can be persisted:
-    the cleanup path tolerates nulls and issues 404-tolerant deletes.
+    the cleanup path tolerates nulls and issues 404-tolerant deletes. The row
+    outlives its sandbox and goes with its allocation unit.
     """
 
-    # Implicit FK attribute; Sandbox has a CharField primary key.
-    sandbox_id: str
+    # Implicit FK attributes; Sandbox has a CharField primary key.
+    sandbox_id: str | None
+    allocation_unit_id: int | None
 
     sandbox = models.ForeignKey(
         Sandbox,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
         related_name='netbird_resources',
-        help_text='Sandbox these resources belong to.',
+        help_text='Sandbox these resources belong to; null once it is deleted.',
+    )
+    allocation_unit = models.ForeignKey(
+        SandboxAllocationUnit,
+        on_delete=models.CASCADE,
+        null=True,
+        related_name='netbird_resources',
+        help_text='Allocation unit whose cleanup tears these resources down.',
     )
     entrypoint_host_name = models.CharField(
         max_length=255,
@@ -760,16 +901,28 @@ class SandboxNetbirdEphemeralKey(models.Model):
     Stores one Netbird setup key minted for a multi-role requester's exact
     combination of held roles, so a repeat request for that same combination
     reuses it instead of minting (and eventually orphaning) another.
+
+    The row outlives its sandbox and goes with its allocation unit, whose cleanup
+    deletes the key before the access groups it names.
     """
 
-    # Implicit FK attribute; Sandbox has a CharField primary key.
-    sandbox_id: str
+    # Implicit FK attributes; Sandbox has a CharField primary key.
+    sandbox_id: str | None
+    allocation_unit_id: int | None
 
     sandbox = models.ForeignKey(
         Sandbox,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
         related_name='netbird_ephemeral_keys',
-        help_text='Sandbox this key was minted for.',
+        help_text='Sandbox this key was minted for; null once it is deleted.',
+    )
+    allocation_unit = models.ForeignKey(
+        SandboxAllocationUnit,
+        on_delete=models.CASCADE,
+        null=True,
+        related_name='netbird_ephemeral_keys',
+        help_text='Allocation unit whose cleanup deletes this key.',
     )
     role_set = models.TextField(
         help_text='Sorted, comma-separated roles this key spans, identifying the combination.',
@@ -798,26 +951,47 @@ class SandboxRequestGroup(OrderedByIdModel):
     def on_allocation_fail(self, exc: Exception) -> None:
         """Handle a sandbox allocation failure: track counts and send notification if first fail."""
         with transaction.atomic():
-            self.refresh_from_db()
+            self._refresh_locked()
             if self.failed_count == 0:
                 transaction.on_commit(partial(self._send_fail_notification, exc=exc))
                 LOG.debug('Sandbox allocation Failure email notification sent.')
             self.failed_count += 1
             self.finished_count += 1
             self.save()
-            if self.finished_count == self.unit_count:
-                transaction.on_commit(self._send_summary_notification)
-                LOG.debug('Sandbox allocation End email notification sent.')
+            self._send_summary_once_all_finished()
 
     def on_allocation_end(self) -> None:
         """Handle a sandbox allocation completion: track counts and send summary if all done."""
         with transaction.atomic():
-            self.refresh_from_db()
+            self._refresh_locked()
             self.finished_count += 1
             self.save()
-            if self.finished_count == self.unit_count:
-                transaction.on_commit(self._send_summary_notification)
-                LOG.debug('Sandbox allocation End email notification sent.')
+            self._send_summary_once_all_finished()
+
+    def on_allocation_removed(self) -> None:
+        """
+        Handle a unit removed before its allocation started: it no longer counts in the group.
+
+        The group is deleted once no unit is left, else the summary is sent when every
+        remaining unit has finished.
+        """
+        with transaction.atomic():
+            self._refresh_locked()
+            self.unit_count -= 1
+            if self.unit_count <= 0:
+                self.delete()
+                return
+            self.save()
+            self._send_summary_once_all_finished()
+
+    def _refresh_locked(self) -> None:
+        """Reload the counts under the row lock, held until the transaction ends."""
+        self.refresh_from_db(from_queryset=SandboxRequestGroup.objects.select_for_update())
+
+    def _send_summary_once_all_finished(self) -> None:
+        if self.finished_count == self.unit_count:
+            transaction.on_commit(self._send_summary_notification)
+            LOG.debug('Sandbox allocation End email notification sent.')
 
     def _send_fail_notification(self, exc: Exception) -> None:
         body = f"""

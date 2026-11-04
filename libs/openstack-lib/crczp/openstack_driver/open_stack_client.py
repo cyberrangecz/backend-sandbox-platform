@@ -12,6 +12,9 @@ from crczp.cloud_commons import (
     Limits,
     NodeDetails,
     QuotaSet,
+    ResourceDeletion,
+    StackInventory,
+    StackNameScheme,
     TopologyInstance,
     TransformationConfiguration,
 )
@@ -269,3 +272,28 @@ class CrczpOpenStackClient(CrczpCloudClientBase):
         :return Limits of project
         """
         return self.open_stack_proxy.get_project_limits(self._get_project_id())
+
+    @check_authentication
+    def list_stack_inventories(self, stack_names: StackNameScheme) -> dict[str, StackInventory]:
+        """
+        List the stacks of one deployment that have resources in the OpenStack project.
+
+        :param stack_names: The stack names of the deployment
+        :return: Resources and the RAM in GB held by their servers, keyed by full stack name
+        """
+        return self.open_stack_proxy.list_stack_inventories(stack_names)
+
+    @check_authentication
+    def delete_stack_resources(
+        self, stack_name: str, stack_names: StackNameScheme
+    ) -> list[ResourceDeletion]:
+        """
+        Delete the resources of one stack, dependents first. Failures are reported in the
+        results, never raised.
+
+        :param stack_name: The full stack name
+        :param stack_names: The stack names of the deployment
+        :return: The result of deleting each resource, in deletion order
+        :raise ValueError: The name is not a full stack name of the deployment
+        """
+        return self.open_stack_proxy.delete_stack_resources(stack_name, stack_names)
