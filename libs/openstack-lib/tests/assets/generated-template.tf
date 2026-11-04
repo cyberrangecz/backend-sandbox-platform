@@ -20,11 +20,13 @@ data "openstack_networking_secgroup_v2" "sandbox-man-int-sg" {
 
 resource "openstack_networking_network_v2" "stack-name-server-switch" {
   name = "stack-name-server-switch"
+  tags = ["stack-name"]
   admin_state_up = "true"
 }
 
 resource "openstack_networking_subnet_v2" "stack-name-server-switch-subnet" {
   name = "stack-name-server-switch-subnet"
+  tags = ["stack-name"]
   network_id = openstack_networking_network_v2.stack-name-server-switch.id
   cidr = "10.10.20.0/24"
   gateway_ip = "10.10.20.1"
@@ -34,6 +36,7 @@ resource "openstack_networking_subnet_v2" "stack-name-server-switch-subnet" {
 
 resource "openstack_networking_port_v2" "stack-name-link-5" {
   name = "stack-name-link-5"
+  tags = ["stack-name"]
   network_id = openstack_networking_network_v2.stack-name-server-switch.id
   admin_state_up = "true"
   security_group_ids = [
@@ -52,6 +55,7 @@ resource "openstack_networking_port_v2" "stack-name-link-5" {
 
 resource "openstack_networking_port_v2" "stack-name-link-11" {
   name = "stack-name-link-11"
+  tags = ["stack-name"]
   network_id = openstack_networking_network_v2.stack-name-server-switch.id
   admin_state_up = "true"
   security_group_ids = [
@@ -70,11 +74,13 @@ resource "openstack_networking_port_v2" "stack-name-link-11" {
 
 resource "openstack_networking_network_v2" "stack-name-home-switch" {
   name = "stack-name-home-switch"
+  tags = ["stack-name"]
   admin_state_up = "true"
 }
 
 resource "openstack_networking_subnet_v2" "stack-name-home-switch-subnet" {
   name = "stack-name-home-switch-subnet"
+  tags = ["stack-name"]
   network_id = openstack_networking_network_v2.stack-name-home-switch.id
   cidr = "10.10.30.0/24"
   gateway_ip = "10.10.30.1"
@@ -84,6 +90,7 @@ resource "openstack_networking_subnet_v2" "stack-name-home-switch-subnet" {
 
 resource "openstack_networking_port_v2" "stack-name-link-6" {
   name = "stack-name-link-6"
+  tags = ["stack-name"]
   network_id = openstack_networking_network_v2.stack-name-home-switch.id
   admin_state_up = "true"
   security_group_ids = [
@@ -102,6 +109,7 @@ resource "openstack_networking_port_v2" "stack-name-link-6" {
 
 resource "openstack_networking_port_v2" "stack-name-link-12" {
   name = "stack-name-link-12"
+  tags = ["stack-name"]
   network_id = openstack_networking_network_v2.stack-name-home-switch.id
   admin_state_up = "true"
   security_group_ids = [
@@ -120,11 +128,13 @@ resource "openstack_networking_port_v2" "stack-name-link-12" {
 
 resource "openstack_networking_network_v2" "stack-name-wan" {
   name = "stack-name-wan"
+  tags = ["stack-name"]
   admin_state_up = "true"
 }
 
 resource "openstack_networking_subnet_v2" "stack-name-wan-subnet" {
   name = "stack-name-wan-subnet"
+  tags = ["stack-name"]
   network_id = openstack_networking_network_v2.stack-name-wan.id
   cidr = "100.100.100.0/24"
   no_gateway = "true"
@@ -134,6 +144,7 @@ resource "openstack_networking_subnet_v2" "stack-name-wan-subnet" {
 
 resource "openstack_networking_port_v2" "stack-name-link-2" {
   name = "stack-name-link-2"
+  tags = ["stack-name"]
   network_id = openstack_networking_network_v2.stack-name-wan.id
   admin_state_up = "true"
   security_group_ids = [
@@ -151,6 +162,7 @@ resource "openstack_networking_port_v2" "stack-name-link-2" {
 
 resource "openstack_networking_port_v2" "stack-name-link-8" {
   name = "stack-name-link-8"
+  tags = ["stack-name"]
   network_id = openstack_networking_network_v2.stack-name-wan.id
   admin_state_up = "true"
   security_group_ids = [
@@ -168,6 +180,7 @@ resource "openstack_networking_port_v2" "stack-name-link-8" {
 
 resource "openstack_networking_port_v2" "stack-name-link-10" {
   name = "stack-name-link-10"
+  tags = ["stack-name"]
   network_id = openstack_networking_network_v2.stack-name-wan.id
   admin_state_up = "true"
   security_group_ids = [
@@ -185,11 +198,13 @@ resource "openstack_networking_port_v2" "stack-name-link-10" {
 
 resource "openstack_networking_network_v2" "stack-name-man-network" {
   name = "stack-name-man-network"
+  tags = ["stack-name"]
   admin_state_up = "true"
 }
 
 resource "openstack_networking_subnet_v2" "stack-name-man-network-subnet" {
   name = "stack-name-man-network-subnet"
+  tags = ["stack-name"]
   network_id = openstack_networking_network_v2.stack-name-man-network.id
   cidr = "192.168.128.0/17"
   no_gateway = "true"
@@ -199,6 +214,7 @@ resource "openstack_networking_subnet_v2" "stack-name-man-network-subnet" {
 
 resource "openstack_networking_port_v2" "stack-name-link-1" {
   name = "stack-name-link-1"
+  tags = ["stack-name"]
   network_id = openstack_networking_network_v2.stack-name-man-network.id
   admin_state_up = "true"
   security_group_ids = [
@@ -216,6 +232,7 @@ resource "openstack_networking_port_v2" "stack-name-link-1" {
 
 resource "openstack_networking_port_v2" "stack-name-link-3" {
   name = "stack-name-link-3"
+  tags = ["stack-name"]
   network_id = openstack_networking_network_v2.stack-name-man-network.id
   admin_state_up = "true"
   security_group_ids = [
@@ -233,6 +250,7 @@ resource "openstack_networking_port_v2" "stack-name-link-3" {
 
 resource "openstack_networking_port_v2" "stack-name-link-4" {
   name = "stack-name-link-4"
+  tags = ["stack-name"]
   network_id = openstack_networking_network_v2.stack-name-man-network.id
   admin_state_up = "true"
   security_group_ids = [
@@ -250,6 +268,7 @@ resource "openstack_networking_port_v2" "stack-name-link-4" {
 
 resource "openstack_networking_port_v2" "stack-name-link-7" {
   name = "stack-name-link-7"
+  tags = ["stack-name"]
   network_id = openstack_networking_network_v2.stack-name-man-network.id
   admin_state_up = "true"
   security_group_ids = [
@@ -267,6 +286,7 @@ resource "openstack_networking_port_v2" "stack-name-link-7" {
 
 resource "openstack_networking_port_v2" "stack-name-link-9" {
   name = "stack-name-link-9"
+  tags = ["stack-name"]
   network_id = openstack_networking_network_v2.stack-name-man-network.id
   admin_state_up = "true"
   security_group_ids = [
@@ -284,6 +304,7 @@ resource "openstack_networking_port_v2" "stack-name-link-9" {
 
 resource "openstack_compute_instance_v2" "stack-name-server" {
   name = "stack-name-server"
+  tags = ["stack-name"]
   image_name = "debian-12-x86_64"
   flavor_name = "standard.small"
   key_pair = "dummy-ssh-key-pair"
@@ -300,6 +321,7 @@ resource "openstack_compute_instance_v2" "stack-name-server" {
 
 resource "openstack_compute_instance_v2" "stack-name-home" {
   name = "stack-name-home"
+  tags = ["stack-name"]
   image_name = "debian-12-x86_64"
   flavor_name = "standard.small"
   key_pair = "dummy-ssh-key-pair"
@@ -316,6 +338,7 @@ resource "openstack_compute_instance_v2" "stack-name-home" {
 
 resource "openstack_compute_instance_v2" "stack-name-server-router" {
   name = "stack-name-server-router"
+  tags = ["stack-name"]
   image_name = "debian-12-x86_64"
   flavor_name = "standard.small"
   key_pair = "dummy-ssh-key-pair"
@@ -336,6 +359,7 @@ resource "openstack_compute_instance_v2" "stack-name-server-router" {
 
 resource "openstack_compute_instance_v2" "stack-name-home-router" {
   name = "stack-name-home-router"
+  tags = ["stack-name"]
   image_name = "debian-12-x86_64"
   flavor_name = "standard.small"
   key_pair = "dummy-ssh-key-pair"
@@ -356,6 +380,7 @@ resource "openstack_compute_instance_v2" "stack-name-home-router" {
 
 resource "openstack_networking_port_v2" "stack-name-man-out-port" {
   name = "stack-name-man-out-port"
+  tags = ["stack-name"]
   network_id = data.openstack_networking_network_v2.crczp-network.id
   admin_state_up = "true"
   security_group_ids = [
@@ -369,6 +394,7 @@ resource "openstack_networking_port_v2" "stack-name-man-out-port" {
 
 resource "openstack_compute_instance_v2" "stack-name-man" {
   name = "stack-name-man"
+  tags = ["stack-name"]
   image_name = "debian-12-x86_64"
   flavor_name = "standard.small"
   key_pair = "dummy-ssh-key-pair"

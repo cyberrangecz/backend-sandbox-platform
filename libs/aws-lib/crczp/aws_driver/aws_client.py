@@ -19,6 +19,9 @@ from crczp.cloud_commons import (
     NodeDetails,
     Quota,
     QuotaSet,
+    ResourceDeletion,
+    StackInventory,
+    StackNameScheme,
     TopologyInstance,
     TransformationConfiguration,
     hcl_string,
@@ -27,6 +30,7 @@ from crczp.cloud_commons.topology_elements import Node
 
 from .exceptions import ImageDoesNotExist, KeyPairDoesNotExist
 from .network_forwarding import traffic_directions, validate_network_forwarding
+from .stack_resources import AwsStackResources
 
 # Only provide a default CA bundle when the environment does not already specify one
 # and the fallback file exists on the system.
@@ -64,7 +68,7 @@ def get_default_route_ip(topology_instance: TopologyInstance, node: Node) -> str
     return str(gateway_link.ip)
 
 
-class CrczpAwsClient(CrczpCloudClientBase):
+class CrczpAwsClient(CrczpCloudClientBase):  # pylint: disable=too-many-public-methods
     """
     AWS client for Cyberrangecz platform.
     """
@@ -126,6 +130,7 @@ class CrczpAwsClient(CrczpCloudClientBase):
         self.jinja2_env.filters['regex_replace'] = regex_replace
         self.jinja2_env.filters['hcl_string'] = hcl_string
         self.trc = trc
+        self.stack_resources = AwsStackResources(self.ec2_client)
 
     @staticmethod
     def get_private_ip(instance_attrs: dict[str, Any]) -> str:
@@ -504,3 +509,26 @@ class CrczpAwsClient(CrczpCloudClientBase):
         flavor = terraform_attrs['instance_type']
 
         return NodeDetails(image, status, flavor)
+
+    def list_stack_inventories(self, stack_names: StackNameScheme) -> dict[str, StackInventory]:
+        """
+        List the stacks of one deployment that have resources in the AWS account.
+
+        :param stack_names: The stack names of the deployment
+        :return: Resources and the RAM in GB held by their instances, keyed by full stack name
+        """
+        return self.stack_resources.list_stack_inventories(stack_names)
+
+    def delete_stack_resources(
+        self, stack_name: str, stack_names: StackNameScheme
+    ) -> list[ResourceDeletion]:
+        """
+        Delete the resources of one stack, dependents first. Failures are reported in the
+        results, never raised.
+
+        :param stack_name: The full stack name
+        :param stack_names: The stack names of the deployment
+        :return: The result of deleting each resource, in deletion order
+        :raise ValueError: The name is not a full stack name of the deployment
+        """
+        return self.stack_resources.delete_stack_resources(stack_name, stack_names)

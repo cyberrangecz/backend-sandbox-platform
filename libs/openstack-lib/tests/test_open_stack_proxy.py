@@ -580,7 +580,7 @@ class TestOpenStackProxy:  # pylint: disable=too-many-public-methods
         # The sandbox gets its own router, gatewayed to the platform's external network.
         assert (
             'resource "openstack_networking_router_v2" "stack-p1-s2-tapm-rtr" { '
-            'name = "stack-p1-s2-tapm-rtr" admin_state_up = "true" '
+            'name = "stack-p1-s2-tapm-rtr" tags = ["stack-p1-s2"] admin_state_up = "true" '
             'external_network_id = '
             'data.openstack_networking_network_v2.network-forwarding-ext-net.id }'
         ) in template_str
@@ -594,7 +594,8 @@ class TestOpenStackProxy:  # pylint: disable=too-many-public-methods
         # The floating IP of the destination port (link-7, monitoring on monitoring-switch).
         assert (
             'resource "openstack_networking_floatingip_v2" "stack-p1-s2-tapm-fip-link-7" { '
-            'pool = data.openstack_networking_network_v2.network-forwarding-ext-net.name }'
+            'pool = data.openstack_networking_network_v2.network-forwarding-ext-net.name '
+            'tags = ["stack-p1-s2"] }'
         ) in template_str
         assert (
             'resource "openstack_networking_floatingip_associate_v2" '

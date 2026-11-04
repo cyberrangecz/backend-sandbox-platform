@@ -2,6 +2,7 @@
 Pool Service module for Pool management.
 """
 
+import hmac
 import io
 import zipfile
 from typing import Any
@@ -172,7 +173,11 @@ def validate_hardware_usage_of_sandboxes(pool: Pool, count: int) -> None:
 
 
 def create_sandboxes_in_pool(
-    pool: Pool, created_by: User | None, count: int | None = None
+    pool: Pool,
+    created_by: User | None,
+    count: int | None = None,
+    *,
+    created_by_sub: str | None = None,
 ) -> list[SandboxAllocationUnit]:
     """
     Creates count sandboxes in given pool.
@@ -180,14 +185,34 @@ def create_sandboxes_in_pool(
     :param pool: Pool where to build sandbox
     :param created_by: User initiating the build.
     :param count: Count of sandboxes, None to build maximum
+    :param created_by_sub: OIDC sub of a trainee allocating a sandbox for themselves. A
+        trainee may hold one active sandbox per pool.
     :return: sandbox instance
+    :raises ConflictError: The trainee already has an active sandbox in the pool.
     """
     with transaction.atomic():
+        # The pool row lock also serializes the check below with concurrent allocations.
         pool = Pool.objects.select_for_update().get(pk=pool.id)
+
+        if (
+            created_by_sub is not None
+            and SandboxAllocationUnit.objects.filter(
+                SandboxAllocationUnit.is_active(), pool=pool, created_by_sub=created_by_sub
+            ).exists()
+        ):
+            raise exceptions.ConflictError(
+                'You already have a sandbox in this pool. Use it, or clean it up first.'
+            )
 
         current_size = pool.size
         if count is None:
             count = pool.max_size - current_size
+
+        if count < 1:
+            raise exceptions.ValidationError(
+                f'Cannot build {count} sandboxes: the count must be at least 1'
+                f' (pool size is {current_size}/{pool.max_size}).'
+            )
 
         if current_size + count > pool.max_size:
             raise exceptions.ValidationError(
@@ -196,41 +221,57 @@ def create_sandboxes_in_pool(
             )
 
         validate_hardware_usage_of_sandboxes(pool, count)
-        units = requests.create_allocations_requests(pool, count, created_by)
-        pool.size += count
-        pool.save()
+        units = requests.create_allocations_requests(
+            pool, count, created_by, created_by_sub=created_by_sub
+        )
         return units
 
 
 def get_unlocked_sandbox(pool: Pool, created_by: User | None) -> Sandbox | None:
-    """Return unlocked sandbox."""
-    # Note: Locks should be created immediately on Sandbox creation to simplify this logic
+    """Lock and return a free sandbox of the pool, or None when every sandbox is taken.
+
+    Only ready sandboxes an organizer built are handed out: a sandbox a trainee allocated
+    for themselves is theirs, even though it carries no lock. Sandboxes another request is
+    locking right now are skipped instead of waited for, so the trainees of one training
+    starting together do not queue behind each other.
+    """
     with transaction.atomic():
-        sb_queryset = (
-            Sandbox.objects
-            .select_for_update()
-            .order_by('id')
-            .filter(allocation_unit__pool=pool, ready=True)
-        )
-        # Lock filtering needs to be done in Python.
-        # FOR UPDATE cannot be applied to the nullable side of a relation.
-        if _has_locked_sandbox(sb_queryset, created_by):
+        if created_by is not None:
+            # Serializes the requests of one user, so two concurrent ones cannot each lock a
+            # sandbox; the check below then sees the first one's lock.
+            User.objects.select_for_update().filter(pk=created_by.pk).first()
+        if _has_locked_sandbox(pool, created_by):
             raise CrczpException(
                 'You already have a sandbox assigned. Use that one or ask your tutor for help.'
             )
-        sandbox = next((sb for sb in sb_queryset if not hasattr(sb, 'lock')), None)
+        free_sandboxes = (
+            Sandbox.objects
+            .filter(
+                allocation_unit__pool=pool,
+                allocation_unit__created_by_sub__isnull=True,
+                ready=True,
+                lock__isnull=True,
+            )
+            .order_by('id')
+            # Lock only the sandbox row: FOR UPDATE cannot cover the nullable side of the
+            # outer join that lock__isnull needs.
+            .select_for_update(skip_locked=True, of=('self',))
+        )
+        while (sandbox := free_sandboxes.first()) is not None:
+            # A request that locked this sandbox and committed after the query above took its
+            # snapshot is invisible to it; a new statement sees its lock. The next query then
+            # excludes this sandbox, so the loop ends.
+            if not SandboxLock.objects.filter(sandbox=sandbox).exists():
+                SandboxLock.objects.create(sandbox=sandbox, created_by=created_by)
+                return sandbox
+        return None
 
-        if not sandbox:
-            return None
-        SandboxLock.objects.create(sandbox=sandbox, created_by=created_by)
-        return sandbox
 
-
-def _has_locked_sandbox(sb_queryset: QuerySet[Sandbox, Sandbox], created_by: User | None) -> bool:
-    """Check if User locked a sandbox in queryset"""
+def _has_locked_sandbox(pool: Pool, created_by: User | None) -> bool:
+    """Check if the user holds the lock of a sandbox in the pool."""
     if created_by is None:
         return False
-    return len(sb_queryset.filter(lock__created_by=created_by)) != 0
+    return Sandbox.objects.filter(allocation_unit__pool=pool, lock__created_by=created_by).exists()
 
 
 def lock_pool(pool: Pool, training_access_token: str | None = None) -> PoolLock:
@@ -240,6 +281,23 @@ def lock_pool(pool: Pool, training_access_token: str | None = None) -> PoolLock:
         if hasattr(pool, 'lock'):
             raise exceptions.ValidationError('Pool already locked.')
         return PoolLock.objects.create(pool=pool, training_access_token=training_access_token)
+
+
+def validate_training_access_token(pool: Pool, training_access_token: str | None) -> None:
+    """Check that the pool is locked for a training and the token is that training's.
+
+    :raises ValidationError: The pool is not locked.
+    :raises ForbiddenError: No training holds the pool, or the token is not its one.
+    """
+    if not hasattr(pool, 'lock'):
+        raise exceptions.ValidationError('The pool is not locked.')
+    expected_token = pool.lock.training_access_token
+    if expected_token is None:
+        raise exceptions.ForbiddenError('This pool does not have a training assigned')
+    if training_access_token is None or not hmac.compare_digest(
+        expected_token.encode(), training_access_token.encode()
+    ):
+        raise exceptions.ForbiddenError('Provided training access token is not valid.')
 
 
 def get_management_ssh_access(pool: Pool) -> io.BytesIO:

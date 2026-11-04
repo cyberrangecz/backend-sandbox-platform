@@ -164,3 +164,32 @@ class TestServiceConfigLoad:
         """An unset IdentityFile is not turned into the working directory."""
         text = _replace_once(TEST_CONFIG, IDENTITY_FILE_LINE, '        IdentityFile: ""\n')
         assert _load(text).app_config.proxy_jump_to_man.IdentityFile == ''
+
+
+class TestTraineeSandboxCleanupConfiguration:
+    """Tests for the trainee_sandbox_cleanup section."""
+
+    def test_defaults_to_disabled(self):
+        """Without the section, the cleanup is off and keeps sandboxes for a day."""
+        cleanup = _load(TEST_CONFIG).app_config.trainee_sandbox_cleanup
+
+        assert cleanup.enabled is False
+        assert cleanup.max_age_hours == 24
+
+    def test_reads_the_section(self):
+        """The section turns the cleanup on and sets the age."""
+        text = _with_app_setting(
+            'trainee_sandbox_cleanup:\n        enabled: true\n        max_age_hours: 6'
+        )
+
+        cleanup = _load(text).app_config.trainee_sandbox_cleanup
+
+        assert cleanup.enabled is True
+        assert cleanup.max_age_hours == 6
+
+    def test_rejects_an_age_below_one_hour(self):
+        """An age of zero would remove sandboxes trainees just got."""
+        text = _with_app_setting('trainee_sandbox_cleanup:\n        max_age_hours: 0')
+
+        with pytest.raises(ImproperlyConfigured, match='max_age_hours'):
+            _load(text)

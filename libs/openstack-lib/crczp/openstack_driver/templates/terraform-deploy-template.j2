@@ -19,6 +19,7 @@
 {%- macro tf_network(name, admin_state_up=true) %}
 resource "{{ tf_resource_network }}" "{{ name }}" {
     name = "{{ name }}"
+    tags = ["{{ resource_prefix }}"]
     admin_state_up = "{{ (admin_state_up | string).lower() }}"
 }
 
@@ -28,6 +29,7 @@ resource "{{ tf_resource_network }}" "{{ name }}" {
 {%- macro tf_subnet(name, network_name, cidr, gateway_ip, dns_name_servers=[]) %}
 resource "{{ tf_resource_subnet }}" "{{ name }}" {
     name = "{{ name }}"
+    tags = ["{{ resource_prefix }}"]
     network_id = {{ tf_resource_network + '.' + network_name }}.id
     cidr = "{{ cidr }}"
 {%- if gateway_ip %}
@@ -48,6 +50,7 @@ resource "{{ tf_resource_subnet }}" "{{ name }}" {
                   allowed_address_pairs=false, admin_state_up=true, security_group_ref=none) %}
 resource "{{ tf_resource_port }}" "{{ name }}" {
     name = "{{ name }}"
+    tags = ["{{ resource_prefix }}"]
 {%- if network_name == trc.base_network %}
     network_id = data.{{ tf_resource_network + '.' + network_name }}.id
 {%- else %}
@@ -92,6 +95,7 @@ data "openstack_images_image_ids_v2" "image_data_source-{{ name }}-{{ loop.index
 {% endif %}
 resource "{{ tf_resource_instance }}" "{{ name }}" {
     name = "{{ name }}"
+    tags = ["{{ resource_prefix }}"]
 {%- if not volumes %}
     image_name = {{ image_name | hcl_string }}
 {%- endif %}
@@ -215,12 +219,14 @@ data "{{ tf_data_secgroup }}" "{{ mirror_secgroup }}" {
    Neutron would reject as overlapping subnets if they all attached to the platform router. -#}
 resource "openstack_networking_router_v2" "{{ router_name }}" {
     name                = "{{ router_name }}"
+    tags                = ["{{ resource_prefix }}"]
     admin_state_up      = "true"
     external_network_id = data.{{ tf_resource_network }}.network-forwarding-ext-net.id
 }
 {# Created after the topology ports so Neutron cannot hand it an address one of them asks for. -#}
 resource "{{ tf_resource_port }}" "{{ router_port_name }}" {
     name = "{{ router_port_name }}"
+    tags = ["{{ resource_prefix }}"]
     network_id = {{ tf_resource_network }}.{{ destination_network_name }}.id
     fixed_ip {
         subnet_id = {{ tf_resource_subnet }}.{{ destination_network_name }}-subnet.id
@@ -238,6 +244,7 @@ resource "openstack_networking_router_interface_v2" "{{ router_iface_name }}" {
 
 resource "openstack_networking_floatingip_v2" "{{ fip_name }}" {
     pool = data.{{ tf_resource_network }}.network-forwarding-ext-net.name
+    tags = ["{{ resource_prefix }}"]
 }
 resource "openstack_networking_floatingip_associate_v2" "{{ fip_assoc_name }}" {
     floating_ip = openstack_networking_floatingip_v2.{{ fip_name }}.address

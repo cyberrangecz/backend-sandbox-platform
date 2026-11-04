@@ -120,7 +120,15 @@ class TestStageOutputLineBreaks:
             'cleanup_stage_user' if cleanup else 'allocation_stage_user'
         )
         container = DockerContainer(
-            'url', 'rev', stage, 'ssh', 'inventory', 'containers', 'credentials', cleanup=cleanup
+            'url',
+            'rev',
+            stage,
+            'container-name',
+            'ssh',
+            'inventory',
+            'containers',
+            'credentials',
+            cleanup=cleanup,
         )
 
         container._store_line('task 1%\rtask 2%\r')  # pylint: disable=protected-access

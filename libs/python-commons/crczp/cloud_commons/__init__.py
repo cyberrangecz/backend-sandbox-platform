@@ -2,6 +2,19 @@
 
 from .cloud_client_base import CrczpCloudClientBase
 from .cloud_client_elements import HardwareUsage, Image, Limits, NodeDetails, Quota, QuotaSet
+from .cloud_stacks import (
+    CloudResource,
+    DeletionOutcome,
+    ResourceDeletion,
+    ResourceKind,
+    StackInventory,
+    StackName,
+    StackNameScheme,
+    TaggedResource,
+    delete_in_order,
+    group_by_stack,
+    select_stack,
+)
 from .exceptions import (
     CrczpException,
     InvalidTopologyDefinition,
@@ -15,6 +28,17 @@ from .topology_instance import MAN_NAME, MAN_NET_NAME, UNIVERSAL_ROLES, Topology
 from .transformation_configuration import TransformationConfiguration
 
 __all__ = [
+    'CloudResource',
+    'DeletionOutcome',
+    'ResourceDeletion',
+    'ResourceKind',
+    'StackInventory',
+    'StackName',
+    'StackNameScheme',
+    'TaggedResource',
+    'delete_in_order',
+    'group_by_stack',
+    'select_stack',
     'CrczpCloudClientBase',
     'HardwareUsage',
     'Image',

@@ -14,6 +14,9 @@ from crczp.cloud_commons import (
     Image,
     Limits,
     QuotaSet,
+    ResourceDeletion,
+    StackInventory,
+    StackNameScheme,
     TopologyInstance,
     TransformationConfiguration,
 )
@@ -153,6 +156,65 @@ class CrczpTerraformClient:  # pylint: disable=too-many-public-methods
         """
         return self.client_manager.delete_stack(stack_name)
 
+    def wait_for_destroy(
+        self, process: subprocess.Popen[str], timeout: float | None = None
+    ) -> tuple[str, str, int]:
+        """
+        Wait for a destroy process to finish and report a state lock that blocked it.
+
+        :param process: The process executing the destroy
+        :param timeout: Timeout in seconds
+        :return: Tuple of stdout, stderr and return code
+        :raise TerraformStateLocked: The destroy failed on a held state lock; carries the lock id
+        """
+        return self.client_manager.wait_for_destroy(process, timeout)
+
+    def force_unlock_stack(self, stack_name: str, lock_id: str) -> None:
+        """
+        Release the state lock of a stack. Only safe once nothing holds the lock any more.
+
+        :param stack_name: Name of the stack whose workspace is locked
+        :param lock_id: The id of the lock, as reported by the blocked command
+        :return: None
+        :raise TerraformUnlockFailed: The unlock command fails
+        """
+        self.client_manager.force_unlock_stack(stack_name, lock_id)
+
+    def list_workspaces(self, stack_names: StackNameScheme) -> list[str]:
+        """
+        List the workspaces of the configured backend that are named after a stack of one
+        deployment.
+
+        :param stack_names: The stack names of the deployment
+        :return: The list containing workspace names
+        """
+        return self.client_manager.list_workspaces(stack_names)
+
+    def list_stack_inventories(self, stack_names: StackNameScheme) -> dict[str, StackInventory]:
+        """
+        List the stacks of one deployment that have resources in the cloud project, whether
+        or not Terraform knows them.
+
+        :param stack_names: The stack names of the deployment
+        :return: The resources of each stack and the RAM in GB they hold, keyed by full
+                 stack name
+        """
+        return self.cloud_client.list_stack_inventories(stack_names)
+
+    def delete_stack_resources(
+        self, stack_name: str, stack_names: StackNameScheme
+    ) -> list[ResourceDeletion]:
+        """
+        Delete the resources of one stack that the cloud listing finds, dependents first.
+        Failures are reported in the results, never raised.
+
+        :param stack_name: The full stack name
+        :param stack_names: The stack names of the deployment
+        :return: The result of deleting each resource, in deletion order
+        :raise ValueError: The name is not a full stack name of the deployment
+        """
+        return self.cloud_client.delete_stack_resources(stack_name, stack_names)
+
     def delete_stack_directory(self, stack_name: str) -> None:
         """
         Delete the stack directory.
@@ -163,15 +225,16 @@ class CrczpTerraformClient:  # pylint: disable=too-many-public-methods
         """
         self.client_manager.delete_stack_directory(stack_name)
 
-    def delete_terraform_workspace(self, stack_name: str) -> None:
+    def delete_terraform_workspace(self, stack_name: str, *, force: bool = False) -> None:
         """
         Delete the Terraform workspace.
 
         :param stack_name: Name of stack
+        :param force: Delete the workspace even when its state still tracks resources
         :return: None
         :raise CrczpException: Terraform workspace is not found
         """
-        self.client_manager.delete_terraform_workspace(stack_name)
+        self.client_manager.delete_terraform_workspace(stack_name, force=force)
 
     def list_images(self) -> list[Image]:
         """

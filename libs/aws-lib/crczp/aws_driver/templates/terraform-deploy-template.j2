@@ -3,6 +3,7 @@ resource "aws_vpc" "{{ name }}" {
     cidr_block = "{{ cidr_block }}"
     tags = {
         Name = "{{ name }}"
+        "crczp-stack" = "{{ resource_prefix }}"
     }
 }
 
@@ -14,6 +15,7 @@ resource "aws_subnet" "{{ name }}-subnet" {
     availability_zone = "{{ availability_zone }}"
     tags = {
         Name = "{{ name }}-subnet"
+        "crczp-stack" = "{{ resource_prefix }}"
     }
 }
 {%- endmacro -%}
@@ -26,6 +28,9 @@ resource "aws_network_interface" "{{ name }}" {
     {%- endif %}
     security_groups = [aws_security_group.{{ network_name }}-{{ security_group_name }}.id]
     source_dest_check = false
+    tags = {
+        "crczp-stack" = "{{ resource_prefix }}"
+    }
 }
 {%- endmacro -%}
 
@@ -35,6 +40,7 @@ resource "aws_instance" "{{ name }}" {
     instance_type = {{ instance_type | hcl_string }}
     tags = {
         Name = "{{ name }}"
+        "crczp-stack" = "{{ resource_prefix }}"
     }
     key_name = "{{ key_pair }}"
 {%- if volumes %}
@@ -114,6 +120,9 @@ resource "aws_network_interface" "{{ man_out_port_name }}" {
     subnet_id = data.aws_subnet.base-subnet.id
     security_groups = [data.aws_security_group.sandbox-access-sg.id]
     source_dest_check = false
+    tags = {
+        "crczp-stack" = "{{ resource_prefix }}"
+    }
 }
 
 {% set man = topology_instance.man -%}
@@ -126,6 +135,7 @@ resource "aws_instance" "{{ man_name }}" {
     instance_type = "{{ man.flavor }}"
     tags = {
         Name = "{{ man_name }}"
+        "crczp-stack" = "{{ resource_prefix }}"
     }
     key_name = "{{ key_pair_name_ssh }}"
 {%- for link_name in man_link_names %}
@@ -147,6 +157,7 @@ resource "aws_ec2_traffic_mirror_target" "{{ target_name }}" {
     depends_on = [aws_instance.{{ resource_prefix }}-{{ network_forwarding.destination.node.name }}]
     tags = {
         Name = "{{ target_name }}"
+        "crczp-stack" = "{{ resource_prefix }}"
     }
 }
 
@@ -154,6 +165,7 @@ resource "aws_ec2_traffic_mirror_filter" "{{ filter_name }}" {
     network_services = ["amazon-dns"]
     tags = {
         Name = "{{ filter_name }}"
+        "crczp-stack" = "{{ resource_prefix }}"
     }
 }
 {% for direction in traffic_directions %}
@@ -176,6 +188,7 @@ resource "aws_ec2_traffic_mirror_session" "{{ session_name }}" {
     depends_on               = [aws_instance.{{ resource_prefix }}-{{ source.node.name }}]
     tags = {
         Name = "{{ session_name }}"
+        "crczp-stack" = "{{ resource_prefix }}"
     }
 }
 {% endfor -%}

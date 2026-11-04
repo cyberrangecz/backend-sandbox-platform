@@ -12,11 +12,21 @@ from rest_framework.reverse import reverse
 from rest_framework.test import APIRequestFactory
 
 from crczp.cloud_commons import HardwareUsage, exceptions
-from crczp.sandbox_common_lib.exceptions import ApiException, StackError
+from crczp.sandbox_common_lib.exceptions import (
+    ApiException,
+    ConflictError,
+    ForbiddenError,
+    StackError,
+)
 from crczp.sandbox_common_lib.exceptions import ValidationError as ApiValidationError
 from crczp.sandbox_instance_app.lib import pools, sshconfig
-from crczp.sandbox_instance_app.models import Pool, Sandbox, SandboxAllocationUnit
-from crczp.sandbox_instance_app.views import PoolListCreateView, SandboxGetAndLockView
+from crczp.sandbox_instance_app.models import Pool, Sandbox, SandboxAllocationUnit, SandboxLock
+from crczp.sandbox_instance_app.views import (
+    PoolCleanupRequestsListCreateView,
+    PoolCleanupRequestUnlockedCreateView,
+    PoolListCreateView,
+    SandboxGetAndLockView,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -253,7 +263,9 @@ class TestCreateSandboxesInPool:
         """Test creating a single sandbox in a pool."""
         pool = pools.get_pool(POOL_ID)
         pools.create_sandboxes_in_pool(pool, created_by, 1)
-        self.fake_create_allocation_requests.assert_called_once_with(pool, 1, created_by)
+        self.fake_create_allocation_requests.assert_called_once_with(
+            pool, 1, created_by, created_by_sub=None
+        )
 
     def test_create_sandboxes_in_pool_success_all(self, created_by):
         """Test filling a pool with sandboxes up to its max size."""
@@ -262,7 +274,7 @@ class TestCreateSandboxesInPool:
 
         pools.create_sandboxes_in_pool(pool, created_by)
         self.fake_create_allocation_requests.assert_called_once_with(
-            pool, pool.max_size - size_before, created_by
+            pool, pool.max_size - size_before, created_by, created_by_sub=None
         )
 
     def test_create_sandboxes_in_pool_full(self, created_by):
@@ -270,6 +282,18 @@ class TestCreateSandboxesInPool:
         pool = pools.get_pool(FULL_POOL_ID)
         with pytest.raises(ApiException):
             pools.create_sandboxes_in_pool(pool, created_by, 1)
+
+    @pytest.mark.parametrize('count', [0, -2, None])
+    def test_a_count_below_one_is_refused_and_leaves_the_pool_size(self, created_by, count):
+        pool = pools.get_pool(FULL_POOL_ID)
+        size_before = pool.size
+
+        with pytest.raises(ApiValidationError):
+            pools.create_sandboxes_in_pool(pool, created_by, count)
+
+        self.fake_create_allocation_requests.assert_not_called()
+        pool.refresh_from_db()
+        assert pool.size == size_before
 
     def test_create_sandboxes_in_pool_limits_exceeded(self, created_by):
         """Test that sandbox creation fails when hardware limits are exceeded."""
@@ -280,6 +304,38 @@ class TestCreateSandboxesInPool:
 
         with pytest.raises(StackError):
             pools.create_sandboxes_in_pool(pool, created_by)
+
+    def test_trainee_with_an_active_sandbox_gets_no_second_one(self, created_by):
+        """Test that a trainee may hold one active sandbox per pool."""
+        pool = pools.get_pool(POOL_ID)
+        SandboxAllocationUnit.objects.create(pool=pool, created_by_sub='trainee-sub')
+
+        with pytest.raises(ConflictError):
+            pools.create_sandboxes_in_pool(pool, created_by, 1, created_by_sub='trainee-sub')
+        self.fake_create_allocation_requests.assert_not_called()
+
+    def test_trainee_whose_sandbox_failed_may_allocate_again(
+        self, pool, sandbox_failed_user_stage, created_by
+    ):
+        """Test that a failed allocation does not count as the trainee's sandbox."""
+        sandbox_failed_user_stage.allocation_unit.created_by_sub = 'trainee-sub'
+        sandbox_failed_user_stage.allocation_unit.save()
+
+        pools.create_sandboxes_in_pool(pool, created_by, 1, created_by_sub='trainee-sub')
+
+        self.fake_create_allocation_requests.assert_called_once_with(
+            pool, 1, created_by, created_by_sub='trainee-sub'
+        )
+
+    def test_trainee_sandbox_in_another_pool_does_not_count(self, pool, created_by):
+        """Test that the one-sandbox rule applies per pool."""
+        SandboxAllocationUnit.objects.create(
+            pool=pools.get_pool(POOL_ID), created_by_sub='trainee-sub'
+        )
+
+        pools.create_sandboxes_in_pool(pool, created_by, 1, created_by_sub='trainee-sub')
+
+        self.fake_create_allocation_requests.assert_called_once()
 
 
 class TestGetUnlockedSandbox:
@@ -312,6 +368,99 @@ class TestGetUnlockedSandbox:
         pool = pools.get_pool(FULL_POOL_ID)
         sb = pools.get_unlocked_sandbox(pool, created_by)
         assert sb is None
+
+    def test_locks_the_sandbox_for_the_user(self, pool, sandbox, created_by):
+        """Test that the free sandbox is locked by the requesting user."""
+        sb = pools.get_unlocked_sandbox(pool, created_by)
+
+        assert sb is not None
+        assert sb.allocation_unit.pk == sandbox.allocation_unit.pk
+        assert SandboxLock.objects.get(sandbox=sandbox).created_by == created_by
+
+    def test_skips_a_sandbox_a_trainee_allocated(self, pool, sandbox):
+        """Test that a trainee's own sandbox is never handed to someone else."""
+        sandbox.allocation_unit.created_by_sub = 'trainee-sub'
+        sandbox.allocation_unit.save()
+
+        assert pools.get_unlocked_sandbox(pool, None) is None
+        assert not SandboxLock.objects.filter(sandbox=sandbox).exists()
+
+    def test_skips_a_locked_sandbox(self, pool, sandbox_lock):
+        """Test that an already locked sandbox is not handed out again."""
+        assert pools.get_unlocked_sandbox(pool, None) is None
+        assert SandboxLock.objects.get(sandbox=sandbox_lock.sandbox) == sandbox_lock
+
+    def test_user_holding_a_sandbox_gets_no_second_one(self, pool, sandbox, created_by):
+        """Test that a user who already holds a sandbox of the pool is refused."""
+        SandboxLock.objects.create(sandbox=sandbox, created_by=created_by)
+        SandboxAllocationUnit.objects.create(pool=pool, created_by=created_by)
+
+        with pytest.raises(exceptions.CrczpException, match='already have a sandbox'):
+            pools.get_unlocked_sandbox(pool, created_by)
+
+
+class TestValidateTrainingAccessToken:
+    """Tests for checking a training access token against the pool lock."""
+
+    def test_token_of_the_locking_training_passes(self, pool, pool_lock, training_access_token):  # pylint: disable=unused-argument
+        """Test that the token the pool was locked with is accepted."""
+        pools.validate_training_access_token(pool, training_access_token)
+
+    def test_unlocked_pool_is_validation_error(self, pool, training_access_token):
+        """Test that a pool without a lock is rejected as a bad request."""
+        with pytest.raises(ApiValidationError, match='not locked'):
+            pools.validate_training_access_token(pool, training_access_token)
+
+    def test_lock_without_training_is_forbidden(self, pool, training_access_token):
+        """Test that a pool an organizer locked by hand admits no training token."""
+        pools.lock_pool(pool)
+
+        with pytest.raises(ForbiddenError, match='does not have a training'):
+            pools.validate_training_access_token(pool, training_access_token)
+
+    @pytest.mark.parametrize('token', ['token-5768', '', None])
+    def test_other_token_is_forbidden(self, pool, pool_lock, token):  # pylint: disable=unused-argument
+        """Test that any other token, or none, is rejected."""
+        with pytest.raises(ForbiddenError, match='not valid'):
+            pools.validate_training_access_token(pool, token)
+
+
+class TestPoolCleanupViews:
+    """POST pools/{pool_id}/cleanup-requests and cleanup-unlocked."""
+
+    def test_skips_sandboxes_trainees_allocated(self, mocker, pool, sandbox):
+        """Test that unlocked trainee sandboxes are in use and are not cleaned up."""
+        trainee_unit = SandboxAllocationUnit.objects.create(pool=pool, created_by_sub='trainee')
+        Sandbox.objects.create(
+            id='trainee-sandbox',
+            allocation_unit=trainee_unit,
+            private_user_key='private-key',
+            public_user_key='public-key',
+            ready=True,
+        )
+        create_cleanup_requests = mocker.patch(
+            'crczp.sandbox_instance_app.views.sandbox_requests.create_cleanup_requests',
+            return_value=[],
+        )
+        request = APIRequestFactory().post('/')
+
+        response = PoolCleanupRequestUnlockedCreateView.as_view()(request, pool_id=pool.id)
+
+        assert response.status_code == 201
+        create_cleanup_requests.assert_called_once_with([sandbox.allocation_unit], False)
+
+    def test_forced_cleanup_reports_the_units_it_skipped(self, mocker, pool):
+        """Test that a forced pool cleanup answers with the units it could not clean up yet."""
+        mocker.patch(
+            'crczp.sandbox_instance_app.views.sandbox_requests.create_cleanup_requests',
+            return_value=[7, 9],
+        )
+        request = APIRequestFactory().post('/?force=true')
+
+        response = PoolCleanupRequestsListCreateView.as_view()(request, pool_id=pool.id)
+
+        assert response.status_code == 201
+        assert response.data == {'skipped_unit_ids': [7, 9]}
 
 
 class TestGetManagementSSHAccess:
@@ -396,18 +545,28 @@ class TestPoolLock:
     ):
         """Test that an incorrect training access token returns 403."""
         request = self.factory.get(
-            f'/pools/{pool.id}/sandboxes/get-and-lock/{training_access_token}'
+            f'/pools/{pool.id}/sandboxes/get-and-lock/{self.wrong_training_access_token}'
         )
-        request.user = AnonymousUser()
 
-        view = SandboxGetAndLockView()
-        view.kwargs = {
-            'training_access_token': self.wrong_training_access_token,
-            'pool_id': pool.id,
-        }
-        response = view.get(request)
+        response = SandboxGetAndLockView.as_view()(
+            request, pool_id=pool.id, training_access_token=self.wrong_training_access_token
+        )
 
         assert response.status_code == 403
+        assert response.data == {'detail': 'Provided training access token is not valid.'}
+
+    def test_sandbox_get_and_lock_view_unlocked_pool(self, pool, sandbox, training_access_token):  # pylint: disable=unused-argument
+        """Test that a pool no training holds answers 400."""
+        request = self.factory.get(
+            f'/pools/{pool.id}/sandboxes/get-and-lock/{training_access_token}'
+        )
+
+        response = SandboxGetAndLockView.as_view()(
+            request, pool_id=pool.id, training_access_token=training_access_token
+        )
+
+        assert response.status_code == 400
+        assert response.data == {'detail': 'The pool is not locked.'}
 
     def test_sandbox_get_and_lock_view_correct_token_full_pool(  # pylint: disable=unused-argument,too-many-arguments,too-many-positional-arguments
         self, mocker, pool, pool_lock, sandbox, training_access_token
