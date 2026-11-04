@@ -18,7 +18,7 @@ dependencies = [
     "yamlize>=0.7.0",
     "python-glanceclient>=4.8.0",
     "python-keystoneclient>=5.6.0",
-    "python-neutronclient>=11.5.0",
+    "python-neutronclient>=14.0.0",
     "python-novaclient>=18.9.0"
 ]
 
