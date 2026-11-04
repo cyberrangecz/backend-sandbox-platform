@@ -16,7 +16,7 @@ dependencies = [
     "pyjwkest ~=1.4.4",
     "crczp-automated-problem-generation-lib",
     # https://github.com/snguyenthanh/better_profanity/issues/19
-    "better-profanity ==0.6.1",
+    "better-profanity==0.7.0",
     "django ~=5.0",
     "djangorestframework ==3.17.2",
     "coreapi ~=2.3.3",
