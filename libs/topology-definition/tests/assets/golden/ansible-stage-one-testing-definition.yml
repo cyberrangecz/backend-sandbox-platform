@@ -1,0 +1,152 @@
+# Source: https://github.com/cyberrangecz/ansible-stage-one-testing-definition/blob/HEAD/topology.yml
+name: ansible-stage-one-testing-definition
+
+hosts:
+  - name: windows-server-2019
+    base_box:
+      image: windows-server-2019
+      man_user: windows
+      mng_protocol: winrm
+    flavor: a4-8-35
+
+  - name: windows-10
+    base_box:
+      image: windows-10
+      man_user: windows
+      mng_protocol: winrm
+    flavor: a4-8-35
+
+  - name: windows-7
+    base_box:
+      image: windows-7
+      man_user: windows
+      mng_protocol: winrm
+    flavor: a4-8-35
+
+  - name: kali
+    base_box:
+      image: kali
+      man_user: debian
+    flavor: a2-4-35
+
+  - name: debian-10
+    base_box:
+      image: debian-10
+      man_user: debian
+    flavor: a1-2-20
+
+  - name: ubuntu-2204
+    base_box:
+      image: ubuntu-22.04
+      man_user: ubuntu
+    flavor: a1-2-20
+
+  - name: xubuntu-2204
+    base_box:
+      image: xubuntu-22.04
+      man_user: ubuntu
+    flavor: a2-4-35
+
+  - name: ubuntu-noble
+    base_box:
+      image: ubuntu-noble-x86_64
+      man_user: ubuntu
+    flavor: a1-2-20
+
+  # - name: rocky-8
+  #   base_box:
+  #     image: rocky-8
+  #     man_user: centors
+  #   flavor: a1-2-20
+
+routers:
+  - name: opnsense-router
+    base_box:
+      image: opnsense
+      man_user: freebsd
+    flavor: a1-2-20
+
+  - name: debian-12-router
+    base_box:
+      image: debian-12-x86_64
+      man_user: debian
+    flavor: a1-2-20
+
+  - name: ubuntu-noble-router
+    base_box:
+      image: ubuntu-noble-x86_64
+      man_user: ubuntu
+    flavor: a1-2-20
+
+networks:
+  - name: opnsense-network
+    cidr: 172.18.1.0/24
+
+  - name: debian-10-network
+    cidr: 172.18.2.0/24
+
+  - name: debian-12-network
+    cidr: 172.18.3.0/24
+
+  - name: ubuntu-noble-network
+    cidr: 172.18.4.0/24
+
+net_mappings:
+  - host: windows-server-2019
+    network: opnsense-network
+    ip: 172.18.1.10
+
+  - host: windows-10
+    network: opnsense-network
+    ip: 172.18.1.11
+
+  - host: windows-7
+    network: opnsense-network
+    ip: 172.18.1.12
+
+  - host: debian-10
+    network: opnsense-network
+    ip: 172.18.1.13
+
+  - host: kali
+    network: debian-10-network
+    ip: 172.18.2.20
+
+  - host: ubuntu-2204
+    network: debian-10-network
+    ip: 172.18.2.21
+
+  - host: xubuntu-2204
+    network: debian-12-network
+    ip: 172.18.3.30
+
+  - host: ubuntu-noble
+    network: ubuntu-noble-network
+    ip: 172.18.4.40
+
+  # - host: rocky-8
+  #   network: ubuntu-noble
+  #   ip: 172.18.4.41
+
+router_mappings:
+  - router: opnsense-router
+    network: opnsense-network
+    ip: 172.18.1.1
+
+  - router: debian-12-router
+    network: debian-10-network
+    ip: 172.18.2.1
+
+  - router: debian-12-router
+    network: debian-12-network
+    ip: 172.18.3.1
+
+  - router: ubuntu-noble-router
+    network: ubuntu-noble-network
+    ip: 172.18.4.1
+
+groups:
+  - name: monitor-os
+    nodes: []
+  - name: monitor-icmp
+    nodes: []

@@ -7,8 +7,6 @@ import warnings
 from ipaddress import AddressValueError, IPv4Address
 from typing import Any
 
-from better_profanity import profanity
-
 from generator.var_object import Variable
 
 NAME_FILE_PATH = 'names.txt'
@@ -72,8 +70,7 @@ def get_random_text(text_file: str) -> str:
         with open(text_file, encoding='utf-8') as source_file:
             for sentence in source_file:
                 if chosen_sentence == 0:
-                    censored_sentence: str = profanity.censor(sentence[:-1].split('"')[1])
-                    return censored_sentence
+                    return sentence[:-1].split('"')[1]
                 chosen_sentence -= 1
         return 'Empty!'
     except OSError as exc:

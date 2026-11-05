@@ -7,19 +7,16 @@ license = "MIT"
 requires-python = ">=3.12"
 authors = [{ name = "cybersecurityhub.cz" }]
 dependencies = [
-    "PyYAML>=6.0.2",
+    "pyyaml>=6.0.3",
     "crczp-python-commons",
     "crczp-topology-definition",
-    "jinja2>=3.1.3",
+    "jinja2>=3.1.6",
     "keystoneauth1>=5.11.0",
-    "netaddr>=1.3.0",
-    "structlog>=25.3.0",
-    "deepdiff>=8.4.2",
-    "yamlize>=0.7.0",
-    "python-glanceclient>=4.8.0",
-    "python-keystoneclient>=5.6.0",
-    "python-neutronclient>=11.5.0",
-    "python-novaclient>=18.9.0"
+    # Capped below 4.19: from 4.19 a service missing from the catalog is cached as a
+    # disabled proxy for the life of the Connection, which is the life of the process here.
+    # That needs its own reviewed bump and a check against a real cloud.
+    "openstacksdk>=4.18.0,<4.19",
+    "structlog>=26.1.0",
 ]
 
 [dependency-groups]
@@ -29,6 +26,8 @@ test = [
     "pytest-structlog",
     # tests/test_integration.py: from Crypto.PublicKey import RSA
     "pycryptodome",
+    # tests/test_open_stack_proxy.py: from ruamel.yaml import YAML
+    "ruamel.yaml",
 ]
 
 lint = [

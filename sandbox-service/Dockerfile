@@ -14,10 +14,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Pinned in step with .github/workflows/github-actions.yml and .pre-commit-config.yaml,
 # so one uv version writes and reads uv.lock everywhere. This replaces an apt gcc layer
 # plus an unpinned `pip install uv`: gcc is not needed, because every compiled dependency
-# in the locked set ships a cp312/abi3 manylinux wheel (psycopg2-binary, cryptography,
-# hiredis, ruamel.yaml.clib, bcrypt, pynacl), and the one sdist-only package, coreschema,
-# is pure Python.
-COPY --from=ghcr.io/astral-sh/uv:0.11.24 /uv /uvx /bin/
+# in the locked set ships a cp312/abi3 manylinux wheel (psycopg-binary, cryptography,
+# hiredis, pydantic-core, bcrypt, pynacl), and no package in it is sdist-only.
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /bin/
 
 # Workspace manifests and every member's source, so uv can resolve and build
 # the crczp-* path dependencies.
@@ -32,8 +31,8 @@ COPY sandbox-service sandbox-service
 #                    (editable installs would point back at build-time paths)
 # --no-install-project  sandbox-service's own code is shipped as source below
 # --no-default-groups   `dev` is uv's default group, so without this the image
-#                    ships the ty type stubs (django-stubs, types-*): 140 packages
-#                    instead of 134. Also what makes the tox audit env, which
+#                    ships the ty type stubs (django-stubs, types-*): 94 packages
+#                    instead of 88. Also what makes the tox audit env, which
 #                    exports with the same flag, cover exactly this set.
 RUN uv sync --frozen --package crczp-sandbox-service --no-editable --no-install-project \
     --no-default-groups

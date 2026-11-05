@@ -7,18 +7,13 @@ from __future__ import annotations
 import os
 import re
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
-import novaclient.v2.keypairs
 import structlog
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from neutronclient.common.exceptions import NotFound as NeutronNotFound
-from novaclient.base import TupleWithMeta
-from novaclient.exceptions import ClientException as NovaClientException
-from novaclient.exceptions import NotFound as NovaNotFound
-from novaclient.exceptions import UnsupportedConsoleType as NovaUnsupportedConsoleType
+from openstack import exceptions as sdk_exceptions
 
 from crczp.cloud_commons import (
     CloudResource,
@@ -52,12 +47,13 @@ from crczp.openstack_driver.network_forwarding import (
 from crczp.topology_definition.models import Protocol
 
 if TYPE_CHECKING:
-    from glanceclient.v2 import client as glance_client
-    from neutronclient.v2_0 import client as neutron_client
-
-    # `novaclient.client.Client` is a version-dispatching factory function, not a class;
-    # `utils.get_client('nova', ...)` builds a 2.x client, so annotate the concrete class.
-    from novaclient.v2 import client as nova_client
+    from openstack import connection
+    from openstack.compute.v2 import flavor as sdk_flavor
+    from openstack.compute.v2.server import Server
+    from openstack.image.v2 import _proxy as image_v2_proxy
+    from openstack.image.v2 import image as sdk_image
+    from openstack.network.v2 import quota as network_quota
+    from openstack.resource import Resource
 
 LOG = structlog.get_logger()
 SEC_RULES_IP_PREFIX = '0.0.0.0/0'  # "147.251.0.0/16"
@@ -73,14 +69,49 @@ ROUTER = 'router'
 PORT = 'port'
 SUBNET = 'subnet'
 NETWORK = 'network'
-TAP_MIRRORS_PATH = '/taas/tap_mirrors'
 SERVER_DELETION_TIMEOUT_SECONDS = 300
 SERVER_DELETION_POLL_SECONDS = 2
+
+REBOOT_TYPE = 'SOFT'
+# The console types Nova serves at the pinned compute microversion (webmks needs 2.8). An
+# unknown type is rejected before any request; the SDK would send it with a null protocol.
+SUPPORTED_CONSOLE_TYPES = frozenset({
+    'novnc',
+    'xvpvnc',
+    'spice-html5',
+    'rdp-html5',
+    'serial',
+    'webmks',
+})
 
 
 def regex_replace(string: str, pattern: str = '', replace: str = '') -> str:
     """Apply a regex substitution on *string* (used as a Jinja2 filter)."""
     return re.sub(pattern, replace, string)
+
+
+def _nova_str(e: sdk_exceptions.SDKException) -> str:
+    """
+    Renders an SDK error as '<message> (HTTP <code>) (Request-ID: <id>)'.
+
+    The server's message is in `details`. str(e) is not used, because it also carries the
+    internal endpoint URL, which would end up in API error responses.
+    """
+    if isinstance(e, sdk_exceptions.HttpException):
+        text = f'{e.details or e.message} (HTTP {e.status_code})'
+        if e.request_id:
+            text += f' (Request-ID: {e.request_id})'
+        return text
+    return e.message
+
+
+def _nova_message(e: Exception) -> str:
+    """Returns only the message of an SDK error, without the HTTP status and request ID."""
+    if isinstance(e, sdk_exceptions.HttpException):
+        return e.details or e.message
+    if isinstance(e, sdk_exceptions.SDKException):
+        return e.message
+    return str(e)
 
 
 class FlavorUsage(TypedDict):
@@ -90,26 +121,25 @@ class FlavorUsage(TypedDict):
     ram: float
 
 
-class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
+class OpenStackProxy:
     """
     Used for work with instances of virtual machines in openstack.
 
-    Uses OpenStack glace, nova, neutron and heat client.
+    Uses the OpenStack compute (nova), image (glance) and network (neutron) services through
+    an openstacksdk connection.
     """
 
-    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def __init__(
         self,
-        glance_client: glance_client.Client,
-        nova_client: nova_client.Client,
-        neutron_client: neutron_client.Client,
+        conn: connection.Connection,
         auth_url: str,
         app_cred_id: str,
         app_cred_secret: str,
         trc: TransformationConfiguration,
     ) -> None:
-        self.nova = nova_client
-        self.glance = glance_client
-        self.neutron = neutron_client
+        # The first access to conn.compute, conn.image or conn.network authenticates and
+        # discovers the service, so it must not happen here, outside @check_authentication.
+        self.conn = conn
         self.auth_url = auth_url
         self.app_cred_id = app_cred_id
         self.app_cred_secret = app_cred_secret
@@ -121,15 +151,48 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         self.template_environment.filters['hcl_string'] = hcl_string
         self.trc = trc
 
+    @property
+    def _image(self) -> image_v2_proxy.Proxy:
+        """The image service proxy, which get_connection pins to the v2 API."""
+        return cast('image_v2_proxy.Proxy', self.conn.image)
+
     @staticmethod
-    def _get_owner_specified_data(image: Any) -> dict[str, str]:
+    def _get_owner_specified_data(properties: Mapping[str, Any]) -> dict[str, str]:
         """
         Creates a dictionary of owner specified data from the image
 
-        :param image: Image form glance.images
+        :param properties: Custom properties of the image
         :return: Dictionary with arbitrary number of owner_specified values from the image
         """
-        return {k: v for (k, v) in image.items() if k.startswith('owner_specified.')}
+        return {k: v for (k, v) in properties.items() if k.startswith('owner_specified.')}
+
+    def _to_image(self, image: sdk_image.Image) -> Image:
+        """
+        Converts an image from glance to an Image object.
+
+        :param image: Image from the image service
+        :return: Image
+        """
+        # Keys that are not standard image attributes, such as default_user and the
+        # owner_specified.* ones, are only in `properties`, which is None without them.
+        properties = image.properties or {}
+        return Image(
+            os_distro=image.os_distro,
+            os_type=image.os_type,
+            disk_format=image.disk_format,
+            container_format=image.container_format,
+            visibility=image.visibility,
+            size=image.size,
+            status=image.status,
+            min_ram=image.min_ram,
+            min_disk=image.min_disk,
+            created_at=image.created_at,
+            updated_at=image.updated_at,
+            tags=image.tags,
+            default_user=properties.get('default_user'),
+            name=image.name,
+            owner_specified=self._get_owner_specified_data(properties),
+        )
 
     def list_images(self) -> list[Image]:
         """
@@ -137,43 +200,31 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
 
         :return: List of Image objects.
         """
-        images = [
-            Image(
-                os_distro=image.get('os_distro'),
-                os_type=image.get('os_type'),
-                disk_format=image.get('disk_format'),
-                container_format=image.get('container_format'),
-                visibility=image.get('visibility'),
-                size=image.get('size'),
-                status=image.get('status'),
-                min_ram=image.get('min_ram'),
-                min_disk=image.get('min_disk'),
-                created_at=image.get('created_at'),
-                updated_at=image.get('updated_at'),
-                tags=image.get('tags'),
-                default_user=image.get('default_user'),
-                name=image.get('name'),
-                owner_specified=self._get_owner_specified_data(image),
-            )
-            for image in self.glance.images.list()
-        ]
+        # No `limit`: with one, the SDK ends every listing with a request for the page after
+        # the last image, which fails if that image is deleted in between. Without one it
+        # only follows the `next` links of glance.
+        return [self._to_image(image) for image in self._image.images()]
 
-        return images
-
-    def get_keypair(self, keypair_name: str) -> novaclient.v2.keypairs.Keypair:
+    def get_keypair(self, keypair_name: str) -> dict[str, Any]:
         """
         Gets keypair from nova
         :param keypair_name: name of keypair to get
-        :return: Keypair instance
+        :return: Keypair as a dict with Nova's keys
         """
         try:
-            return self.nova.keypairs.get(keypair_name)
-        except NovaClientException as e:
-            raise CrczpException(f"Failed to get keypair '{keypair_name}': {e}") from e
+            keypair = self.conn.compute.get_keypair(keypair_name)
+        except sdk_exceptions.SDKException as e:
+            raise CrczpException(f"Failed to get keypair '{keypair_name}': {_nova_str(e)}") from e
+        return {
+            'name': keypair.name,
+            'public_key': keypair.public_key,
+            'fingerprint': keypair.fingerprint,
+            'type': keypair.type,
+            'user_id': keypair.user_id,
+            'created_at': keypair.created_at,
+        }
 
-    def create_keypair(
-        self, name: str, public_key: str | None, key_type: str
-    ) -> novaclient.v2.keypairs.Keypair:
+    def create_keypair(self, name: str, public_key: str | None, key_type: str) -> None:
         """
         Create key-pair in nova.
 
@@ -181,26 +232,33 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         :param public_key: key to be stored, if None new is created
         :param key_type: type of public key from which keypair is created,
                          accepted values are 'ssh' and 'x509'
-        :return: Keypair instance
+        :return: None
         """
+        attrs: dict[str, Any] = {'name': name, 'type': key_type}
+        # Leave out a missing key, so that nova generates one: an explicit null is rejected.
+        if public_key:
+            attrs['public_key'] = public_key
         try:
-            return self.nova.keypairs.create(name, public_key, key_type=key_type)
-        except NovaClientException as e:
-            msg = f"Failed to create keypair '{name}' with public key '{public_key}': {e}"
+            self.conn.compute.create_keypair(**attrs)
+        except sdk_exceptions.SDKException as e:
+            msg = (
+                f"Failed to create keypair '{name}' with public key '{public_key}': {_nova_str(e)}"
+            )
             raise CrczpException(msg) from e
 
-    def delete_keypair(self, name: str) -> TupleWithMeta:
+    def delete_keypair(self, name: str) -> None:
         """
         Delete keypair in OpenStack.
 
         :param name: name of key to be deleted.
-
-        :return Nova client TupleWithMeta
+        :return: None
+        :raise CrczpException: Keypair not found
         """
         try:
-            return self.nova.keypairs.delete(name)
-        except NovaClientException as e:
-            raise CrczpException(f"Failed to delete keypair '{name}': {e}") from e
+            # The SDK ignores a missing keypair by default; callers rely on the error.
+            self.conn.compute.delete_keypair(name, ignore_missing=False)
+        except sdk_exceptions.SDKException as e:
+            raise CrczpException(f"Failed to delete keypair '{name}': {_nova_str(e)}") from e
 
     def resume_instance(self, node_id: str) -> None:
         """
@@ -211,9 +269,10 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         :raise CrczpException: Node not found
         """
         try:
-            self.nova.servers.resume(node_id)
-        except NovaClientException as e:
-            raise CrczpException(f'Failed to resume instance with id={node_id}: {e}.') from e
+            self.conn.compute.resume_server(node_id)
+        except sdk_exceptions.SDKException as e:
+            msg = f'Failed to resume instance with id={node_id}: {_nova_str(e)}.'
+            raise CrczpException(msg) from e
 
     def start_instance(self, node_id: str) -> None:
         """
@@ -224,9 +283,10 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         :raise CrczpException: Node not found
         """
         try:
-            self.nova.servers.start(node_id)
-        except NovaClientException as e:
-            raise CrczpException(f'Failed to start instance with id={node_id}: {e}.') from e
+            self.conn.compute.start_server(node_id)
+        except sdk_exceptions.SDKException as e:
+            msg = f'Failed to start instance with id={node_id}: {_nova_str(e)}.'
+            raise CrczpException(msg) from e
 
     def reboot_instance(self, node_id: str) -> None:
         """
@@ -237,9 +297,10 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         :raise CrczpException: Node not found
         """
         try:
-            self.nova.servers.reboot(node_id)
-        except NovaClientException as e:
-            raise CrczpException(f'Failed to reboot instance with id={node_id}: {e}.') from e
+            self.conn.compute.reboot_server(node_id, REBOOT_TYPE)
+        except sdk_exceptions.SDKException as e:
+            msg = f'Failed to reboot instance with id={node_id}: {_nova_str(e)}.'
+            raise CrczpException(msg) from e
 
     def get_image(self, image_id: str) -> Image:
         """
@@ -248,24 +309,7 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         :param image_id: id of the image to retrieve
         :return: Image
         """
-        image_data = self.glance.images.get(image_id)
-        return Image(
-            os_distro=image_data.get('os_distro'),
-            os_type=image_data.get('os_type'),
-            disk_format=image_data.get('disk_format'),
-            container_format=image_data.get('container_format'),
-            visibility=image_data.get('visibility'),
-            size=image_data.get('size'),
-            status=image_data.get('status'),
-            min_ram=image_data.get('min_ram'),
-            min_disk=image_data.get('min_disk'),
-            created_at=image_data.get('created_at'),
-            updated_at=image_data.get('updated_at'),
-            tags=image_data.get('tags'),
-            default_user=image_data.get('default_user'),
-            name=image_data.get('name'),
-            owner_specified=self._get_owner_specified_data(image_data),
-        )
+        return self._to_image(self._image.get_image(image_id))
 
     def get_console_url(self, node_id: str, console_type: str) -> str:
         """
@@ -274,48 +318,47 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         :param node_id: The ID of the node
         :param console_type: Type can be novnc, xvpvnc, spice-html5, rdp-html5, serial and webmks
         :return: Console url
-        :raise CrczpException: Node not found
+        :raise StackException: Node not found or the console type is not supported
         """
+        if console_type not in SUPPORTED_CONSOLE_TYPES:
+            raise StackException(
+                f'OpenStack error while getting console: Unsupported console_type "{console_type}"'
+            )
         try:
-            spice_console = self.nova.servers.get_console_url(node_id, console_type)
-        except (NovaUnsupportedConsoleType, NovaClientException) as e:
-            raise StackException(f'OpenStack error while getting console: {e.message}') from e
+            console = self.conn.compute.create_server_remote_console(node_id, type=console_type)
+        # The SDK raises a plain ValueError for a console type the server's microversion lacks.
+        except (sdk_exceptions.SDKException, ValueError) as e:
+            raise StackException(
+                f'OpenStack error while getting console: {_nova_message(e)}'
+            ) from e
 
-        return str(spice_console['remote_console']['url'])
+        return str(console.url)
 
-    def get_quota_set(self, tenant_id: str) -> QuotaSet:  # pylint: disable=too-many-locals
+    def get_quota_set(self, tenant_id: str) -> QuotaSet:
         """
         Get quota set of OpenStack project.
 
         :param tenant_id: ID of OpenStack project.
         :return QuotaSet object
         """
-        nova_quotas = self.nova.quotas.get(tenant_id, detail=True)
-        vcpu_quotas = nova_quotas.cores
-        ram_quotas = nova_quotas.ram
-        instances_quota = nova_quotas.instances
-
+        # Each quota attribute holds the limit; the amount in use is in `usage`.
+        nova_quotas = self.conn.compute.get_quota_set(tenant_id, usage=True)
+        vcpu = Quota(nova_quotas.cores, nova_quotas.usage['cores'])
         # change MB to GB
-        ram_quotas['limit'] = round(ram_quotas['limit'] / 1000.0, 1)
-        ram_quotas['in_use'] = round(ram_quotas['in_use'] / 1000.0, 1)
+        ram = Quota(round(nova_quotas.ram / 1000.0, 1), round(nova_quotas.usage['ram'] / 1000.0, 1))
+        instances = Quota(nova_quotas.instances, nova_quotas.usage['instances'])
 
-        vcpu = Quota(vcpu_quotas['limit'], vcpu_quotas['in_use'])
-        ram = Quota(ram_quotas['limit'], ram_quotas['in_use'])
-        instances = Quota(instances_quota['limit'], instances_quota['in_use'])
-
-        neutron_quotas = self.neutron.show_quota_details(tenant_id)['quota']
-        network_quotas = neutron_quotas['network']
-        subnet_quotas = neutron_quotas['subnet']
-        port_quotas = neutron_quotas['port']
-
-        network = Quota(network_quotas['limit'], network_quotas['used'])
-        subnet = Quota(subnet_quotas['limit'], subnet_quotas['used'])
-        port = Quota(port_quotas['limit'], port_quotas['used'])
+        neutron_quotas = cast(
+            'network_quota.QuotaDetails', self.conn.network.get_quota(tenant_id, details=True)
+        )
+        network = Quota(neutron_quotas.networks['limit'], neutron_quotas.networks['used'])
+        subnet = Quota(neutron_quotas.subnets['limit'], neutron_quotas.subnets['used'])
+        port = Quota(neutron_quotas.ports['limit'], neutron_quotas.ports['used'])
 
         return QuotaSet(vcpu, ram, instances, network, subnet, port)
 
     @staticmethod
-    def _get_flavors_dict(flavors: Any) -> dict[str, FlavorUsage]:
+    def _get_flavors_dict(flavors: Iterable[sdk_flavor.Flavor]) -> dict[str, FlavorUsage]:
         """
         Gets flavors with their vcpu and ram usage
 
@@ -333,7 +376,9 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
 
         :return: flavors dictionary
         """
-        return self._get_flavors_dict(self.nova.flavors.list())
+        # Without is_public, the SDK asks for every flavor, which for an admin includes the
+        # private flavors of other projects. True means public plus the project's own.
+        return self._get_flavors_dict(self.conn.compute.flavors(is_public=True))
 
     def get_hardware_usage(self, topology_instance: TopologyInstance) -> HardwareUsage:
         """
@@ -377,20 +422,21 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         :param tenant_id: ID of OpenStack project.
         :return Limits of project
         """
-        limits = {}
-        for limit in self.nova.limits.get().absolute:
-            if limit.name == 'maxTotalCores':
-                limits['vcpu'] = limit.value
-            elif limit.name == 'maxTotalRAMSize':
-                # change MB to GB
-                limits['ram'] = round(limit.value / 1000.0, 1)
-            elif limit.name == 'maxTotalInstances':
-                limits['instances'] = limit.value
+        # Nova's limits apply to the project the token is scoped to.
+        absolute = self.conn.compute.get_limits().absolute
+        limits: dict[str, Any] = {}
+        if absolute.total_cores is not None:
+            limits['vcpu'] = absolute.total_cores
+        if absolute.total_ram is not None:
+            # change MB to GB
+            limits['ram'] = round(absolute.total_ram / 1000.0, 1)
+        if absolute.instances is not None:
+            limits['instances'] = absolute.instances
 
-        neutron_limits = self.neutron.show_quota(tenant_id)['quota']
-        limits['network'] = neutron_limits['network']
-        limits['subnet'] = neutron_limits['subnet']
-        limits['port'] = neutron_limits['port']
+        neutron_limits = self.conn.network.get_quota(tenant_id)
+        limits['network'] = neutron_limits.networks
+        limits['subnet'] = neutron_limits.subnets
+        limits['port'] = neutron_limits.ports
 
         return Limits(**limits)
 
@@ -461,48 +507,41 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
 
         return str(template_str)
 
-    def _list_neutron_resources(
-        self, kind: str, items: list[dict[str, Any]], name_key: str = 'name'
-    ) -> list[TaggedResource]:
-        return [
-            TaggedResource(
-                CloudResource(kind, item['id'], item.get(name_key) or ''),
-                tuple(item.get('tags', ())),
-            )
-            for item in items
-        ]
-
-    def _list_tap_mirrors(self) -> list[dict[str, Any]]:
+    def _list_tap_mirrors(self) -> list[Resource]:
+        """The project's tap mirrors; none on a cloud without the TaaS extension."""
         try:
-            return list(self.neutron.list('tap_mirrors', TAP_MIRRORS_PATH)['tap_mirrors'])
-        except NeutronNotFound:
+            return list(self.conn.network.tap_mirrors())
+        except sdk_exceptions.NotFoundException:
             return []
 
-    def _discover_resources(self, servers: list[Any]) -> list[TaggedResource]:
+    def _discover_resources(self, servers: list[Server]) -> list[TaggedResource]:
         """
         List every server, network, subnet, port, router, floating IP and tap mirror of the
         project with the tags Neutron reports for it. Nova servers carry no tags here.
         """
-        neutron = self.neutron
+        network = self.conn.network
         return [
-            *(TaggedResource(CloudResource(SERVER, server.id, server.name)) for server in servers),
-            *self._list_neutron_resources(NETWORK, neutron.list_networks()['networks']),
-            *self._list_neutron_resources(SUBNET, neutron.list_subnets()['subnets']),
-            *self._list_neutron_resources(PORT, neutron.list_ports()['ports']),
-            *self._list_neutron_resources(ROUTER, neutron.list_routers()['routers']),
-            *self._list_neutron_resources(
-                FLOATING_IP, neutron.list_floatingips()['floatingips'], 'floating_ip_address'
+            *(
+                TaggedResource(CloudResource(SERVER, server.id, server.name or ''))
+                for server in servers
             ),
-            *self._list_neutron_resources(TAP_MIRROR, self._list_tap_mirrors()),
+            *_tagged(NETWORK, network.networks()),
+            *_tagged(SUBNET, network.subnets()),
+            *_tagged(PORT, network.ports()),
+            *_tagged(ROUTER, network.routers()),
+            *_tagged(FLOATING_IP, network.ips(), 'floating_ip_address'),
+            *_tagged(TAP_MIRROR, self._list_tap_mirrors()),
         ]
 
-    def _get_server_ram_gb(self, servers: list[Any]) -> dict[str, float]:
+    def _get_server_ram_gb(self, servers: list[Server]) -> dict[str, float]:
         if not servers:
             return {}
         flavor_ram_gb = {
-            flavor.id: round(flavor.ram / 1000.0, 1) for flavor in self.nova.flavors.list()
+            flavor.id: round(flavor.ram / 1000.0, 1)
+            for flavor in self.conn.compute.flavors(is_public=True)
         }
-        return {server.id: flavor_ram_gb.get(server.flavor['id'], 0.0) for server in servers}
+        # At the pinned compute microversion a server's flavor carries the flavor's ID.
+        return {server.id: flavor_ram_gb.get(server.flavor.id, 0.0) for server in servers}
 
     def list_stack_inventories(self, stack_names: StackNameScheme) -> dict[str, StackInventory]:
         """
@@ -511,7 +550,7 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         :param stack_names: The stack names of the deployment
         :return: Resources and the RAM in GB held by the servers, keyed by full stack name
         """
-        servers = list(self.nova.servers.list())
+        servers = list(self.conn.compute.servers())
         return group_by_stack(
             self._discover_resources(servers), self._get_server_ram_gb(servers), stack_names
         )
@@ -529,33 +568,33 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         """
         stack_names.require(stack_name)
         resources = select_stack(
-            self._discover_resources(list(self.nova.servers.list())), stack_name, stack_names
+            self._discover_resources(list(self.conn.compute.servers())), stack_name, stack_names
         )
         return delete_in_order(resources, self._resource_kinds(), _is_not_found)
 
     def _resource_kinds(self) -> tuple[ResourceKind, ...]:
         """The kinds of stack resources, dependents first, with how each is deleted."""
+        network, compute = self.conn.network, self.conn.compute
+        # The SDK ignores a missing resource unless told otherwise; it is reported as gone.
         return (
-            ResourceKind(
-                TAP_MIRROR,
-                lambda mirror_id: self.neutron.delete(f'{TAP_MIRRORS_PATH}/{mirror_id}'),
-            ),
-            ResourceKind(FLOATING_IP, self.neutron.delete_floatingip),
-            ResourceKind(SERVER, self.nova.servers.delete, self._await_servers_gone),
-            ResourceKind(ROUTER, self._delete_router),
-            ResourceKind(PORT, self.neutron.delete_port),
-            ResourceKind(SUBNET, self.neutron.delete_subnet),
-            ResourceKind(NETWORK, self.neutron.delete_network),
+            ResourceKind(TAP_MIRROR, _api_errors(network.delete_tap_mirror)),
+            ResourceKind(FLOATING_IP, _api_errors(network.delete_ip)),
+            ResourceKind(SERVER, _api_errors(compute.delete_server), self._await_servers_gone),
+            ResourceKind(ROUTER, _api_errors(self._delete_router)),
+            ResourceKind(PORT, _api_errors(network.delete_port)),
+            ResourceKind(SUBNET, _api_errors(network.delete_subnet)),
+            ResourceKind(NETWORK, _api_errors(network.delete_network)),
         )
 
-    def _delete_router(self, router_id: str) -> None:
+    def _delete_router(self, router_id: str, ignore_missing: bool = False) -> None:
         """Detach the router's interfaces and gateway, then delete it."""
-        for port in self.neutron.list_ports(device_id=router_id)['ports']:
-            if port['device_owner'].startswith('network:router_interface'):
-                with suppress(NeutronNotFound):
-                    self.neutron.remove_interface_router(router_id, {'port_id': port['id']})
-        self.neutron.update_router(router_id, {'router': {'external_gateway_info': {}}})
-        self.neutron.delete_router(router_id)
+        network = self.conn.network
+        for port in network.ports(device_id=router_id):
+            if (port.device_owner or '').startswith('network:router_interface'):
+                with suppress(sdk_exceptions.NotFoundException):
+                    network.remove_interface_from_router(router_id, port=port.id)
+        network.update_router(router_id, external_gateway_info={})
+        network.delete_router(router_id, ignore_missing=ignore_missing)
 
     def _await_servers_gone(self, servers: Sequence[CloudResource]) -> dict[str, str]:
         """
@@ -568,11 +607,11 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         while pending and time.monotonic() < deadline:
             for server_id in list(pending):
                 try:
-                    self.nova.servers.get(server_id)
-                except NovaNotFound:
+                    self.conn.compute.get_server(server_id)
+                except sdk_exceptions.NotFoundException:
                     pending.discard(server_id)
-                except NovaClientException as error:
-                    LOG.warning('Server lookup failed', server_id=server_id, error=str(error))
+                except sdk_exceptions.SDKException as error:
+                    LOG.warning('Server lookup failed', server_id=server_id, error=_nova_str(error))
             if pending:
                 time.sleep(SERVER_DELETION_POLL_SECONDS)
         return {
@@ -581,6 +620,39 @@ class OpenStackProxy:  # pylint: disable=too-many-instance-attributes
         }
 
 
+def _tagged(
+    kind: str, resources: Iterable[Resource], name_attribute: str = 'name'
+) -> list[TaggedResource]:
+    """The resources of one kind, each with the tags Neutron sends for it, if any."""
+    return [
+        TaggedResource(
+            CloudResource(kind, resource.id, getattr(resource, name_attribute) or ''),
+            tuple(getattr(resource, 'tags', None) or ()),
+        )
+        for resource in resources
+    ]
+
+
+def _api_errors(delete: Callable[..., object]) -> Callable[[str], object]:
+    """
+    Delete a resource by its ID, reporting a missing one as NotFoundException.
+
+    Any other failed API call becomes a CrczpException with the service's message, status and
+    request ID: str() of an SDK error also names the internal endpoint URL, and the failures
+    end up in stage error messages that the API returns.
+    """
+
+    def call(resource_id: str) -> object:
+        try:
+            return delete(resource_id, ignore_missing=False)
+        except sdk_exceptions.NotFoundException:
+            raise
+        except sdk_exceptions.SDKException as error:
+            raise CrczpException(_nova_str(error)) from error
+
+    return call
+
+
 def _is_not_found(error: Exception) -> bool:
     """Whether a Nova or Neutron error says the resource does not exist."""
-    return isinstance(error, (NeutronNotFound, NovaNotFound))
+    return isinstance(error, sdk_exceptions.NotFoundException)

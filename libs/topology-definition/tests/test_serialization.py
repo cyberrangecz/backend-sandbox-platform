@@ -9,7 +9,6 @@ from typing import Any
 
 import pytest
 from ruamel.yaml import YAML
-from yamlize.yamlizing_error import YamlizingError
 
 from crczp.topology_definition.image_naming import image_name_replace, image_name_strip
 from crczp.topology_definition.models import (
@@ -20,6 +19,7 @@ from crczp.topology_definition.models import (
     Router,
     TopologyDefinition,
 )
+from crczp.topology_definition.yaml_model import YamlModelError
 
 SANDBOX_DEFINITION_PATH = os.path.join(os.path.dirname(__file__), 'assets/topology.yml')
 SANDBOX_DEFINITION_MONITORING_PATH = os.path.join(
@@ -114,6 +114,7 @@ class TestDummy:  # pylint: disable=too-many-public-methods
 
         # TCP targets
         assert topology_definition_monitoring.monitoring_targets is not None
+        assert topology_definition_monitoring.monitoring_targets.tcp is not None
         assert len(topology_definition_monitoring.monitoring_targets.tcp) == 1
         router_tcp = topology_definition_monitoring.monitoring_targets.tcp[0]
         assert router_tcp.node == 'server-router'
@@ -124,6 +125,7 @@ class TestDummy:  # pylint: disable=too-many-public-methods
         assert router_tcp.targets[1].address == '10.10.20.0/24'
 
         # ICMP targets
+        assert topology_definition_monitoring.monitoring_targets.icmp is not None
         assert len(topology_definition_monitoring.monitoring_targets.icmp) == 2
         server_icmp = topology_definition_monitoring.monitoring_targets.icmp[0]
         assert server_icmp.node == 'server'
@@ -190,7 +192,7 @@ monitoring_targets:
         with open(SANDBOX_DEFINITION_PATH, encoding='utf-8') as f:
             sb_def = f.read().replace('cidr: 100.100.100.0/29', 'cidr: 10.10.20.0/29')
 
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(sb_def)
 
     def test_ip_not_in_network(self) -> None:
@@ -200,7 +202,7 @@ monitoring_targets:
         with open(SANDBOX_DEFINITION_PATH, encoding='utf-8') as f:
             sb_def = f.read().replace('ip: 10.10.20.5', 'ip: 10.10.40.5')
 
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(sb_def)
 
     def test_ip_not_unique(self) -> None:
@@ -210,7 +212,7 @@ monitoring_targets:
         with open(SANDBOX_DEFINITION_PATH, encoding='utf-8') as f:
             sb_def = f.read().replace('ip: 10.10.20.5', 'ip: 10.10.20.1')
 
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(sb_def)
 
     def test_multi_protocol_base_box(self, topology_definition_dict: dict[str, Any]) -> None:
@@ -221,7 +223,7 @@ monitoring_targets:
         server_base_box_dict['mng_protocol'] = 'ssh'
         server_base_box_dict['mgmt_protocol'] = 'ssh'
 
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             output_stream = io.StringIO()
             YAML(typ='safe').dump(server_base_box_dict, output_stream)
             BaseBox.load(output_stream.getvalue())
@@ -234,7 +236,7 @@ monitoring_targets:
         server_base_box_dict['man_user'] = 'debian'
         server_base_box_dict['mgmt_user'] = 'debian'
 
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             output_stream = io.StringIO()
             YAML(typ='safe').dump(server_base_box_dict, output_stream)
             BaseBox.load(output_stream.getvalue())
@@ -357,9 +359,10 @@ vpn:
         role_scoped_ep = td.vpn.entrypoints[1]
         assert role_scoped_ep.name == 'server-router'
         assert list(role_scoped_ep.routes) == ['172.16.0.0/12']
-        assert list(role_scoped_ep.accessible_by_roles) == ['red-team']
+        assert role_scoped_ep.accessible_by_roles == ['red-team']
         assert td.vpn.dns is not None
         assert list(td.vpn.dns.servers) == ['10.10.20.5']
+        assert td.vpn.dns.search_domains is not None
         assert list(td.vpn.dns.search_domains) == ['sandbox.local']
 
     def test_vpn_entrypoint_router_loaded(self, topology_definition_string: str) -> None:
@@ -385,7 +388,7 @@ vpn:
         """
         VpnEntrypoint whose name does not match any host or router is rejected at parse time.
         """
-        with pytest.raises((YamlizingError, ValueError)):
+        with pytest.raises((YamlModelError, ValueError)):
             TopologyDefinition.load(
                 topology_definition_string
                 + """
@@ -401,7 +404,7 @@ vpn:
         """
         VpnEntrypoint with empty name raises a parse-time error.
         """
-        with pytest.raises((YamlizingError, ValueError)):
+        with pytest.raises((YamlModelError, ValueError)):
             TopologyDefinition.load(
                 topology_definition_string
                 + """
@@ -417,7 +420,7 @@ vpn:
         """
         VpnEntrypoint with empty routes list raises a parse-time error.
         """
-        with pytest.raises((YamlizingError, ValueError)):
+        with pytest.raises((YamlModelError, ValueError)):
             TopologyDefinition.load(
                 topology_definition_string
                 + """
@@ -432,7 +435,7 @@ vpn:
         """
         VpnEntrypoint with an invalid CIDR in routes raises a parse-time error.
         """
-        with pytest.raises((YamlizingError, ValueError)):
+        with pytest.raises((YamlModelError, ValueError)):
             TopologyDefinition.load(
                 topology_definition_string
                 + """
@@ -448,7 +451,7 @@ vpn:
         """
         VpnEntrypoint with an IPv6 CIDR is rejected — only IPv4 is supported.
         """
-        with pytest.raises((YamlizingError, ValueError)):
+        with pytest.raises((YamlModelError, ValueError)):
             TopologyDefinition.load(
                 topology_definition_string
                 + """
@@ -462,10 +465,10 @@ vpn:
 
     def test_vpn_entrypoint_scalar_item_rejected(self, topology_definition_string: str) -> None:
         """
-        A bare scalar entrypoints item (a host name, not a mapping) raises YamlizingError,
+        A bare scalar entrypoints item (a host name, not a mapping) raises YamlModelError,
         not a raw ValueError from unpacking its node as if it were a mapping.
         """
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(
                 topology_definition_string
                 + """
@@ -476,10 +479,10 @@ vpn:
 
     def test_vpn_entrypoint_list_item_rejected(self, topology_definition_string: str) -> None:
         """
-        A nested-list entrypoints item raises YamlizingError, not a raw TypeError from
+        A nested-list entrypoints item raises YamlModelError, not a raw TypeError from
         unpacking its node as if it were a mapping.
         """
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(
                 topology_definition_string
                 + """
@@ -508,6 +511,7 @@ vpn:
         assert td.vpn is not None
         assert td.vpn.dns is not None
         assert list(td.vpn.dns.servers) == ['10.10.20.5', '8.8.8.8']
+        assert td.vpn.dns.search_domains is not None
         assert list(td.vpn.dns.search_domains) == ['sandbox.local', 'example.com']
 
     def test_vpn_dns_servers_only(self, topology_definition_string: str) -> None:
@@ -549,7 +553,7 @@ vpn:
         """
         vpn.dns.servers: [] raises a parse-time error.
         """
-        with pytest.raises((YamlizingError, ValueError)):
+        with pytest.raises((YamlModelError, ValueError)):
             TopologyDefinition.load(
                 topology_definition_string
                 + """
@@ -563,7 +567,7 @@ vpn:
         """
         vpn.dns with no servers (only search_domains) raises a parse-time error.
         """
-        with pytest.raises((YamlizingError, ValueError)):
+        with pytest.raises((YamlModelError, ValueError)):
             TopologyDefinition.load(
                 topology_definition_string
                 + """
@@ -578,7 +582,7 @@ vpn:
         """
         vpn.dns.servers with a non-IP value raises a parse-time error.
         """
-        with pytest.raises((YamlizingError, ValueError)):
+        with pytest.raises((YamlModelError, ValueError)):
             TopologyDefinition.load(
                 topology_definition_string
                 + """
@@ -593,7 +597,7 @@ vpn:
         """
         vpn.dns.servers with an IPv6 address is rejected — only IPv4 is supported.
         """
-        with pytest.raises((YamlizingError, ValueError)):
+        with pytest.raises((YamlModelError, ValueError)):
             TopologyDefinition.load(
                 topology_definition_string
                 + """
@@ -608,7 +612,7 @@ vpn:
         """
         vpn.dns.search_domains with an invalid domain raises a parse-time error.
         """
-        with pytest.raises((YamlizingError, ValueError)):
+        with pytest.raises((YamlModelError, ValueError)):
             TopologyDefinition.load(
                 topology_definition_string
                 + """
@@ -659,13 +663,12 @@ vpn:
       accessible_by_roles: [red-team, red-team]
 """
         )
+        assert td.vpn is not None and td.vpn.entrypoints is not None
         ep = td.vpn.entrypoints[0]
-        assert list(ep.accessible_by_roles) == ['red-team']
+        assert ep.accessible_by_roles == ['red-team']
         assert list(ep.routes) == ['10.10.0.0/16']
 
-        dumped_stream = io.StringIO()
-        TopologyDefinition.dump(td, dumped_stream)
-        reloaded = dict(YAML(typ='safe', pure=True).load(dumped_stream.getvalue()))
+        reloaded = dict(YAML(typ='safe', pure=True).load(TopologyDefinition.dump(td)))
         entrypoint_dict = reloaded['vpn']['entrypoints'][0]
         assert entrypoint_dict['accessible_by_roles'] == ['red-team']
 
@@ -675,7 +678,7 @@ vpn:
         """
         A VpnEntrypoint's accessible_by_roles: null is rejected.
         """
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(
                 topology_definition_string
                 + """
@@ -694,7 +697,7 @@ vpn:
         """
         A VpnEntrypoint's accessible_by_roles: [] is rejected.
         """
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(
                 topology_definition_string
                 + """
@@ -737,12 +740,10 @@ vpn:
 
         home = td.find_host_by_name('home')
         assert home is not None
-        assert list(home.visible_by_roles) == ['blue_team', 'red-team']
+        assert home.visible_by_roles == ['blue_team', 'red-team']
         assert home.hidden is False
 
-        dumped_stream = io.StringIO()
-        TopologyDefinition.dump(td, dumped_stream)
-        reloaded = dict(YAML(typ='safe', pure=True).load(dumped_stream.getvalue()))
+        reloaded = dict(YAML(typ='safe', pure=True).load(TopologyDefinition.dump(td)))
         home_dict = next(h for h in reloaded['hosts'] if h['name'] == 'home')
         assert home_dict['visible_by_roles'] == ['blue_team', 'red-team']
         assert 'hidden' not in home_dict
@@ -755,7 +756,7 @@ vpn:
             '    flavor: standard.small\n    extra:',
             '    flavor: standard.small\n    visible_by_roles: []\n    extra:',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_accessible_by_roles_round_trip(self, topology_definition_string: str) -> None:
@@ -774,12 +775,10 @@ vpn:
 
         server_switch = td.find_network_by_name('server-switch')
         assert server_switch is not None
-        assert list(server_switch.accessible_by_roles) == ['red-team']
+        assert server_switch.accessible_by_roles == ['red-team']
         assert server_switch.accessible_by_user is True
 
-        dumped_stream = io.StringIO()
-        TopologyDefinition.dump(td, dumped_stream)
-        reloaded = dict(YAML(typ='safe', pure=True).load(dumped_stream.getvalue()))
+        reloaded = dict(YAML(typ='safe', pure=True).load(TopologyDefinition.dump(td)))
         network_dict = next(n for n in reloaded['networks'] if n['name'] == 'server-switch')
         assert network_dict['accessible_by_roles'] == ['red-team']
         assert 'accessible_by_user' not in network_dict
@@ -814,9 +813,9 @@ vpn:
         home = td.find_host_by_name('home')
         server_router = td.find_router_by_name('server-router')
         server_switch = td.find_network_by_name('server-switch')
-        assert home is not None and list(home.visible_by_roles) == ['red-team']
-        assert server_router is not None and list(server_router.visible_by_roles) == ['red-team']
-        assert server_switch is not None and list(server_switch.visible_by_roles) == ['red-team']
+        assert home is not None and home.visible_by_roles == ['red-team']
+        assert server_router is not None and server_router.visible_by_roles == ['red-team']
+        assert server_switch is not None and server_switch.visible_by_roles == ['red-team']
 
     def test_accessible_by_roles_rejected_on_host(self, topology_definition_string: str) -> None:
         """
@@ -826,7 +825,7 @@ vpn:
             '    flavor: standard.small\n    extra:',
             '    flavor: standard.small\n    accessible_by_roles: [red-team]\n    extra:',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_accessible_by_roles_rejected_on_router(self, topology_definition_string: str) -> None:
@@ -839,14 +838,14 @@ vpn:
             '    accessible_by_roles: [red-team]\n\n'
             '  - name: home-router',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_visible_by_roles_rejected_on_container_mapping(self) -> None:
         """
         visible_by_roles is not a field of ContainerMapping.
         """
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             ContainerMapping.load(
                 'container: c1\nhost: h1\nport: 80\nvisible_by_roles: [red-team]\n'
             )
@@ -855,7 +854,7 @@ vpn:
         """
         accessible_by_roles is not a field of ContainerMapping.
         """
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             ContainerMapping.load(
                 'container: c1\nhost: h1\nport: 80\naccessible_by_roles: [red-team]\n'
             )
@@ -868,7 +867,7 @@ vpn:
             '    flavor: standard.small\n    extra:',
             '    flavor: standard.small\n    visible_by_roles: null\n    extra:',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_visible_by_roles_rejected_boolean(self, topology_definition_string: str) -> None:
@@ -879,7 +878,7 @@ vpn:
             '    flavor: standard.small\n    extra:',
             '    flavor: standard.small\n    visible_by_roles: true\n    extra:',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_visible_by_roles_rejected_bare_scalar(self, topology_definition_string: str) -> None:
@@ -890,7 +889,7 @@ vpn:
             '    flavor: standard.small\n    extra:',
             '    flavor: standard.small\n    visible_by_roles: red-team\n    extra:',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_visible_by_roles_rejected_non_string_entry(
@@ -903,7 +902,7 @@ vpn:
             '    flavor: standard.small\n    extra:',
             '    flavor: standard.small\n    visible_by_roles: [red-team, 1]\n    extra:',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_accessible_by_roles_rejected_null(self, topology_definition_string: str) -> None:
@@ -914,7 +913,7 @@ vpn:
             '    cidr: 10.10.20.0/24\n\n  - name: home-switch',
             '    cidr: 10.10.20.0/24\n    accessible_by_roles: null\n\n  - name: home-switch',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_accessible_by_roles_rejected_boolean(self, topology_definition_string: str) -> None:
@@ -925,7 +924,7 @@ vpn:
             '    cidr: 10.10.20.0/24\n\n  - name: home-switch',
             '    cidr: 10.10.20.0/24\n    accessible_by_roles: true\n\n  - name: home-switch',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_accessible_by_roles_rejected_bare_scalar(
@@ -938,7 +937,7 @@ vpn:
             '    cidr: 10.10.20.0/24\n\n  - name: home-switch',
             '    cidr: 10.10.20.0/24\n    accessible_by_roles: red-team\n\n  - name: home-switch',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_accessible_by_roles_rejected_non_string_entry(
@@ -953,7 +952,7 @@ vpn:
             '    accessible_by_roles: [red-team, 1]\n\n'
             '  - name: home-switch',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_accessible_by_roles_rejected_empty_list(self, topology_definition_string: str) -> None:
@@ -964,7 +963,7 @@ vpn:
             '    cidr: 10.10.20.0/24\n\n  - name: home-switch',
             '    cidr: 10.10.20.0/24\n    accessible_by_roles: []\n\n  - name: home-switch',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_visible_by_roles_rejected_empty_name(self, topology_definition_string: str) -> None:
@@ -975,7 +974,7 @@ vpn:
             '    flavor: standard.small\n    extra:',
             "    flavor: standard.small\n    visible_by_roles: ['']\n    extra:",
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_visible_by_roles_rejected_uppercase_name(
@@ -988,7 +987,7 @@ vpn:
             '    flavor: standard.small\n    extra:',
             '    flavor: standard.small\n    visible_by_roles: [Red-Team]\n    extra:',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_visible_by_roles_rejected_whitespace_name(
@@ -1001,7 +1000,7 @@ vpn:
             '    flavor: standard.small\n    extra:',
             "    flavor: standard.small\n    visible_by_roles: ['red team']\n    extra:",
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_visible_by_roles_rejected_overlong_name(self, topology_definition_string: str) -> None:
@@ -1012,7 +1011,7 @@ vpn:
             '    flavor: standard.small\n    extra:',
             f"    flavor: standard.small\n    visible_by_roles: ['{'a' * 129}']\n    extra:",
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_accessible_by_roles_rejected_uppercase_name(
@@ -1025,7 +1024,7 @@ vpn:
             '    cidr: 10.10.20.0/24\n\n  - name: home-switch',
             '    cidr: 10.10.20.0/24\n    accessible_by_roles: [Red-Team]\n\n  - name: home-switch',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_hidden_visible_by_roles_exclusivity(self, topology_definition_string: str) -> None:
@@ -1039,7 +1038,7 @@ vpn:
             '    visible_by_roles: [red-team]\n'
             '    extra:',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_hidden_visible_by_roles_exclusivity_with_null(
@@ -1055,7 +1054,7 @@ vpn:
             '    visible_by_roles: [red-team]\n'
             '    extra:',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_accessible_by_user_accessible_by_roles_exclusivity(
@@ -1072,7 +1071,7 @@ vpn:
             '    accessible_by_roles: [red-team]\n\n'
             '  - name: home-switch',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_accessible_by_user_accessible_by_roles_exclusivity_with_null(
@@ -1089,7 +1088,7 @@ vpn:
             '    accessible_by_roles: [red-team]\n\n'
             '  - name: home-switch',
         )
-        with pytest.raises(YamlizingError):
+        with pytest.raises(YamlModelError):
             TopologyDefinition.load(modified)
 
     def test_get_declared_roles_union(self, topology_definition_string: str) -> None:
@@ -1127,6 +1126,73 @@ vpn:
         assert topology_definition.get_declared_roles() == set()
 
 
+class TestMergeKeys:
+    """
+    Tests for YAML merge keys: the merged entries go through the same checks as written ones.
+    """
+
+    @staticmethod
+    def _with_anchor(topology_definition_string: str, anchor: str) -> str:
+        """Define an anchored mapping in the first host's free-form extra values."""
+        flavor = '    flavor: standard.small\n'
+        assert flavor in topology_definition_string
+        return topology_definition_string.replace(
+            flavor, f'{flavor}    extra:\n      defaults: {anchor}\n', 1
+        )
+
+    def test_legacy_key_from_a_merge_is_renamed(self, topology_definition_string: str) -> None:
+        """
+        A deprecated key brought in by a merge is renamed; the anchored mapping stays as written.
+        """
+        text = self._with_anchor(
+            topology_definition_string, '&box {image: debian-12, man_user: kali}'
+        )
+        router_box = '    base_box: { image: debian/debian-12-x86_64 }\n'
+        assert router_box in text
+        td = TopologyDefinition.load(text.replace(router_box, '    base_box: {<<: *box}\n', 1))
+
+        router = td.find_router_by_name('home-router')
+        assert router is not None
+        assert (router.base_box.image, router.base_box.mgmt_user) == ('debian-12', 'kali')
+        host = td.hosts[0]
+        assert host.extra is not None
+        assert host.extra['defaults'] == {'image': 'debian-12', 'man_user': 'kali'}
+
+    def test_key_set_by_the_mapping_wins_over_a_merged_one(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        As in YAML, a key the mapping sets itself overrides the same key from a merge.
+        """
+        text = self._with_anchor(topology_definition_string, '&flags {hidden: true}')
+        td = TopologyDefinition.load(
+            text.replace(
+                '  - name: home\n', '  - <<: *flags\n    hidden: false\n    name: home\n', 1
+            )
+        )
+
+        home = td.find_host_by_name('home')
+        assert home is not None
+        assert home.hidden is False
+
+    def test_conflicting_key_from_a_merge_is_rejected(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        A key brought in by a merge conflicts with an exclusive key the mapping sets itself.
+        """
+        text = self._with_anchor(topology_definition_string, '&flags {hidden: true}')
+
+        with pytest.raises(YamlModelError, match='mutually exclusive'):
+            TopologyDefinition.load(
+                text.replace(
+                    '  - name: home\n',
+                    '  - <<: *flags\n    visible_by_roles: [red-team]\n    name: home\n',
+                    1,
+                )
+            )
+
+
 class TestVolumeRules:
     """
     Tests for the volume schema rules.
@@ -1149,7 +1215,7 @@ class TestVolumeRules:
                 '      - size: 10\n      - size: -5\n',
                 r'volumes\[1\]\.size must be a whole number of at least 1',
             ),
-            ('      - size: true\n', r'volumes\[0\]\.size must be a whole number of at least 1'),
+            ('      - size: true\n', 'Expected an integer, got the boolean `True`'),
             ('      - size: 10\n        image: crczp/disk\n', r'volumes\[0\] is the system disk'),
             ('      - size: 10\n' * 13, 'more than 12 entries'),
         ],
@@ -1168,7 +1234,7 @@ class TestVolumeRules:
         """
         Volumes without size, below 1 GB, with an image on the system disk or over 12 entries fail.
         """
-        with pytest.raises(YamlizingError, match=message):
+        with pytest.raises(YamlModelError, match=message):
             self._load(topology_definition_string, volumes)
 
     def test_twelve_volumes_accepted(self, topology_definition_string: str) -> None:
@@ -1288,7 +1354,7 @@ class TestManagementAccess:
         """
         mgmt_password is rejected with a non-SSH protocol regardless of key order.
         """
-        with pytest.raises(YamlizingError, match='mgmt_password is supported only with'):
+        with pytest.raises(YamlModelError, match='mgmt_password is supported only with'):
             BaseBox.load(base_box_yaml)
 
     def test_router_mgmt_password_rejected_without_ssh(
@@ -1305,14 +1371,14 @@ class TestManagementAccess:
             ' mgmt_password: test-password }',
         )
 
-        with pytest.raises(YamlizingError, match='mgmt_password is supported only with'):
+        with pytest.raises(YamlModelError, match='mgmt_password is supported only with'):
             TopologyDefinition.load(sb_def)
 
     def test_empty_mgmt_password_rejected(self) -> None:
         """
         An empty mgmt_password is rejected at its key rather than ignored by the inventory.
         """
-        with pytest.raises(YamlizingError, match='mgmt_password must not be empty') as exc_info:
+        with pytest.raises(YamlModelError, match='mgmt_password must not be empty') as exc_info:
             BaseBox.load("image: image\nmgmt_password: ''\n")
         assert 'line 2, column' in str(exc_info.value)
 
@@ -1373,7 +1439,7 @@ class TestUnmanagedHosts:
         unmanaged = topology_definition_string.replace(
             server_flavor, server_flavor + '    managed: false\n', 1
         )
-        with pytest.raises(YamlizingError, match=error):
+        with pytest.raises(YamlModelError, match=error):
             TopologyDefinition.load(unmanaged + '\n' + block)
 
     def test_router_managed_rejected(self, topology_definition_string: str) -> None:
@@ -1385,7 +1451,7 @@ class TestUnmanagedHosts:
         sb_def = topology_definition_string.replace(
             router_flavor, '    flavor: standard.small\n    managed: false\n\n  - name: home-router'
         )
-        with pytest.raises(YamlizingError, match='found key `managed`'):
+        with pytest.raises(YamlModelError, match='found key `managed`'):
             TopologyDefinition.load(sb_def)
 
 
@@ -1405,6 +1471,7 @@ class TestVpnRules:
         )
         assert td.vpn is not None
         assert td.vpn.dns is not None
+        assert td.vpn.dns.search_domains is not None
         assert list(td.vpn.dns.search_domains) == [domain]
 
     def test_search_domain_with_trailing_newline_rejected(
@@ -1413,9 +1480,19 @@ class TestVpnRules:
         """
         A search domain must match the domain pattern in full, trailing newline included.
         """
-        with pytest.raises(YamlizingError, match='contains invalid domain'):
+        with pytest.raises(YamlModelError, match='contains invalid domain'):
             TopologyDefinition.load(
                 topology_definition_string
                 + '\nvpn:\n  dns:\n    servers: [10.10.20.5]\n'
                 + '    search_domains: ["sandbox.local\\n"]\n'
             )
+
+
+def test_yaml_directive_accepted(topology_definition_string: str) -> None:
+    """
+    A document opening with a %YAML directive loads like one without.
+    """
+    with_directive = TopologyDefinition.load('%YAML 1.2\n---\n' + topology_definition_string)
+    without = TopologyDefinition.load(topology_definition_string)
+
+    assert TopologyDefinition.dump(with_directive) == TopologyDefinition.dump(without)

@@ -13,6 +13,7 @@ from crczp.sandbox_common_lib import exceptions, utils
 from crczp.sandbox_common_lib.common_cloud import list_images
 from crczp.sandbox_instance_app.models import Sandbox
 from crczp.terraform_driver import TerraformInstance
+from crczp.topology_definition.models import Network
 
 CACHE_CONSOLE_PREFIX = 'console-'
 CACHE_CONSOLE_TIMEOUT = 7200  # the console URLs can last for about 2-3 hours
@@ -182,7 +183,7 @@ def _get_node_ip(topology_instance: TopologyInstance, node: Node, users_roles: U
     denied = False
     for link in itertools.chain(router_links, host_links):
         network = link.network
-        if hasattr(network, 'accessible_by_user') and not topology_instance.network_has_reach(
+        if isinstance(network, Network) and not topology_instance.network_has_reach(
             network, users_roles
         ):
             denied = True

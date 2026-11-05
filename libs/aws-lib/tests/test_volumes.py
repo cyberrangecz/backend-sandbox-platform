@@ -77,6 +77,7 @@ def test_volume_snapshot_cannot_inject_terraform(
     instance = topology(server_volumes=_SERVER_VOLUMES)
     server = instance.get_node('server')
     assert isinstance(server, Host)
+    assert server.volumes is not None
     server.volumes[1].image = _INJECTION_PAYLOAD
 
     template = aws_client.create_terraform_template(instance, resource_prefix=_PREFIX)

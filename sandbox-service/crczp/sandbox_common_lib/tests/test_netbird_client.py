@@ -373,8 +373,7 @@ class TestRequestExceptionHandling:
 
 def patch_netbird_config(mocker: Any, netbird_cfg: Any) -> None:
     """Swap CRCZP_CONFIG for a namespace carrying the given netbird config."""
-    # CRCZP_CONFIG is a yamlize Object whose attribute descriptor cannot be
-    # safely patched in place, so swap the whole config object for the test.
+    # Swap the whole config object, so the test controls exactly what is read from it.
     mocker.patch(
         'crczp.sandbox_common_lib.netbird_client.settings.CRCZP_CONFIG',
         new=SimpleNamespace(netbird=netbird_cfg, ssl_ca_certificate_verify=True),

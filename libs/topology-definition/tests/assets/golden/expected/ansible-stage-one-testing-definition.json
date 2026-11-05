@@ -1,0 +1,291 @@
+{
+  "definition": {
+    "groups": [
+      {
+        "name": "monitor-os",
+        "nodes": []
+      },
+      {
+        "name": "monitor-icmp",
+        "nodes": []
+      }
+    ],
+    "hosts": [
+      {
+        "base_box": {
+          "image": "windows-server-2019",
+          "mgmt_password": null,
+          "mgmt_protocol": "winrm",
+          "mgmt_user": "windows"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "a4-8-35",
+        "hidden": false,
+        "managed": true,
+        "name": "windows-server-2019",
+        "visible_by_roles": null,
+        "volumes": null
+      },
+      {
+        "base_box": {
+          "image": "windows-10",
+          "mgmt_password": null,
+          "mgmt_protocol": "winrm",
+          "mgmt_user": "windows"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "a4-8-35",
+        "hidden": false,
+        "managed": true,
+        "name": "windows-10",
+        "visible_by_roles": null,
+        "volumes": null
+      },
+      {
+        "base_box": {
+          "image": "windows-7",
+          "mgmt_password": null,
+          "mgmt_protocol": "winrm",
+          "mgmt_user": "windows"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "a4-8-35",
+        "hidden": false,
+        "managed": true,
+        "name": "windows-7",
+        "visible_by_roles": null,
+        "volumes": null
+      },
+      {
+        "base_box": {
+          "image": "kali",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "a2-4-35",
+        "hidden": false,
+        "managed": true,
+        "name": "kali",
+        "visible_by_roles": null,
+        "volumes": null
+      },
+      {
+        "base_box": {
+          "image": "debian-10",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "a1-2-20",
+        "hidden": false,
+        "managed": true,
+        "name": "debian-10",
+        "visible_by_roles": null,
+        "volumes": null
+      },
+      {
+        "base_box": {
+          "image": "ubuntu-22.04",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "ubuntu"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "a1-2-20",
+        "hidden": false,
+        "managed": true,
+        "name": "ubuntu-2204",
+        "visible_by_roles": null,
+        "volumes": null
+      },
+      {
+        "base_box": {
+          "image": "xubuntu-22.04",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "ubuntu"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "a2-4-35",
+        "hidden": false,
+        "managed": true,
+        "name": "xubuntu-2204",
+        "visible_by_roles": null,
+        "volumes": null
+      },
+      {
+        "base_box": {
+          "image": "ubuntu-noble-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "ubuntu"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "a1-2-20",
+        "hidden": false,
+        "managed": true,
+        "name": "ubuntu-noble",
+        "visible_by_roles": null,
+        "volumes": null
+      }
+    ],
+    "monitoring_targets": null,
+    "name": "ansible-stage-one-testing-definition",
+    "net_mappings": [
+      {
+        "host": "windows-server-2019",
+        "ip": "172.18.1.10",
+        "network": "opnsense-network"
+      },
+      {
+        "host": "windows-10",
+        "ip": "172.18.1.11",
+        "network": "opnsense-network"
+      },
+      {
+        "host": "windows-7",
+        "ip": "172.18.1.12",
+        "network": "opnsense-network"
+      },
+      {
+        "host": "debian-10",
+        "ip": "172.18.1.13",
+        "network": "opnsense-network"
+      },
+      {
+        "host": "kali",
+        "ip": "172.18.2.20",
+        "network": "debian-10-network"
+      },
+      {
+        "host": "ubuntu-2204",
+        "ip": "172.18.2.21",
+        "network": "debian-10-network"
+      },
+      {
+        "host": "xubuntu-2204",
+        "ip": "172.18.3.30",
+        "network": "debian-12-network"
+      },
+      {
+        "host": "ubuntu-noble",
+        "ip": "172.18.4.40",
+        "network": "ubuntu-noble-network"
+      }
+    ],
+    "network_forwarding": null,
+    "networks": [
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": true,
+        "cidr": "172.18.1.0/24",
+        "hidden": false,
+        "name": "opnsense-network",
+        "visible_by_roles": null
+      },
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": true,
+        "cidr": "172.18.2.0/24",
+        "hidden": false,
+        "name": "debian-10-network",
+        "visible_by_roles": null
+      },
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": true,
+        "cidr": "172.18.3.0/24",
+        "hidden": false,
+        "name": "debian-12-network",
+        "visible_by_roles": null
+      },
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": true,
+        "cidr": "172.18.4.0/24",
+        "hidden": false,
+        "name": "ubuntu-noble-network",
+        "visible_by_roles": null
+      }
+    ],
+    "router_mappings": [
+      {
+        "ip": "172.18.1.1",
+        "network": "opnsense-network",
+        "router": "opnsense-router"
+      },
+      {
+        "ip": "172.18.2.1",
+        "network": "debian-10-network",
+        "router": "debian-12-router"
+      },
+      {
+        "ip": "172.18.3.1",
+        "network": "debian-12-network",
+        "router": "debian-12-router"
+      },
+      {
+        "ip": "172.18.4.1",
+        "network": "ubuntu-noble-network",
+        "router": "ubuntu-noble-router"
+      }
+    ],
+    "routers": [
+      {
+        "base_box": {
+          "image": "opnsense",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "freebsd"
+        },
+        "extra": null,
+        "flavor": "a1-2-20",
+        "hidden": false,
+        "name": "opnsense-router",
+        "visible_by_roles": null
+      },
+      {
+        "base_box": {
+          "image": "debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "extra": null,
+        "flavor": "a1-2-20",
+        "hidden": false,
+        "name": "debian-12-router",
+        "visible_by_roles": null
+      },
+      {
+        "base_box": {
+          "image": "ubuntu-noble-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "ubuntu"
+        },
+        "extra": null,
+        "flavor": "a1-2-20",
+        "hidden": false,
+        "name": "ubuntu-noble-router",
+        "visible_by_roles": null
+      }
+    ],
+    "vpn": null,
+    "wan": {
+      "cidr": "100.100.100.0/24",
+      "name": "wan"
+    }
+  }
+}

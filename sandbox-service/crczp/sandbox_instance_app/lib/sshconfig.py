@@ -1,9 +1,10 @@
 """SSH configuration classes for CRCZP sandbox access."""
 
-from typing import Any, override
+import re
+from dataclasses import dataclass, field
+from typing import override
 
 import structlog
-from ssh_config.client import Host, parse_config  # Don't import SSHConfig unless reading from file
 
 from crczp.cloud_commons import Link, TopologyInstance, UsersRoles
 
@@ -11,6 +12,28 @@ LOG = structlog.getLogger()
 
 SSH_PROXY_USERNAME = 'user'
 SSH_PROXY_KEY = '<path_to_proxy_jump_private_key>'
+
+# OpenSSH separates an option's keyword from its value by whitespace or by `=`.
+OPTION_SEPARATOR = re.compile(r'\s*=\s*|\s+')
+
+
+@dataclass
+class SSHHost:
+    """One `Host` block of an OpenSSH client config."""
+
+    names: list[str]
+    options: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def name(self) -> str:
+        """The block's patterns, space-separated as on its `Host` line."""
+        return ' '.join(self.names)
+
+    @override
+    def __str__(self) -> str:
+        lines = [f'Host {self.name}']
+        lines += [f'    {key} {value}' for key, value in self.options.items()]
+        return '\n'.join(lines) + '\n'
 
 
 class CrczpSSHConfig:
@@ -20,7 +43,7 @@ class CrczpSSHConfig:
     """
 
     def __init__(self) -> None:
-        self.hosts: list[Host] = []
+        self.hosts: list[SSHHost] = []
         self.raw: str | None = None
 
     @override
@@ -41,28 +64,25 @@ class CrczpSSHConfig:
         proxy_jump: str | None = None,
         alias: str | None = None,
         port: int | None = None,
-        **kwargs: Any,
+        **kwargs: str,
     ) -> None:
         """
-        Create and add Host instance to this SSH config file.
+        Create and add a Host entry to this SSH config file.
         """
-        opts = {
-            'HostName': host_name,
-            'User': user,
-            'IdentityFile': identity_file,
-            'UserKnownHostsFile': '/dev/null',
-            'StrictHostKeyChecking': 'no',
-            'IdentitiesOnly': 'yes',
-        }
+        options = {'HostName': host_name, 'User': user}
         if port is not None:
-            opts['Port'] = str(port)
+            options['Port'] = str(port)
+        options['IdentityFile'] = identity_file
         if proxy_jump:
-            opts['ProxyJump'] = proxy_jump
-        opts.update(kwargs)
+            options['ProxyJump'] = proxy_jump
+        options |= {
+            'UserKnownHostsFile': '/dev/null',
+            'IdentitiesOnly': 'yes',
+            'StrictHostKeyChecking': 'no',
+        }
+        options |= kwargs
         # Use alias as first name if given, otherwise host_name
-        names = [alias, host_name] if alias else host_name
-        host = Host(names, opts)
-        self.hosts.append(host)
+        self.hosts.append(SSHHost([alias, host_name] if alias else [host_name], options))
 
     def add_docker_host(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
@@ -72,24 +92,12 @@ class CrczpSSHConfig:
         port: int,
         proxy_jump: str | None = None,
         alias: str | None = None,
-        **kwargs: Any,
+        **kwargs: str,
     ) -> None:
         """Create and add a Host entry for a Docker container to this SSH config."""
-        opts = {
-            'HostName': host_name,
-            'User': user,
-            'IdentityFile': identity_file,
-            'Port': str(port),
-            'UserKnownHostsFile': '/dev/null',
-            'StrictHostKeyChecking': 'no',
-            'IdentitiesOnly': 'yes',
-        }
-        if proxy_jump:
-            opts['ProxyJump'] = proxy_jump
-        opts.update(kwargs)
-        # For containers, alias is always present
-        host = Host([alias, host_name] if alias else host_name, opts)
-        self.hosts.append(host)
+        self.add_host(
+            host_name, user, identity_file, proxy_jump=proxy_jump, alias=alias, port=port, **kwargs
+        )
 
     @classmethod
     def load(cls, file_path: str) -> 'CrczpSSHConfig':
@@ -101,34 +109,32 @@ class CrczpSSHConfig:
     def from_str(cls, ssh_config: str) -> 'CrczpSSHConfig':
         """
         Load SSH config file from string.
+
+        Options before the first `Host` line apply to every host and are not kept.
         """
-        instance = cls()
-        instance.raw = ssh_config
         if not ssh_config or not ssh_config.strip():
             raise ValueError('Empty SSHConfig string')
-        hosts, _global_options = parse_config(ssh_config)
-        for host_dict in hosts:
-            name = host_dict['host']
-            attrs = host_dict['attrs']
-            # parse_config returns 'True'/'False' strings when loading a config
-            # serialized by the ssh_config library (which outputs Python booleans).
-            # Convert those strings back to 'yes'/'no' so Host() type converters accept them.
-            normalized = {
-                k: ('yes' if v == 'True' else 'no' if v == 'False' else v) for k, v in attrs.items()
-            }
-            instance.hosts.append(Host(name, normalized))
+        instance = cls()
+        instance.raw = ssh_config
+        host: SSHHost | None = None
+        for raw_line in ssh_config.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith('#'):
+                continue
+            parts = OPTION_SEPARATOR.split(line, maxsplit=1)
+            key, value = parts[0], parts[1] if len(parts) > 1 else ''
+            if key.lower() == 'host':
+                host = SSHHost(value.split())
+                instance.hosts.append(host)
+            elif host is not None:
+                host.options[key] = value
         return instance
 
-    def asdict(self) -> list[dict[str, Any]]:
+    def asdict(self) -> list[dict[str, str]]:
         """
         Return a list of dicts for all hosts.
         """
-        hosts_data = []
-        for host in self.hosts:
-            host_dict = {'Host': host.name}
-            host_dict.update(host.attributes())
-            hosts_data.append(host_dict)
-        return hosts_data
+        return [{'Host': host.name, **host.options} for host in self.hosts]
 
 
 class CrczpUserSSHConfig(CrczpSSHConfig):

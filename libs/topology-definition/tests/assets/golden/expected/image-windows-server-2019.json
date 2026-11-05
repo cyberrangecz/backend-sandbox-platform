@@ -1,0 +1,70 @@
+{
+  "definition": {
+    "groups": [],
+    "hosts": [
+      {
+        "base_box": {
+          "image": "IMAGE_NAME",
+          "mgmt_password": null,
+          "mgmt_protocol": "winrm",
+          "mgmt_user": "windows"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "standard.medium",
+        "hidden": false,
+        "managed": true,
+        "name": "image-test",
+        "visible_by_roles": null,
+        "volumes": null
+      }
+    ],
+    "monitoring_targets": null,
+    "name": "windows-server-2019-testing-topology",
+    "net_mappings": [
+      {
+        "host": "image-test",
+        "ip": "10.0.0.10",
+        "network": "network"
+      }
+    ],
+    "network_forwarding": null,
+    "networks": [
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": true,
+        "cidr": "10.0.0.0/24",
+        "hidden": false,
+        "name": "network",
+        "visible_by_roles": null
+      }
+    ],
+    "router_mappings": [
+      {
+        "ip": "10.0.0.1",
+        "network": "network",
+        "router": "router"
+      }
+    ],
+    "routers": [
+      {
+        "base_box": {
+          "image": "debian-10",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": false,
+        "name": "router",
+        "visible_by_roles": null
+      }
+    ],
+    "vpn": null,
+    "wan": {
+      "cidr": "100.100.100.0/24",
+      "name": "wan"
+    }
+  }
+}

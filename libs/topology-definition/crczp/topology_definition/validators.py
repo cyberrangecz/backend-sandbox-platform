@@ -11,8 +11,6 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
-    from yamlize import StrList
-
     from crczp.topology_definition.models import (
         WAN,
         GroupList,
@@ -26,6 +24,7 @@ if TYPE_CHECKING:
         NetworkMappingList,
         RouterMapping,
         RouterMappingList,
+        StrList,
         TargetHTTPList,
         TargetICMPList,
         TargetTCPList,
@@ -51,6 +50,13 @@ _UNIQ_MSG = (
 )
 
 
+def _model_name(obj: object) -> str:
+    """
+    The name of a model class, given the class or one of its instances.
+    """
+    return obj.__name__ if isinstance(obj, type) else type(obj).__name__
+
+
 class TopologyValidation:  # pylint: disable=too-many-public-methods
     """
     Class for topology definition validation.
@@ -63,7 +69,7 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         """
         if not re.fullmatch(VALID_NAMES_REGEX, name):
             _msg = 'Cannot set {}.name to "{}". It does not match regex "{}".'
-            raise ValueError(_msg.format(obj.__class__.__name__, name, VALID_NAMES_REGEX))
+            raise ValueError(_msg.format(_model_name(obj), name, VALID_NAMES_REGEX))
 
     @staticmethod
     def is_ipv4_cidr(obj: object, cidr: str) -> None:
@@ -74,9 +80,7 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         try:
             IPv4Network(cidr, strict=False)
         except ValueError as exc:
-            raise ValueError(
-                f'{obj.__class__.__name__}.cidr "{cidr}" is not a valid IPv4 CIDR.'
-            ) from exc
+            raise ValueError(f'{_model_name(obj)}.cidr "{cidr}" is not a valid IPv4 CIDR.') from exc
 
     @staticmethod
     def is_ipv4_address(obj: object, ip: str) -> None:
@@ -86,9 +90,7 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         try:
             IPv4Address(ip)
         except ValueError as exc:
-            raise ValueError(
-                f'{obj.__class__.__name__}.ip "{ip}" is not a valid IPv4 address.'
-            ) from exc
+            raise ValueError(f'{_model_name(obj)}.ip "{ip}" is not a valid IPv4 address.') from exc
 
     @staticmethod
     def validate_net_mappings(obj: TopologyDefinition, net_mappings: NetworkMappingList) -> bool:
@@ -333,7 +335,7 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
                 'set base_box.image instead'
             )
         for index, volume in enumerate(volumes):
-            if isinstance(volume.size, bool) or volume.size < 1:
+            if volume.size < 1:
                 raise ValueError(f'volumes[{index}].size must be a whole number of at least 1 GB')
 
     @staticmethod
@@ -344,9 +346,7 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         for role in roles:
             if not re.match(ROLE_NAME_REGEX, role):
                 _msg = 'Cannot set {}.{} entry "{}". It does not match regex "{}".'
-                raise ValueError(
-                    _msg.format(obj.__class__.__name__, field_name, role, ROLE_NAME_REGEX)
-                )
+                raise ValueError(_msg.format(_model_name(obj), field_name, role, ROLE_NAME_REGEX))
         roles[:] = sorted(set(roles))
 
     @staticmethod
@@ -357,7 +357,7 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         if roles is not None:
             if not roles:
                 raise ValueError(
-                    f'{obj.__class__.__name__}.visible_by_roles must not be an empty list; '
+                    f'{_model_name(obj)}.visible_by_roles must not be an empty list; '
                     'omit the field to admit every role, or name at least one role to admit. '
                     'Use hidden: true to conceal a node from every role.'
                 )
@@ -371,7 +371,7 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
         if roles is not None:
             if not roles:
                 raise ValueError(
-                    f'{obj.__class__.__name__}.accessible_by_roles must not be an empty list; '
+                    f'{_model_name(obj)}.accessible_by_roles must not be an empty list; '
                     'omit the field to admit every role, or name at least one role to admit.'
                 )
             TopologyValidation._validate_role_list(obj, roles, 'accessible_by_roles')

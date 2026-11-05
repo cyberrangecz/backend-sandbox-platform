@@ -1,0 +1,9 @@
+# Source: https://github.com/cyberrangecz/terraform-testing-definition/blob/HEAD/topology.yml
+name: terraform-testing-definition
+
+hosts: []
+routers: []
+networks: []
+net_mappings: []
+router_mappings: []
+groups: []

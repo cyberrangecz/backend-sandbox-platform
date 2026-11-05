@@ -1,9 +1,19 @@
 """Tests for crczp.openstack_driver.open_stack_proxy module."""
 
+import json
 import re
 
 import pytest
-from novaclient.exceptions import ClientException as NovaClientException
+import requests
+from openstack import exceptions as sdk_exceptions
+from openstack.compute.v2.flavor import Flavor
+from openstack.compute.v2.keypair import Keypair
+from openstack.compute.v2.limits import Limits as NovaLimits
+from openstack.compute.v2.quota_set import QuotaSet as NovaQuotaSet
+from openstack.compute.v2.server_remote_console import ServerRemoteConsole
+from openstack.image.v2.image import Image as GlanceImage
+from openstack.network.v2.quota import Quota as NeutronQuota
+from openstack.network.v2.quota import QuotaDetails as NeutronQuotaDetails
 from ruamel.yaml import YAML
 
 from crczp.cloud_commons import (
@@ -13,12 +23,51 @@ from crczp.cloud_commons import (
     InvalidTopologyDefinition,
     Limits,
     Quota,
-    QuotaSet,
     StackException,
     hcl_string,
 )
-from crczp.openstack_driver import utils
 from crczp.openstack_driver.open_stack_proxy import OpenStackProxy
+
+PROJECT_ID = '5ef70662f8b34079a6eddb8da9d75fe8'
+SERVER_ID = '9a3e6c1b-2f4d-4b8a-8e7c-5d1f0a2b3c4d'
+KEYPAIR_NAME = 'crczp-p0000000012-3f2c9a4e-8b1d-4c6e-9a7f-2d5b8e1c0a93-ssh'
+PUBLIC_KEY = (
+    'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK0wmN/Cr3JXqmLW7u+g9pTh+wy3Kx2LjMjQ3fM0dWg5 crczp'
+)
+REQUEST_ID = 'req-4f1c2a3b-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+# What the SDK raises, without any HTTP response, for a nova older than the pinned microversion.
+MICROVERSION_ERROR = (
+    'A default microversion for service compute of 2.10 was requested, but the cloud only '
+    'supports a minimum of 2.1 and a maximum of 2.6.'
+)
+CONSOLE_TYPES = ['novnc', 'xvpvnc', 'spice-html5', 'rdp-html5', 'serial', 'webmks']
+
+
+def _nova_error(status: int, fault: str, message: str) -> sdk_exceptions.HttpException:
+    """Build the SDK exception for a Nova error response, as the SDK parses it."""
+    response = requests.Response()
+    response.status_code = status
+    response.headers['Content-Type'] = 'application/json'
+    response.headers['x-openstack-request-id'] = REQUEST_ID
+    response._content = json.dumps({fault: {'code': status, 'message': message}}).encode()  # pylint: disable=protected-access
+    try:
+        sdk_exceptions.raise_from_response(response)
+    except sdk_exceptions.HttpException as e:
+        return e
+    raise AssertionError(f'HTTP {status} did not raise')
+
+
+def _not_found(message: str) -> sdk_exceptions.HttpException:
+    return _nova_error(404, 'itemNotFound', message)
+
+
+def _conflict(message: str) -> sdk_exceptions.HttpException:
+    return _nova_error(409, 'conflictingRequest', message)
+
+
+def _glance_image(body: dict) -> GlanceImage:
+    """Build an SDK image from a glance body, dropping its "self" link as the SDK does."""
+    return GlanceImage.existing(**{key: value for key, value in body.items() if key != 'self'})
 
 
 def _resource_block(template: str, resource_type: str, name: str) -> str:
@@ -49,322 +98,346 @@ class TestOpenStackProxy:  # pylint: disable=too-many-public-methods
     """Unit tests for the OpenStackProxy class."""
 
     @pytest.fixture()
-    def open_stack_proxy(self, mocker, trc):
-        """Create an OpenStackProxy instance backed by mock clients."""
-        mock_session = mocker.MagicMock()
-        auth_url = 'url'
-        application_credential_id = 'app_id'
-        application_credential_secret = 'app_secret'
-
-        glance_client = utils.get_client('glance', mock_session)
-        nova_client = utils.get_client('nova', mock_session)
-        neutron_client = utils.get_client('neutron', mock_session)
-
-        open_stack_proxy = OpenStackProxy(
-            glance_client,
-            nova_client,
-            neutron_client,
-            auth_url,
-            application_credential_id,
-            application_credential_secret,
-            trc,
-        )
-
-        return open_stack_proxy
+    def open_stack_proxy(self, fake_conn, trc):
+        """Create an OpenStackProxy instance backed by a fake openstacksdk connection."""
+        return OpenStackProxy(fake_conn, 'url', 'app_id', 'app_secret', trc)
 
     @pytest.fixture()
-    def stack_resources(self):
-        """Return a sample stack resources dict."""
-        resources = {
-            'physical_resource_id': 'node_id',
-            'creation_time': '22',
-            'updated_time': '33',
-            'attributes': {
-                'status': 'ACTIVE',
-                'flavor': {'original_name': 'name'},
-                'image': {'id': 2},
-                'addresses': {'network_name': [{'addr': '10.10.10.2'}]},
-            },
-        }
-
-        return resources
-
-    @pytest.fixture()
-    def mock_get_quota_set(self, mocker, open_stack_proxy):
-        """Return a helper that stubs get_quota_set on the proxy."""
-
-        def get_quota_set(quotas):
-            quota_set = QuotaSet(**quotas)
-            open_stack_proxy.get_quota_set = mocker.MagicMock()
-            open_stack_proxy.get_quota_set.return_value = quota_set
-            return quota_set
-
-        return get_quota_set
-
-    @pytest.fixture()
-    def mock_flavors(self, mocker, open_stack_proxy):
-        """Stub the nova flavors list and _get_flavors_dict on the proxy."""
-        open_stack_proxy.nova.flavors = mocker.MagicMock()
-
-        flavors = {'standard.small': {'vcpu': 1, 'ram': 2}}
-        open_stack_proxy._get_flavors_dict = mocker.MagicMock()  # pylint: disable=protected-access
-        open_stack_proxy._get_flavors_dict.return_value = flavors  # pylint: disable=protected-access
-
-    @pytest.fixture()
-    def quotas(self):
-        """Return a dict of Quota objects for all quota dimensions."""
-        quota = Quota(100, 0)
-        return {
-            'vcpu': quota,
-            'ram': quota,
-            'instances': quota,
-            'network': quota,
-            'subnet': quota,
-            'port': quota,
-        }
+    def mock_flavors(self, fake_conn):
+        """Make nova list the flavor every node of the test topologies uses."""
+        fake_conn.compute.flavors.return_value = iter([
+            Flavor.existing(id='a1-2-20', name='standard.small', vcpus=1, ram=2048, disk=20)
+        ])
 
     @pytest.fixture()
     def expected_hardware_usage(self):
         """Return the expected HardwareUsage for the test topology."""
         return HardwareUsage(5, 10, 5, 4, 4, 12)
 
-    @pytest.mark.parametrize(
-        'image_parameters',
-        [
-            {
-                'os_distro': 'os_distro',
-                'os_type': 'os_type',
-                'disk_format': 'disk_format',
-                'container_format': 'container_format',
-                'visibility': 'visibility',
-                'size': 'size',
-                'status': 'status',
-                'min_ram': 'min_ram',
-                'min_disk': 'min_disk',
-                'created_at': 'created_at',
-                'updated_at': 'updated_at',
-                'tags': 'tags',
-                'default_user': 'default_user',
-                'name': 'image_name',
-                'owner_specified.openstack.version': '4.2.0',
-                'owner_specified.openstack.md5': 'cdfb2e4052f2d6d97b0001ee998909a7',
-                'owner_specified.openstack.sha256': '0463ac656ddbc771fda81a428b2eb',
-                'owner_specified.openstack.object': 'images/debian-10-4.2.0',
-            }
-        ],
-    )
-    @pytest.mark.parametrize(
-        'image_object',
-        [
-            {
-                'os_distro': 'os_distro',
-                'os_type': 'os_type',
-                'disk_format': 'disk_format',
-                'container_format': 'container_format',
-                'visibility': 'visibility',
-                'size': 'size',
-                'status': 'status',
-                'min_ram': 'min_ram',
-                'min_disk': 'min_disk',
-                'created_at': 'created_at',
-                'updated_at': 'updated_at',
-                'tags': 'tags',
-                'default_user': 'default_user',
-                'name': 'image_name',
-                'owner_specified': {
-                    'owner_specified.openstack.version': '4.2.0',
-                    'owner_specified.openstack.md5': 'cdfb2e4052f2d6d97b0001ee998909a7',
-                    'owner_specified.openstack.sha256': '0463ac656ddbc771fda81a428b2eb',
-                    'owner_specified.openstack.object': 'images/debian-10-4.2.0',
-                },
-            }
-        ],
-    )
-    def test_image_list(self, mocker, open_stack_proxy, image_parameters, image_object):
-        """Test that list_images returns correctly mapped Image objects."""
-        expected_image = Image(**image_object)
-
-        open_stack_proxy.glance.images.list = mocker.MagicMock()
-        open_stack_proxy.glance.images.list.return_value = [image_parameters]
+    def test_image_list(self, fake_conn, open_stack_proxy, glance_image, glance_image_fields):
+        """Test that list_images maps glance images, including their custom properties."""
+        fake_conn.image.images.return_value = iter([_glance_image(glance_image)])
 
         result = open_stack_proxy.list_images()
 
-        assert result[0] == expected_image
+        # Image.__eq__ compares only some of the fields, so compare all of them.
+        assert [vars(image) for image in result] == [glance_image_fields]
+        assert vars(Image(**glance_image_fields)) == glance_image_fields
+        # No page size: the SDK then follows glance's `next` links only.
+        fake_conn.image.images.assert_called_once_with()
 
-    def test_get_keypair(self, mocker, open_stack_proxy):
-        """Test that get_keypair returns the nova keypair."""
-        open_stack_proxy.nova.keypairs.get = mocker.MagicMock()
-        open_stack_proxy.nova.keypairs.get.return_value = 'testKey'
+    def test_image_list_without_custom_properties(
+        self, fake_conn, open_stack_proxy, glance_image_without_properties
+    ):
+        """Test that an image without custom properties has no default user or owner data."""
+        fake_conn.image.images.return_value = iter([_glance_image(glance_image_without_properties)])
 
-        result = open_stack_proxy.get_keypair('keypair')
+        [image] = open_stack_proxy.list_images()
 
-        assert result == 'testKey'
-        open_stack_proxy.nova.keypairs.get.assert_called_with('keypair')
+        assert image.name == 'ubuntu-noble-man-0.1.0'
+        assert image.os_type is None
+        assert image.os_distro is None
+        assert image.tags == []
+        assert image.default_user is None
+        assert image.owner_specified == {}
 
-    def test_get_keypair_nonexistent_keypair(self, mocker, open_stack_proxy):
-        """Test that get_keypair raises CrczpException when the keypair does not exist."""
-        open_stack_proxy.nova.keypairs.get = mocker.MagicMock()
-        open_stack_proxy.nova.keypairs.get.side_effect = NovaClientException('testException')
+    def test_get_image(self, fake_conn, open_stack_proxy, glance_image):
+        """Test that get_image fetches the image by its ID and maps it."""
+        fake_conn.image.get_image.return_value = _glance_image(glance_image)
 
-        with pytest.raises(CrczpException):
-            open_stack_proxy.get_keypair('keypair')
+        image = open_stack_proxy.get_image(glance_image['id'])
 
-    def test_create_keypair(self, mocker, open_stack_proxy):
-        """Test that create_keypair calls nova and returns the created keypair."""
-        open_stack_proxy.nova.keypairs.create = mocker.MagicMock()
-        open_stack_proxy.nova.keypairs.create.return_value = 'testKeyPair'
+        assert image.name == 'kali-0.6.0'
+        assert image.size == 8589934592
+        assert image.default_user == 'kali'
+        assert image.owner_specified['owner_specified.openstack.gui_access'] == 'true'
+        fake_conn.image.get_image.assert_called_once_with(glance_image['id'])
 
-        result = open_stack_proxy.create_keypair('keypair', 'public_key', 'ssh')
+    def test_get_image_not_found(self, fake_conn, open_stack_proxy):
+        """Test that a missing image is not wrapped, so the API still answers 500."""
+        error = sdk_exceptions.NotFoundException('No Image found for 0000')
+        fake_conn.image.get_image.side_effect = error
 
-        assert result == 'testKeyPair'
-        open_stack_proxy.nova.keypairs.create.assert_called_with(
-            'keypair', 'public_key', key_type='ssh'
+        with pytest.raises(sdk_exceptions.NotFoundException) as exc_info:
+            open_stack_proxy.get_image('0000')
+
+        assert exc_info.value is error
+
+    def test_get_keypair(self, fake_conn, open_stack_proxy):
+        """Test that get_keypair returns the nova keypair as a dict."""
+        fake_conn.compute.get_keypair.return_value = Keypair.existing(
+            name=KEYPAIR_NAME,
+            public_key=PUBLIC_KEY,
+            fingerprint='SHA256:0bN3v1aJqY6h2c5n0yQ5o0m3o0Zb2l4q8yM1sQ7tF6E',
+            type='ssh',
+            user_id='8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a',
+            created_at='2026-10-01T08:15:42.000000',
+            deleted=False,
+            id=4242,
         )
 
-    def test_create_keypair_already_exist(self, mocker, open_stack_proxy):
+        result = open_stack_proxy.get_keypair(KEYPAIR_NAME)
+
+        assert result == {
+            'name': KEYPAIR_NAME,
+            'public_key': PUBLIC_KEY,
+            'fingerprint': 'SHA256:0bN3v1aJqY6h2c5n0yQ5o0m3o0Zb2l4q8yM1sQ7tF6E',
+            'type': 'ssh',
+            'user_id': '8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a',
+            'created_at': '2026-10-01T08:15:42.000000',
+        }
+        fake_conn.compute.get_keypair.assert_called_once_with(KEYPAIR_NAME)
+
+    def test_get_keypair_nonexistent_keypair(self, fake_conn, open_stack_proxy):
+        """Test that get_keypair raises CrczpException with Nova's message."""
+        fake_conn.compute.get_keypair.side_effect = _not_found(
+            f'Keypair {KEYPAIR_NAME} not found for user 8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a'
+        )
+
+        with pytest.raises(CrczpException) as exc_info:
+            open_stack_proxy.get_keypair(KEYPAIR_NAME)
+
+        assert str(exc_info.value) == (
+            f"Failed to get keypair '{KEYPAIR_NAME}': Keypair {KEYPAIR_NAME} not found for user "
+            f'8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a (HTTP 404) (Request-ID: {REQUEST_ID})'
+        )
+
+    def test_get_keypair_sdk_error(self, fake_conn, open_stack_proxy):
+        """Test that an SDK error without an HTTP response is reported by its message."""
+        fake_conn.compute.get_keypair.side_effect = sdk_exceptions.ConfigException(
+            MICROVERSION_ERROR
+        )
+
+        with pytest.raises(CrczpException) as exc_info:
+            open_stack_proxy.get_keypair(KEYPAIR_NAME)
+
+        assert (
+            str(exc_info.value) == f"Failed to get keypair '{KEYPAIR_NAME}': {MICROVERSION_ERROR}"
+        )
+
+    def test_create_keypair(self, fake_conn, open_stack_proxy):
+        """Test that create_keypair sends the name, public key and key type."""
+        fake_conn.compute.create_keypair.return_value = Keypair.existing(name=KEYPAIR_NAME)
+
+        result = open_stack_proxy.create_keypair(KEYPAIR_NAME, PUBLIC_KEY, 'ssh')
+
+        assert result is None
+        fake_conn.compute.create_keypair.assert_called_once_with(
+            name=KEYPAIR_NAME, public_key=PUBLIC_KEY, type='ssh'
+        )
+
+    @pytest.mark.parametrize('public_key', [None, ''])
+    def test_create_keypair_without_public_key(self, fake_conn, open_stack_proxy, public_key):
+        """Test that a missing public key is left out, so that nova generates the key."""
+        fake_conn.compute.create_keypair.return_value = Keypair.existing(name=KEYPAIR_NAME)
+
+        open_stack_proxy.create_keypair(KEYPAIR_NAME, public_key, 'x509')
+
+        fake_conn.compute.create_keypair.assert_called_once_with(name=KEYPAIR_NAME, type='x509')
+
+    def test_create_keypair_already_exist(self, fake_conn, open_stack_proxy):
         """Test that create_keypair raises CrczpException when the keypair already exists."""
-        open_stack_proxy.nova.keypairs.create = mocker.MagicMock()
-        open_stack_proxy.nova.keypairs.create.side_effect = NovaClientException('testException')
-
-        with pytest.raises(CrczpException):
-            open_stack_proxy.create_keypair('key', 'public_key', 'ssh')
-
-    def test_delete_keypair(self, mocker, open_stack_proxy):
-        """Test that delete_keypair calls nova and returns the result."""
-        open_stack_proxy.nova.keypairs.delete = mocker.MagicMock()
-        open_stack_proxy.nova.keypairs.delete.return_value = 'keyDeleted'
-
-        result = open_stack_proxy.delete_keypair('keypair')
-
-        assert result == 'keyDeleted'
-        open_stack_proxy.nova.keypairs.delete.assert_called_with('keypair')
-
-    def test_delete_keypair_nonexistent_keypair(self, mocker, open_stack_proxy):
-        """Test that delete_keypair raises CrczpException when the keypair does not exist."""
-        open_stack_proxy.nova.keypairs.delete = mocker.MagicMock()
-        open_stack_proxy.nova.keypairs.delete.side_effect = NovaClientException('testException')
-
-        with pytest.raises(CrczpException):
-            open_stack_proxy.delete_keypair('key')
-
-    def test_instance_reboot(self, mocker, open_stack_proxy):
-        """Test that reboot_instance calls the nova reboot endpoint."""
-        open_stack_proxy.nova.servers.reboot = mocker.MagicMock()
-        open_stack_proxy.reboot_instance('node_id')
-
-        open_stack_proxy.nova.servers.reboot.assert_called_with('node_id')
-
-    def test_instance_reboot_stack_or_instance_not_found(self, mocker, open_stack_proxy):
-        """Test that reboot_instance raises CrczpException when the instance is not found."""
-        open_stack_proxy.nova.servers.reboot = mocker.MagicMock()
-        open_stack_proxy.nova.servers.reboot.side_effect = NovaClientException('testException')
-
-        with pytest.raises(CrczpException):
-            open_stack_proxy.reboot_instance('node_id')
-
-    def test_instance_start(self, mocker, open_stack_proxy):
-        """Test that start_instance calls the nova start endpoint."""
-        open_stack_proxy.nova.servers.start = mocker.MagicMock()
-        open_stack_proxy.start_instance('node_id')
-
-        open_stack_proxy.nova.servers.start.assert_called_with('node_id')
-
-    def test_instance_start_stack_or_instance_not_found(self, mocker, open_stack_proxy):
-        """Test that start_instance raises CrczpException when the instance is not found."""
-        open_stack_proxy.nova.servers.start = mocker.MagicMock()
-        open_stack_proxy.nova.servers.start.side_effect = NovaClientException('testException')
-
-        with pytest.raises(CrczpException):
-            open_stack_proxy.start_instance('node_id')
-
-    def test_instance_resume(self, mocker, open_stack_proxy):
-        """Test that resume_instance calls the nova resume endpoint."""
-        open_stack_proxy.nova.servers.resume = mocker.MagicMock()
-        open_stack_proxy.resume_instance('node_id')
-
-        open_stack_proxy.nova.servers.resume.assert_called_with('node_id')
-
-    def test_instance_resume_stack_or_instance_not_found(self, mocker, open_stack_proxy):
-        """Test that resume_instance raises CrczpException when the instance is not found."""
-        open_stack_proxy.nova.servers.resume = mocker.MagicMock()
-        open_stack_proxy.nova.servers.resume.side_effect = NovaClientException('testException')
-
-        with pytest.raises(CrczpException):
-            open_stack_proxy.resume_instance('node_id')
-
-    def test_get_console_url(self, mocker, open_stack_proxy, stack_resources):
-        """Test that get_console_url returns the expected console URL."""
-        expected_url = 'https://console.example.com/spice'
-        open_stack_proxy.nova.servers.get_console_url = mocker.MagicMock(
-            return_value={'remote_console': {'url': expected_url}}
+        fake_conn.compute.create_keypair.side_effect = _conflict(
+            f"Key pair '{KEYPAIR_NAME}' already exists."
         )
 
-        result = open_stack_proxy.get_console_url('node_id', 'spice-html5')
+        with pytest.raises(CrczpException, match=r'\(HTTP 409\)'):
+            open_stack_proxy.create_keypair(KEYPAIR_NAME, PUBLIC_KEY, 'ssh')
+
+    def test_delete_keypair(self, fake_conn, open_stack_proxy):
+        """Test that delete_keypair asks nova to report a missing keypair."""
+        open_stack_proxy.delete_keypair(KEYPAIR_NAME)
+
+        fake_conn.compute.delete_keypair.assert_called_once_with(KEYPAIR_NAME, ignore_missing=False)
+
+    def test_delete_keypair_nonexistent_keypair(self, fake_conn, open_stack_proxy):
+        """Test that delete_keypair raises CrczpException when the keypair does not exist."""
+        fake_conn.compute.delete_keypair.side_effect = _not_found(
+            f'Keypair {KEYPAIR_NAME} not found for user 8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a'
+        )
+
+        with pytest.raises(CrczpException, match=r'\(HTTP 404\)'):
+            open_stack_proxy.delete_keypair(KEYPAIR_NAME)
+
+    def test_instance_reboot(self, fake_conn, open_stack_proxy):
+        """Test that reboot_instance soft-reboots the server."""
+        open_stack_proxy.reboot_instance(SERVER_ID)
+
+        fake_conn.compute.reboot_server.assert_called_once_with(SERVER_ID, 'SOFT')
+
+    def test_instance_reboot_stack_or_instance_not_found(self, fake_conn, open_stack_proxy):
+        """Test that reboot_instance raises CrczpException when the instance is not found."""
+        fake_conn.compute.reboot_server.side_effect = _not_found(
+            f'Instance {SERVER_ID} could not be found.'
+        )
+
+        with pytest.raises(CrczpException):
+            open_stack_proxy.reboot_instance(SERVER_ID)
+
+    def test_instance_start(self, fake_conn, open_stack_proxy):
+        """Test that start_instance starts the server."""
+        open_stack_proxy.start_instance(SERVER_ID)
+
+        fake_conn.compute.start_server.assert_called_once_with(SERVER_ID)
+
+    def test_instance_start_stack_or_instance_not_found(self, fake_conn, open_stack_proxy):
+        """Test that start_instance raises CrczpException when the instance is not found."""
+        fake_conn.compute.start_server.side_effect = _not_found(
+            f'Instance {SERVER_ID} could not be found.'
+        )
+
+        with pytest.raises(CrczpException):
+            open_stack_proxy.start_instance(SERVER_ID)
+
+    def test_instance_resume(self, fake_conn, open_stack_proxy):
+        """Test that resume_instance resumes the server."""
+        open_stack_proxy.resume_instance(SERVER_ID)
+
+        fake_conn.compute.resume_server.assert_called_once_with(SERVER_ID)
+
+    def test_instance_resume_stack_or_instance_not_found(self, fake_conn, open_stack_proxy):
+        """Test that resume_instance raises CrczpException when the instance is not found."""
+        fake_conn.compute.resume_server.side_effect = _not_found(
+            f'Instance {SERVER_ID} could not be found.'
+        )
+
+        with pytest.raises(CrczpException):
+            open_stack_proxy.resume_instance(SERVER_ID)
+
+    def test_instance_resume_conflict_message(self, fake_conn, open_stack_proxy):
+        """Test that the error carries Nova's message, status and request ID, but no URL."""
+        fake_conn.compute.resume_server.side_effect = _conflict(
+            f"Cannot 'resume' instance {SERVER_ID} while it is in vm_state active"
+        )
+
+        with pytest.raises(CrczpException) as exc_info:
+            open_stack_proxy.resume_instance(SERVER_ID)
+
+        assert str(exc_info.value) == (
+            f"Failed to resume instance with id={SERVER_ID}: Cannot 'resume' instance "
+            f'{SERVER_ID} while it is in vm_state active (HTTP 409) (Request-ID: {REQUEST_ID}).'
+        )
+
+    @pytest.mark.parametrize('console_type', CONSOLE_TYPES)
+    def test_get_console_url(self, fake_conn, open_stack_proxy, console_type):
+        """Test that get_console_url creates a remote console of the requested type."""
+        expected_url = f'https://console.cloud.test:6082/{console_type}?token=4c1f2a3b'
+        fake_conn.compute.create_server_remote_console.return_value = ServerRemoteConsole.existing(
+            type=console_type, url=expected_url
+        )
+
+        result = open_stack_proxy.get_console_url(SERVER_ID, console_type)
 
         assert result == expected_url
-        open_stack_proxy.nova.servers.get_console_url.assert_called_with(
-            stack_resources['physical_resource_id'], 'spice-html5'
+        fake_conn.compute.create_server_remote_console.assert_called_once_with(
+            SERVER_ID, type=console_type
         )
 
-    def test_get_console_url_instance_or_stack_not_found(self, mocker, open_stack_proxy):
-        """Test that get_console_url raises StackException when the instance is not found."""
-        open_stack_proxy.nova.servers.get_console_url = mocker.MagicMock()
-        exc = NovaClientException('testException')
-        open_stack_proxy.nova.servers.get_console_url.side_effect = exc
+    def test_get_console_url_unsupported_type(self, fake_conn, open_stack_proxy):
+        """Test that an unknown console type is rejected before any request."""
+        with pytest.raises(StackException) as exc_info:
+            open_stack_proxy.get_console_url(SERVER_ID, 'foo')
 
-        with pytest.raises(StackException):
-            open_stack_proxy.get_console_url('node_id', 'spice-html5')
+        assert str(exc_info.value) == (
+            'OpenStack error while getting console: Unsupported console_type "foo"'
+        )
+        fake_conn.compute.create_server_remote_console.assert_not_called()
 
-    def test_get_quota_set(self, mocker, open_stack_proxy):
-        """Test that get_quota_set returns a correctly populated QuotaSet."""
-        custom_quota_set = mocker.MagicMock()
-        custom_quota_set.cores = {'limit': 111, 'in_use': 100}
-        custom_quota_set.ram = {'limit': 50500, 'in_use': 1500}
-        custom_quota_set.instances = {'limit': 222, 'in_use': 200}
+    def test_get_console_url_instance_or_stack_not_found(self, fake_conn, open_stack_proxy):
+        """Test that a console error carries only Nova's message."""
+        fake_conn.compute.create_server_remote_console.side_effect = _not_found(
+            f'Instance {SERVER_ID} could not be found.'
+        )
 
-        custom_network_quotas = {
-            'quota': {
-                'network': {'limit': 333, 'used': 300},
-                'subnet': {'limit': 444, 'used': 400},
-                'port': {'limit': 555, 'used': 500},
-            }
+        with pytest.raises(StackException) as exc_info:
+            open_stack_proxy.get_console_url(SERVER_ID, 'spice-html5')
+
+        assert str(exc_info.value) == (
+            f'OpenStack error while getting console: Instance {SERVER_ID} could not be found.'
+        )
+
+    def test_get_console_url_value_error(self, fake_conn, open_stack_proxy):
+        """Test that the SDK's ValueError for an unsupported console becomes StackException."""
+        fake_conn.compute.create_server_remote_console.side_effect = ValueError(
+            'Console type webmks is not supported on server side'
+        )
+
+        with pytest.raises(StackException) as exc_info:
+            open_stack_proxy.get_console_url(SERVER_ID, 'webmks')
+
+        assert str(exc_info.value) == (
+            'OpenStack error while getting console: '
+            'Console type webmks is not supported on server side'
+        )
+
+    def test_get_console_url_sdk_error(self, fake_conn, open_stack_proxy):
+        """Test that an SDK error without an HTTP response becomes StackException."""
+        fake_conn.compute.create_server_remote_console.side_effect = sdk_exceptions.ConfigException(
+            MICROVERSION_ERROR
+        )
+
+        with pytest.raises(StackException) as exc_info:
+            open_stack_proxy.get_console_url(SERVER_ID, 'novnc')
+
+        assert str(exc_info.value) == f'OpenStack error while getting console: {MICROVERSION_ERROR}'
+
+    def test_get_quota_set(self, fake_conn, open_stack_proxy):
+        """Test that get_quota_set returns a correctly populated QuotaSet.
+
+        Unlimited quotas (-1) pass through unchanged, and so become -0.0 GB of RAM.
+        """
+        # QuotaSet.existing() does not split a detail body into limits and usage; the parsing
+        # of a real body is covered in test_sdk_contract.py.
+        fake_conn.compute.get_quota_set.return_value = NovaQuotaSet(
+            cores=-1, ram=-1, instances=50, usage={'cores': 8, 'ram': 16384, 'instances': 4}
+        )
+        fake_conn.network.get_quota.return_value = NeutronQuotaDetails.existing(
+            network={'limit': 100, 'used': 2, 'reserved': 0},
+            subnet={'limit': 120, 'used': 3, 'reserved': 0},
+            port={'limit': -1, 'used': 9, 'reserved': 0},
+        )
+
+        result = open_stack_proxy.get_quota_set(PROJECT_ID)
+
+        assert vars(result) == {
+            'vcpu': Quota(-1, 8),
+            'ram': Quota(-0.0, 16.4),
+            'instances': Quota(50, 4),
+            'network': Quota(100, 2),
+            'subnet': Quota(120, 3),
+            'port': Quota(-1, 9),
+        }
+        assert str(result.ram.limit) == '-0.0'
+        fake_conn.compute.get_quota_set.assert_called_once_with(PROJECT_ID, usage=True)
+        fake_conn.network.get_quota.assert_called_once_with(PROJECT_ID, details=True)
+
+    def test_get_flavors_dict(self):
+        """Test that _get_flavors_dict maps flavor objects to the expected dict structure."""
+        flavors = [
+            Flavor.existing(id='a1-2-20', name='a1-2-20', vcpus=1, ram=2048, disk=20),
+            Flavor.existing(id='a2-4-35', name='standard.medium', vcpus=2, ram=4096, disk=35),
+        ]
+
+        result = OpenStackProxy._get_flavors_dict(flavors)  # pylint: disable=protected-access
+
+        assert result == {
+            'a1-2-20': {'vcpu': 1, 'ram': 2.0},
+            'standard.medium': {'vcpu': 2, 'ram': 4.1},
         }
 
-        expected_quota_set = QuotaSet(
-            Quota(111, 100),
-            Quota(50.5, 1.5),
-            Quota(222, 200),
-            Quota(333, 300),
-            Quota(444, 400),
-            Quota(555, 500),
-        )
+    def test_get_flavors_dict_lists_public_flavors(self, fake_conn, open_stack_proxy):
+        """Test that get_flavors_dict lists the public flavors and converts RAM to GB."""
+        fake_conn.compute.flavors.return_value = iter([
+            Flavor.existing(id='a4-16-80', name='a4-16-80', vcpus=4, ram=16384, disk=80)
+        ])
 
-        open_stack_proxy.nova.quotas.get = mocker.MagicMock()
-        open_stack_proxy.nova.quotas.get.return_value = custom_quota_set
+        result = open_stack_proxy.get_flavors_dict()
 
-        open_stack_proxy.neutron.show_quota_details = mocker.MagicMock()
-        open_stack_proxy.neutron.show_quota_details.return_value = custom_network_quotas
+        assert result == {'a4-16-80': {'vcpu': 4, 'ram': 16.4}}
+        fake_conn.compute.flavors.assert_called_once_with(is_public=True)
 
-        result_quota_set = open_stack_proxy.get_quota_set('tenant_id')
-
-        assert result_quota_set == expected_quota_set
-
-    def test_get_flavors_dict(self, mocker):
-        """Test that _get_flavors_dict maps flavor objects to the expected dict structure."""
-        flavor = mocker.MagicMock()
-        flavor.name = 'test_flavor'
-        flavor.vcpus = 1
-        flavor.ram = 2000
-
-        result = OpenStackProxy._get_flavors_dict([flavor])  # pylint: disable=protected-access
-
-        assert result.get('test_flavor')
-        assert result['test_flavor'].get('vcpu') == 1
-        assert result['test_flavor'].get('ram') == 2
-
-    def test_get_hardware_usage(
-        self, open_stack_proxy, topology_instance, expected_hardware_usage, mock_flavors
-    ):
+    @pytest.mark.usefixtures('mock_flavors')
+    def test_get_hardware_usage(self, open_stack_proxy, topology_instance, expected_hardware_usage):
         """Test that get_hardware_usage returns the correct HardwareUsage for a topology."""
         result = open_stack_proxy.get_hardware_usage(topology_instance)
 
@@ -380,49 +453,51 @@ class TestOpenStackProxy:  # pylint: disable=too-many-public-methods
         assert len(list(topology_instance_forwarding.get_links())) == 11
         assert result.port == 12
 
-    def test_get_project_limits(self, mocker, open_stack_proxy):
+    def test_get_project_limits(self, fake_conn, open_stack_proxy):
         """Test that get_project_limits returns correct Limits from nova and neutron."""
-        expected_limits_dict = {
-            'vcpu': 10,
-            'ram': 10.0,
-            'instances': 10,
-            'network': 10,
-            'subnet': 10,
-            'port': 10,
-        }
-
-        total_cores = mocker.MagicMock()
-        total_cores.name = 'maxTotalCores'
-        total_cores.value = expected_limits_dict['vcpu']
-        total_ram = mocker.MagicMock()
-        total_ram.name = 'maxTotalRAMSize'
-        total_ram.value = expected_limits_dict['ram'] * 1000
-        total_instance = mocker.MagicMock()
-        total_instance.name = 'maxTotalInstances'
-        total_instance.value = expected_limits_dict['instances']
-
-        nova_limits = mocker.MagicMock()
-        nova_limits.absolute = [total_cores, total_ram, total_instance]
-        open_stack_proxy.nova.limits.get = mocker.MagicMock()
-        open_stack_proxy.nova.limits.get.return_value = nova_limits
-
-        neutron_limits = {
-            'quota': {
-                'network': expected_limits_dict['network'],
-                'subnet': expected_limits_dict['subnet'],
-                'port': expected_limits_dict['port'],
+        fake_conn.compute.get_limits.return_value = NovaLimits.existing(
+            absolute={
+                'maxTotalCores': 100,
+                'maxTotalRAMSize': 102400,
+                'maxTotalInstances': 50,
+                'totalCoresUsed': 20,
+                'totalRAMUsed': 65536,
+                'totalInstancesUsed': 14,
             }
-        }
+        )
+        fake_conn.network.get_quota.return_value = NeutronQuota.existing(
+            network=100, subnet=120, port=400, router=10
+        )
 
-        open_stack_proxy.neutron.show_quota = mocker.MagicMock()
-        open_stack_proxy.neutron.show_quota.return_value = neutron_limits
+        result = open_stack_proxy.get_project_limits(PROJECT_ID)
 
-        result_limits = open_stack_proxy.get_project_limits('tenant_id')
-        expected_limits = Limits(**expected_limits_dict)
+        assert result == Limits(
+            vcpu=100, ram=102.4, instances=50, network=100, subnet=120, port=400
+        )
+        fake_conn.compute.get_limits.assert_called_once_with()
+        fake_conn.network.get_quota.assert_called_once_with(PROJECT_ID)
 
-        assert result_limits.vcpu == expected_limits.vcpu
-        assert result_limits.ram == expected_limits.ram
-        assert result_limits.instances == expected_limits.instances
+    @pytest.mark.parametrize(
+        ('missing_key', 'field'),
+        [
+            ('maxTotalCores', 'vcpu'),
+            ('maxTotalRAMSize', 'ram'),
+            ('maxTotalInstances', 'instances'),
+        ],
+    )
+    def test_get_project_limits_missing_nova_key(
+        self, fake_conn, open_stack_proxy, missing_key, field
+    ):
+        """Test that a limit missing from nova's answer fails on that limit's field."""
+        absolute = {'maxTotalCores': 100, 'maxTotalRAMSize': 102400, 'maxTotalInstances': 100}
+        del absolute[missing_key]
+        fake_conn.compute.get_limits.return_value = NovaLimits.existing(absolute=absolute)
+        fake_conn.network.get_quota.return_value = NeutronQuota.existing(
+            network=100, subnet=100, port=400
+        )
+
+        with pytest.raises(TypeError, match=f"missing 1 required positional argument: '{field}'"):
+            open_stack_proxy.get_project_limits(PROJECT_ID)
 
     def test_validate_and_get_terraform_template(
         self, open_stack_proxy, topology_instance, generated_terraform_template

@@ -5,13 +5,13 @@ import io
 import pytest
 from django.conf import settings
 from django.core.cache import caches
-from yamlize import YamlizingError
 
 from crczp.sandbox_common_lib import exceptions
 from crczp.sandbox_common_lib.crczp_config import CrczpConfiguration, TopologyCacheMode
 from crczp.sandbox_definition_app.lib import definitions
 from crczp.sandbox_definition_app.lib.definition_providers import GitlabProvider
 from crczp.sandbox_definition_app.models import Definition
+from crczp.topology_definition.yaml_model import YamlModelError
 
 pytestmark = pytest.mark.django_db
 
@@ -152,11 +152,11 @@ class TestLoadDefinition:
             assert router.flavor == 'standard.small'
 
     def test_load_definition_invalid_definition(self, mocker, topology_definition_stream):
-        """Test that a YamlizingError during load raises ValidationError."""
+        """Test that a YamlModelError during load raises ValidationError."""
         topology_definition = mocker.patch(
             'crczp.sandbox_definition_app.lib.definitions.TopologyDefinition'
         )
-        topology_definition.load.side_effect = YamlizingError('exception-text')
+        topology_definition.load.side_effect = YamlModelError('exception-text')
 
         with pytest.raises(exceptions.ValidationError):
             definitions.load_definition(topology_definition_stream)
@@ -165,7 +165,7 @@ class TestLoadDefinition:
 class TestGetDefinition:
     """Tests for fetching a definition from a git provider."""
 
-    CFG = CrczpConfiguration()
+    CFG = CrczpConfiguration.model_construct()
 
     @pytest.fixture(autouse=True)
     def clear_topology_cache(self):
@@ -214,7 +214,7 @@ class TestGetDefinition:
             'crczp.sandbox_definition_app.lib.definitions.get_def_provider',
             return_value=provider,
         )
-        caches['topology_cache'].set('definition-url-rev-sha-stable-sha-topology', 'cached-def')
+        caches['topology_cache'].set('definition-url-rev-sha-stable-sha-topology-v2', 'cached-def')
 
         assert definitions.get_definition('url', 'rev', self.CFG) == 'cached-def'
         provider.get_file.assert_not_called()
@@ -234,7 +234,7 @@ class TestGetDefinition:
         )
         mocker.patch('crczp.sandbox_definition_app.lib.definitions.validate_topology_definition')
         cache = caches['topology_cache']
-        cache_key = 'definition-url-rev-sha-stable-sha-topology'
+        cache_key = 'definition-url-rev-sha-stable-sha-topology-v2'
         cache.set(cache_key, 'stale-def')
 
         result = definitions.get_definition('url', 'rev', self.CFG, force_refresh=True)
@@ -250,7 +250,7 @@ class TestGetDefProvider:  # pylint: disable=too-few-public-methods
     def test_get_def_provider_gitlab(self):
         """Test that a Gitlab URL returns a GitlabProvider instance."""
         url_git = 'https://gitlab.com/crczp/backend-python/sandbox-service.git'
-        cfg_git = CrczpConfiguration()
+        cfg_git = CrczpConfiguration.model_construct()
         assert isinstance(definitions.get_def_provider(url_git, cfg_git), GitlabProvider)
 
 
@@ -502,7 +502,9 @@ class TestVolumeValidation(VolumeFixtures):
 
         topology_definition = definitions.get_definition('url', 'rev', settings.CRCZP_CONFIG)
 
-        assert topology_definition.hosts[0].volumes[0].size == 10
+        volumes = topology_definition.hosts[0].volumes
+        assert volumes is not None
+        assert volumes[0].size == 10
 
     def test_create_definition_checks_volumes(self, git_definition, images, created_by):
         """Importing a definition runs the volume checks."""

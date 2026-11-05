@@ -1,8 +1,10 @@
 # Workspace-level artifacts. Each package carries its own .gitignore for
 # anything inside its own directory.
 
-# Shared workspace environment (uv also writes .venv/.gitignore, this is belt-and-braces)
-.venv/
+# Shared workspace environment (uv also writes .venv/.gitignore, this is belt-and-braces).
+# No trailing slash: tox also writes a `.venv` file into each package, pointing editors
+# at one of its environments (PEP 832).
+.venv
 
 # Tool caches at the workspace root
 __pycache__/

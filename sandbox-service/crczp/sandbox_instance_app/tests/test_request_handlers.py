@@ -2,7 +2,7 @@
 
 # pylint: disable=missing-function-docstring
 from datetime import timedelta
-from typing import Any, cast, override
+from typing import Any, override
 from unittest.mock import MagicMock, call
 
 import pytest
@@ -984,7 +984,7 @@ class TestAllocationRequestHandler:
         key = f'netbird-job:{sandbox.id}'
         assert connection.get(key) == b'second-restart-job'
         # It must outlive any job still pending, however long the ansible queue's backlog.
-        assert 6 * 24 * 3600 < cast(int, connection.ttl(key)) <= 7 * 24 * 3600
+        assert 6 * 24 * 3600 < connection.ttl(key) <= 7 * 24 * 3600
 
     @pytest.mark.django_db(transaction=True)
     def test_restart_job_runs_once_its_previous_job_is_gone(

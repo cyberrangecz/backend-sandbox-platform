@@ -1,0 +1,104 @@
+{
+  "definition": {
+    "groups": [],
+    "hosts": [
+      {
+        "base_box": {
+          "image": "ubuntu-noble-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "ubuntu"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": false,
+        "managed": true,
+        "name": "server",
+        "visible_by_roles": null,
+        "volumes": null
+      },
+      {
+        "base_box": {
+          "image": "ubuntu-noble-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "ubuntu"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": false,
+        "managed": true,
+        "name": "client",
+        "visible_by_roles": null,
+        "volumes": null
+      }
+    ],
+    "monitoring_targets": null,
+    "name": "library-demo-training",
+    "net_mappings": [
+      {
+        "host": "server",
+        "ip": "192.168.20.5",
+        "network": "server-switch"
+      },
+      {
+        "host": "client",
+        "ip": "192.168.30.5",
+        "network": "client-switch"
+      }
+    ],
+    "network_forwarding": null,
+    "networks": [
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": false,
+        "cidr": "192.168.20.0/24",
+        "hidden": false,
+        "name": "server-switch",
+        "visible_by_roles": null
+      },
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": true,
+        "cidr": "192.168.30.0/24",
+        "hidden": false,
+        "name": "client-switch",
+        "visible_by_roles": null
+      }
+    ],
+    "router_mappings": [
+      {
+        "ip": "192.168.20.1",
+        "network": "server-switch",
+        "router": "router"
+      },
+      {
+        "ip": "192.168.30.1",
+        "network": "client-switch",
+        "router": "router"
+      }
+    ],
+    "routers": [
+      {
+        "base_box": {
+          "image": "debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": false,
+        "name": "router",
+        "visible_by_roles": null
+      }
+    ],
+    "vpn": null,
+    "wan": {
+      "cidr": "100.100.100.0/24",
+      "name": "wan"
+    }
+  }
+}

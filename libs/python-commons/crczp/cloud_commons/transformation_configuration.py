@@ -1,6 +1,10 @@
 """Transformation configuration module for cloud resource settings."""
 
-from yamlize import Attribute, Object, StrList
+from typing import Any
+
+from crczp.topology_definition.models import StrList
+from crczp.topology_definition.yaml_model import YamlModel, YamlStr, positional_init
+from pydantic import Field
 
 BASE_NETWORK = 'crczp-network'
 MAN_OUT_PORT = 'man-out-port'
@@ -10,21 +14,22 @@ SANDBOX_MAN_CIDR = '192.168.128.0/17'  # 32766 addresses
 DNS_NAME_SERVERS: tuple[str, ...] = ()
 
 
-class TransformationConfiguration(Object):
+class TransformationConfiguration(YamlModel):
     """Configuration for cloud transformation settings."""
 
-    base_network = Attribute(type=str, default=BASE_NETWORK)
-    man_out_port = Attribute(type=str, default=MAN_OUT_PORT)
+    base_network: YamlStr = BASE_NETWORK
+    man_out_port: YamlStr = MAN_OUT_PORT
 
-    man_image = Attribute(type=str)
-    man_flavor = Attribute(type=str)
-    man_user = Attribute(type=str)
+    man_image: YamlStr
+    man_flavor: YamlStr
+    man_user: YamlStr
 
-    sandbox_man_cidr = Attribute(type=str, default=SANDBOX_MAN_CIDR)
+    sandbox_man_cidr: YamlStr = SANDBOX_MAN_CIDR
 
-    dns_name_servers = Attribute(type=StrList, default=DNS_NAME_SERVERS)
+    dns_name_servers: StrList = Field(default_factory=lambda: list(DNS_NAME_SERVERS))
 
-    def __init__(
+    @positional_init
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         man_image: str,
         man_flavor: str,
@@ -33,18 +38,18 @@ class TransformationConfiguration(Object):
         man_out_port: str = MAN_OUT_PORT,
         sandbox_man_cidr: str = SANDBOX_MAN_CIDR,
         dns_name_servers: list[str] | None = None,
-    ):
-        self.man_image = man_image
-        self.man_flavor = man_flavor
-        self.man_user = man_user
-        self.base_network = base_network
-        self.man_out_port = man_out_port
-        self.sandbox_man_cidr = sandbox_man_cidr
-        if dns_name_servers is None:
-            dns_name_servers = list(DNS_NAME_SERVERS)
-        self.dns_name_servers = dns_name_servers
-
-    @staticmethod
-    def from_file(file: str) -> 'TransformationConfiguration':
-        """Load transformation configuration from a YAML file."""
-        return TransformationConfiguration.load(open(file, encoding='utf-8'))
+        **data: Any,
+    ) -> None:
+        fields: dict[str, Any] = {
+            'man_image': man_image,
+            'man_flavor': man_flavor,
+            'man_user': man_user,
+            'base_network': base_network,
+            'man_out_port': man_out_port,
+            'sandbox_man_cidr': sandbox_man_cidr,
+            'dns_name_servers': (
+                list(DNS_NAME_SERVERS) if dns_name_servers is None else dns_name_servers
+            ),
+            **data,
+        }
+        super().__init__(**fields)
