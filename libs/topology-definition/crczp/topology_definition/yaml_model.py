@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, PlainValidator, ValidationError
 from pydantic.fields import FieldInfo
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
-from ruamel.yaml.nodes import MappingNode, Node, SequenceNode
+from ruamel.yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 from ruamel.yaml.scalarbool import ScalarBoolean
 
 MERGE_TAG = 'tag:yaml.org,2002:merge'
@@ -41,6 +41,9 @@ def _converted(type_: type) -> PlainValidator:
     """
 
     def validate(value: Any) -> Any:
+        # bool subclasses int and True == 1, so a YAML boolean would pass as a number.
+        if type_ is int and isinstance(value, bool):
+            raise ValueError(f'Expected an integer, got the boolean `{value}`.')
         if isinstance(value, type_):
             return value
         try:
@@ -149,10 +152,13 @@ class YamlModel(BaseModel):
     def _prepare(cls, node: MappingNode, seen: set[int]) -> None:
         """
         Run _fix_node on this mapping and on the mappings of the instances it holds.
+
+        Merge keys are resolved first, so the checks also see the entries they bring in.
         """
         if id(node) in seen:
             return
         seen.add(id(node))
+        _resolve_merges(node)
         cls._fix_node(node)
         for key_node, child in node.value:
             key = key_node.value
@@ -183,6 +189,33 @@ class YamlModel(BaseModel):
                 if isinstance(item, YamlModel) and isinstance(item_node, MappingNode):
                     item._after_load_tree(item_node)  # pylint: disable=protected-access
         self._after_load(node)
+
+
+def _resolve_merges(mapping: MappingNode) -> None:
+    """
+    Replace a mapping's merge keys with the entries they bring in. A key the mapping sets
+    itself wins, then the earlier merged mapping. Merged keys are copies, so that renaming one
+    leaves the anchored mapping alone. A merge of anything but mappings is left for ruamel to
+    reject.
+    """
+    merges = [value for key, value in mapping.value if key.tag == MERGE_TAG]
+    parents = [
+        p for merge in merges for p in (merge.value if isinstance(merge, SequenceNode) else [merge])
+    ]
+    if not merges or not all(isinstance(parent, MappingNode) for parent in parents):
+        return
+    entries = [(key, value) for key, value in mapping.value if key.tag != MERGE_TAG]
+    keys = {key.value for key, _ in entries}
+    for parent in parents:
+        _resolve_merges(parent)
+        for key, value in parent.value:
+            if key.value not in keys:
+                keys.add(key.value)
+                copied = ScalarNode(
+                    key.tag, key.value, key.start_mark, key.end_mark, style=key.style
+                )
+                entries.append((copied, value))
+    mapping.value = entries
 
 
 def find_value_node(mapping: MappingNode, key: str) -> Node | None:

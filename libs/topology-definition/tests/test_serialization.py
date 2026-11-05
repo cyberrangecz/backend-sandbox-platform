@@ -1126,6 +1126,73 @@ vpn:
         assert topology_definition.get_declared_roles() == set()
 
 
+class TestMergeKeys:
+    """
+    Tests for YAML merge keys: the merged entries go through the same checks as written ones.
+    """
+
+    @staticmethod
+    def _with_anchor(topology_definition_string: str, anchor: str) -> str:
+        """Define an anchored mapping in the first host's free-form extra values."""
+        flavor = '    flavor: standard.small\n'
+        assert flavor in topology_definition_string
+        return topology_definition_string.replace(
+            flavor, f'{flavor}    extra:\n      defaults: {anchor}\n', 1
+        )
+
+    def test_legacy_key_from_a_merge_is_renamed(self, topology_definition_string: str) -> None:
+        """
+        A deprecated key brought in by a merge is renamed; the anchored mapping stays as written.
+        """
+        text = self._with_anchor(
+            topology_definition_string, '&box {image: debian-12, man_user: kali}'
+        )
+        router_box = '    base_box: { image: debian/debian-12-x86_64 }\n'
+        assert router_box in text
+        td = TopologyDefinition.load(text.replace(router_box, '    base_box: {<<: *box}\n', 1))
+
+        router = td.find_router_by_name('home-router')
+        assert router is not None
+        assert (router.base_box.image, router.base_box.mgmt_user) == ('debian-12', 'kali')
+        host = td.hosts[0]
+        assert host.extra is not None
+        assert host.extra['defaults'] == {'image': 'debian-12', 'man_user': 'kali'}
+
+    def test_key_set_by_the_mapping_wins_over_a_merged_one(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        As in YAML, a key the mapping sets itself overrides the same key from a merge.
+        """
+        text = self._with_anchor(topology_definition_string, '&flags {hidden: true}')
+        td = TopologyDefinition.load(
+            text.replace(
+                '  - name: home\n', '  - <<: *flags\n    hidden: false\n    name: home\n', 1
+            )
+        )
+
+        home = td.find_host_by_name('home')
+        assert home is not None
+        assert home.hidden is False
+
+    def test_conflicting_key_from_a_merge_is_rejected(
+        self, topology_definition_string: str
+    ) -> None:
+        """
+        A key brought in by a merge conflicts with an exclusive key the mapping sets itself.
+        """
+        text = self._with_anchor(topology_definition_string, '&flags {hidden: true}')
+
+        with pytest.raises(YamlModelError, match='mutually exclusive'):
+            TopologyDefinition.load(
+                text.replace(
+                    '  - name: home\n',
+                    '  - <<: *flags\n    visible_by_roles: [red-team]\n    name: home\n',
+                    1,
+                )
+            )
+
+
 class TestVolumeRules:
     """
     Tests for the volume schema rules.
@@ -1148,7 +1215,7 @@ class TestVolumeRules:
                 '      - size: 10\n      - size: -5\n',
                 r'volumes\[1\]\.size must be a whole number of at least 1',
             ),
-            ('      - size: true\n', r'volumes\[0\]\.size must be a whole number of at least 1'),
+            ('      - size: true\n', 'Expected an integer, got the boolean `True`'),
             ('      - size: 10\n        image: crczp/disk\n', r'volumes\[0\] is the system disk'),
             ('      - size: 10\n' * 13, 'more than 12 entries'),
         ],

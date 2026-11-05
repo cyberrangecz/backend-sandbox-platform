@@ -335,7 +335,7 @@ class TopologyValidation:  # pylint: disable=too-many-public-methods
                 'set base_box.image instead'
             )
         for index, volume in enumerate(volumes):
-            if isinstance(volume.size, bool) or volume.size < 1:
+            if volume.size < 1:
                 raise ValueError(f'volumes[{index}].size must be a whole number of at least 1 GB')
 
     @staticmethod
