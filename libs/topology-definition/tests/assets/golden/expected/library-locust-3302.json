@@ -1,0 +1,138 @@
+{
+  "definition": {
+    "groups": [],
+    "hosts": [
+      {
+        "base_box": {
+          "image": "kali",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": false,
+        "managed": true,
+        "name": "attacker",
+        "visible_by_roles": null,
+        "volumes": null
+      },
+      {
+        "base_box": {
+          "image": "debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": true,
+        "managed": true,
+        "name": "web",
+        "visible_by_roles": null,
+        "volumes": null
+      },
+      {
+        "base_box": {
+          "image": "debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": true,
+        "managed": true,
+        "name": "client",
+        "visible_by_roles": null,
+        "volumes": null
+      }
+    ],
+    "monitoring_targets": null,
+    "name": "library-locust-3302",
+    "net_mappings": [
+      {
+        "host": "web",
+        "ip": "172.18.1.5",
+        "network": "big-broker"
+      },
+      {
+        "host": "client",
+        "ip": "10.1.17.4",
+        "network": "outside-network"
+      },
+      {
+        "host": "attacker",
+        "ip": "10.10.135.83",
+        "network": "attacker-network"
+      }
+    ],
+    "network_forwarding": null,
+    "networks": [
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": false,
+        "cidr": "172.18.1.0/24",
+        "hidden": false,
+        "name": "big-broker",
+        "visible_by_roles": null
+      },
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": false,
+        "cidr": "10.1.0.0/16",
+        "hidden": false,
+        "name": "outside-network",
+        "visible_by_roles": null
+      },
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": true,
+        "cidr": "10.10.0.0/16",
+        "hidden": false,
+        "name": "attacker-network",
+        "visible_by_roles": null
+      }
+    ],
+    "router_mappings": [
+      {
+        "ip": "172.18.1.1",
+        "network": "big-broker",
+        "router": "router"
+      },
+      {
+        "ip": "10.1.0.1",
+        "network": "outside-network",
+        "router": "router"
+      },
+      {
+        "ip": "10.10.0.1",
+        "network": "attacker-network",
+        "router": "router"
+      }
+    ],
+    "routers": [
+      {
+        "base_box": {
+          "image": "debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": false,
+        "name": "router",
+        "visible_by_roles": null
+      }
+    ],
+    "vpn": null,
+    "wan": {
+      "cidr": "100.100.100.0/24",
+      "name": "internet-connection"
+    }
+  }
+}

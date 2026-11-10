@@ -12,6 +12,7 @@ from crczp.topology_definition.models import (
     MonitoringTargetHTTP,
     MonitoringTargetICMP,
     MonitoringTargetTCP,
+    NamedNetwork,
     Network,
     NetworkMappingList,
     Router,
@@ -19,7 +20,6 @@ from crczp.topology_definition.models import (
     RouterMappingList,
     TopologyDefinition,
 )
-from netaddr import IPNetwork, IPSet
 
 from crczp.cloud_commons.exceptions import CrczpException, InvalidTopologyDefinition
 from crczp.cloud_commons.topology_elements import (
@@ -113,7 +113,7 @@ class TopologyInstance:
             **self.topology_definition._routers_index,
             MAN_NAME: self.man,
         }
-        self._networks: dict[str, Network] = {
+        self._networks: dict[str, NamedNetwork] = {
             **self.topology_definition._networks_index,
             self.wan.name: self.wan,
             MAN_NET_NAME: self.man_network,
@@ -255,14 +255,15 @@ class TopologyInstance:
 
         None when none of its attached networks declare accessible_by_roles at all.
         """
+        networks = (link.network for link in self.get_node_links(node, self.get_hosts_networks()))
         declared_sets = [
-            link.network.accessible_by_roles
-            for link in self.get_node_links(node, self.get_hosts_networks())
-            if link.network.accessible_by_roles is not None
+            network.accessible_by_roles
+            for network in networks
+            if isinstance(network, Network) and network.accessible_by_roles is not None
         ]
         return _declared_role_union(declared_sets)
 
-    def get_network(self, name: str) -> Network | None:
+    def get_network(self, name: str) -> NamedNetwork | None:
         """
         Return a TI virtual network, or None if there is no network of that name.
 
@@ -270,23 +271,23 @@ class TopologyInstance:
         """
         return self._networks.get(name)
 
-    def get_networks(self) -> Iterable[Network]:
+    def get_networks(self) -> Iterable[NamedNetwork]:
         """
         Return an iterable of TI virtual networks.
         """
         return self._networks.values()
 
-    def get_visible_networks(self, users_roles: UsersRoles) -> list[Network]:
+    def get_visible_networks(self, users_roles: UsersRoles) -> list[NamedNetwork]:
         """
         Return a list of TI networks visible to the given roles, whose mapped router
         is also visible to them.
         """
         visible_routers = self.get_visible_routers(users_roles)
-        networks: list[Network] = []
+        networks: list[NamedNetwork] = []
         for mapping in self.topology_definition.router_mappings:
             if self.get_node(mapping.router) not in visible_routers:
                 continue
-            network = self.get_network(mapping.network)
+            network = self.topology_definition.find_network_by_name(mapping.network)
             if network is None:
                 raise InvalidTopologyDefinition(
                     f'router mapping refers to an unknown network: {mapping.network}'
@@ -297,7 +298,9 @@ class TopologyInstance:
 
     # get links
 
-    def get_node_links(self, node: Node, networks: Iterable[Network] | None = None) -> list[Link]:
+    def get_node_links(
+        self, node: Node, networks: Iterable[NamedNetwork] | None = None
+    ) -> list[Link]:
         """
         Return a list of Links associated with a given node.
 
@@ -320,7 +323,7 @@ class TopologyInstance:
         return next(iter(self.get_node_links(node, self.get_hosts_networks())), None)
 
     def get_network_links(
-        self, network: Network, nodes: Iterable[Node] | None = None
+        self, network: NamedNetwork, nodes: Iterable[Node] | None = None
     ) -> list[Link]:
         """
         Return a list of Links associated with a given network.
@@ -334,7 +337,7 @@ class TopologyInstance:
             if nodes is None or link.node in nodes
         ]
 
-    def get_link_between_node_and_network(self, node: Node, network: Network) -> Link | None:
+    def get_link_between_node_and_network(self, node: Node, network: NamedNetwork) -> Link | None:
         """
         Return a Link associated with given server and network.
         """
@@ -349,7 +352,7 @@ class TopologyInstance:
             raise CrczpException(msg)
         return links[0]
 
-    def get_network_default_gateway_link(self, network: Network) -> Link | None:
+    def get_network_default_gateway_link(self, network: NamedNetwork) -> Link | None:
         """
         Return a default gateway Link of the given network.
         """
@@ -428,7 +431,7 @@ class TopologyInstance:
     def get_node_to_nodes_link_pairs(
         self,
         node: Node,
-        networks: Iterable[Network] | None = None,
+        networks: Iterable[NamedNetwork] | None = None,
         nodes: list[Node] | None = None,
     ) -> list[NodeToNodeLinkPair]:
         """
@@ -559,40 +562,11 @@ class TopologyInstance:
                     f'router mapping refers to an unknown network: {router_mapping.network}'
                 )
             self._add_link(router, host_network, SecurityGroups.SANDBOX_INTERNAL, router_mapping.ip)
-            # dynamic attribute: Network declares no default_gateway, but yamlize Objects
-            # carry a __dict__, so the assignment is valid and callers may read it back.
-            host_network.default_gateway = router.name  # ty: ignore[unresolved-attribute]
-
-    def _get_free_ip_address(self, network: Network) -> str:
-        """
-        Return a free IP address from given network.
-        """
-        ip_network = IPNetwork(network.cidr)
-        ip_set = IPSet([network.cidr])
-
-        # remove network IP
-        ip_set.remove(ip_network[0])
-        # remove broadcast IP
-        ip_set.remove(ip_network[-1])
-        for link in [link for link in self.links.values() if link.network == network and link.ip]:
-            ip_set.remove(link.ip)
-
-        ip_list = list(ip_set)
-        # one of first IP addresses in range of straight sequence of IP addresses is taken by DHCP
-        # backward iteration so that picking free IP address will not
-        #   unnecessarily divide range of straight sequence of IP addresses
-        # strict=False is deliberate: the two iterables differ in length by one by
-        # construction, which is what makes each pair a consecutive (lower, upper).
-        for lower, upper in zip(reversed(ip_list[:-1]), reversed(ip_list), strict=False):
-            if lower + 1 == upper:
-                return str(upper)
-
-        raise CrczpException(f'no free IP address in network {network.name}')
 
     def _add_link(
         self,
         node: Node,
-        network: Network,
+        network: NamedNetwork,
         security_group: SecurityGroups,
         ip: str | None = None,
         mac: str | None = None,

@@ -81,7 +81,8 @@ def _attached_author_declared_networks(
     topology: TopologyInstance, node: DefinitionHost | DefinitionRouter
 ) -> list[Network]:
     """Return the author-declared networks a host or router is attached to."""
-    return [link.network for link in topology.get_node_links(node, topology.get_hosts_networks())]
+    links = topology.get_node_links(node, topology.get_hosts_networks())
+    return [link.network for link in links if isinstance(link.network, Network)]
 
 
 def _visible_by_roles_for_node(

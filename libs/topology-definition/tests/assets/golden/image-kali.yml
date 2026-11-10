@@ -1,0 +1,32 @@
+# Source: https://github.com/cyberrangecz/image-kali/blob/HEAD/topology.yml
+name: kali-testing-topology
+
+hosts:
+  - name: image-test
+    base_box: 
+      image: IMAGE_NAME
+      mgmt_user: debian
+    flavor: standard.small
+
+routers:
+  - name: router
+    base_box:
+      image: debian-12-x86_64
+      mgmt_user: debian
+    flavor: standard.small
+
+networks:
+  - name: network
+    cidr: 10.0.0.0/24
+
+net_mappings:
+    - host: image-test
+      network: network
+      ip: 10.0.0.10
+
+router_mappings:
+    - router: router
+      network: network
+      ip: 10.0.0.1
+
+groups: []

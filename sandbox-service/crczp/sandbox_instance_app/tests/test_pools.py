@@ -492,10 +492,8 @@ class TestGetManagementSSHAccess:
         private_key = f'{ssh_access_name}-management-key'
 
         for host in management_ssh_config.hosts:
-            identity_file = host.get('IdentityFile')
-            host.set(
-                'IdentityFile',
-                identity_file.replace('<path_to_pool_private_key>', f'~/.ssh/{private_key}'),
+            host.options['IdentityFile'] = host.options['IdentityFile'].replace(
+                '<path_to_pool_private_key>', f'~/.ssh/{private_key}'
             )
 
         in_memory_zip_file = pools.get_management_ssh_access(pool)

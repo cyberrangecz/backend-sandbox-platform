@@ -24,7 +24,7 @@ repos:
 
   # One uv.lock at the root covers every workspace member.
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.11.24
+    rev: 0.13.4
     hooks:
       - id: uv-lock
         # Upstream anchors this at both ends (^(uv\.lock|pyproject\.toml|uv\.toml)$), so

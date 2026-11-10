@@ -1,0 +1,119 @@
+{
+  "definition": {
+    "groups": [],
+    "hosts": [
+      {
+        "base_box": {
+          "image": "crczp/debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": false,
+        "managed": true,
+        "name": "vpn-gw",
+        "visible_by_roles": null,
+        "volumes": null
+      },
+      {
+        "base_box": {
+          "image": "crczp/debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "block_internet": true,
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": true,
+        "managed": true,
+        "name": "server",
+        "visible_by_roles": null,
+        "volumes": null
+      }
+    ],
+    "monitoring_targets": null,
+    "name": "small-sandbox",
+    "net_mappings": [
+      {
+        "host": "vpn-gw",
+        "ip": "10.10.20.2",
+        "network": "server-switch"
+      },
+      {
+        "host": "server",
+        "ip": "10.10.20.5",
+        "network": "server-switch"
+      }
+    ],
+    "network_forwarding": null,
+    "networks": [
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": true,
+        "cidr": "10.10.20.0/24",
+        "hidden": false,
+        "name": "server-switch",
+        "visible_by_roles": null
+      }
+    ],
+    "router_mappings": [
+      {
+        "ip": "10.10.20.1",
+        "network": "server-switch",
+        "router": "server-router"
+      }
+    ],
+    "routers": [
+      {
+        "base_box": {
+          "image": "crczp/debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": false,
+        "name": "server-router",
+        "visible_by_roles": null
+      }
+    ],
+    "vpn": {
+      "dns": {
+        "search_domains": [
+          "sandbox.local"
+        ],
+        "servers": [
+          "10.10.20.5"
+        ]
+      },
+      "entrypoints": [
+        {
+          "accessible_by_roles": null,
+          "name": "vpn-gw",
+          "routes": [
+            "10.10.0.0/16",
+            "192.168.100.0/24"
+          ]
+        },
+        {
+          "accessible_by_roles": [
+            "red-team"
+          ],
+          "name": "server-router",
+          "routes": [
+            "172.16.0.0/12"
+          ]
+        }
+      ]
+    },
+    "wan": {
+      "cidr": "100.100.100.0/29",
+      "name": "internet-connection"
+    }
+  }
+}

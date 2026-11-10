@@ -1,8 +1,13 @@
 """Tests for CrczpOpenStackClient."""
 
+import keystoneauth1.exceptions
+import keystoneauth1.session
 import pytest
+from openstack.compute.v2.quota_set import QuotaSet as NovaQuotaSet
+from openstack.network.v2.quota import QuotaDetails as NeutronQuotaDetails
 
-from crczp.cloud_commons import CrczpException
+from crczp.cloud_commons import CrczpException, Quota, QuotaSet
+from crczp.openstack_driver import CrczpOpenStackClient
 
 
 def arguments_for_wait_for_test():
@@ -179,14 +184,41 @@ class TestOpenStackClient:  # pylint: disable=too-many-public-methods
 
         assert result_project_name == 'project_name'
 
-    def test_get_quota_set(self, mocker, os_client):
-        """Test that get_quota_set returns the mocked quota set."""
-        os_client.get_quota_set = mocker.MagicMock()
-        os_client.get_quota_set.return_value = 'quota_set'
+    def test_get_quota_set(self, mocker, os_client, fake_conn):
+        """Test that get_quota_set reads the quotas of the session's project."""
+        mocker.patch.object(
+            os_client.session, 'get_project_id', return_value='5ef70662f8b34079a6eddb8da9d75fe8'
+        )
+        fake_conn.compute.get_quota_set.return_value = NovaQuotaSet(
+            cores=450,
+            ram=1536000,
+            instances=450,
+            usage={'cores': 5, 'ram': 34816, 'instances': 2},
+        )
+        fake_conn.network.get_quota.return_value = NeutronQuotaDetails.existing(
+            network={'limit': 900, 'used': 1, 'reserved': 0},
+            subnet={'limit': 900, 'used': 1, 'reserved': 0},
+            port={'limit': 3600, 'used': 4, 'reserved': 0},
+        )
 
         result = os_client.get_quota_set()
 
-        assert result == 'quota_set'
+        assert vars(result) == vars(
+            QuotaSet(
+                Quota(450, 5),
+                Quota(1536.0, 34.8),
+                Quota(450, 2),
+                Quota(900, 1),
+                Quota(900, 1),
+                Quota(3600, 4),
+            )
+        )
+        fake_conn.compute.get_quota_set.assert_called_once_with(
+            '5ef70662f8b34079a6eddb8da9d75fe8', usage=True
+        )
+        fake_conn.network.get_quota.assert_called_once_with(
+            '5ef70662f8b34079a6eddb8da9d75fe8', details=True
+        )
 
     def test_get_hardware_usage(self, mocker, os_client, topology_instance):
         """Test that get_hardware_usage delegates to the proxy."""
@@ -205,3 +237,30 @@ class TestOpenStackClient:  # pylint: disable=too-many-public-methods
         result = os_client.get_project_limits()
 
         assert result == 'projectLimits'
+
+    def test_construction_is_network_free(self, mocker, trc):
+        """Test that the client builds with empty credentials and without any request.
+
+        sandbox-service builds it like this in its test settings and in `manage.py check`.
+        """
+        mocker.patch.object(
+            keystoneauth1.session.Session, 'request', side_effect=AssertionError('network I/O')
+        )
+
+        client = CrczpOpenStackClient('', '', '', trc)
+
+        assert client.connection.session is client.session
+        assert client.open_stack_proxy.conn is client.connection
+
+    def test_first_service_access_with_empty_auth_url_is_crczp_exception(self, trc):
+        """Test that an unusable configuration surfaces as CrczpException on first use.
+
+        The token request to the scheme-less URL fails inside requests, before any I/O, and
+        keystoneauth then finds no compute endpoint.
+        """
+        client = CrczpOpenStackClient('', '', '', trc)
+
+        with pytest.raises(CrczpException, match='your configuration is wrong') as exc_info:
+            client.get_flavors_dict()
+
+        assert isinstance(exc_info.value.__cause__, keystoneauth1.exceptions.EndpointNotFound)

@@ -33,4 +33,4 @@ class TestGetRestServer:
     def test_provider_rejects_unparseable_url_with_git_error(self, url):
         """Creating a provider for an unparseable URL raises GitError."""
         with pytest.raises(exceptions.GitError):
-            GitlabProvider(url, CrczpConfiguration())
+            GitlabProvider(url, CrczpConfiguration.model_construct())

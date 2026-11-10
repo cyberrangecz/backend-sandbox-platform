@@ -4,7 +4,7 @@ Tests for role-aware visibility and reach composition in TopologyInstance.
 
 # pylint: disable=redefined-outer-name
 import pytest
-from crczp.topology_definition.models import TopologyDefinition
+from crczp.topology_definition.models import Network, TopologyDefinition
 
 from crczp.cloud_commons import UNIVERSAL_ROLES, TopologyInstance, TransformationConfiguration
 
@@ -153,7 +153,7 @@ def test_boolean_never_consults_users_roles(reach_topology_instance: TopologyIns
     """A boolean declaration answers the same regardless of users_roles."""
     ti = reach_topology_instance
     office_lan = ti.get_network('office-lan')
-    assert office_lan is not None
+    assert isinstance(office_lan, Network)
     assert ti.network_has_reach(office_lan, frozenset()) is True
     assert ti.network_has_reach(office_lan, frozenset({'anything'})) is True
     assert ti.network_has_reach(office_lan, UNIVERSAL_ROLES) is True
@@ -260,7 +260,7 @@ def test_empty_users_roles_resolves_booleans_unchanged(
     """An empty users_roles set resolves every boolean exactly as it did before roles."""
     ti = reach_topology_instance
     office_lan = ti.get_network('office-lan')
-    assert office_lan is not None
+    assert isinstance(office_lan, Network)
     assert ti.network_has_reach(office_lan, frozenset()) is True
 
 
@@ -270,7 +270,7 @@ def test_universal_roles_admits_every_non_empty_role_declaration(
     """UNIVERSAL_ROLES admits any non-empty role declaration."""
     ti = reach_topology_instance
     target_lan = ti.get_network('target-lan')
-    assert target_lan is not None
+    assert isinstance(target_lan, Network)
     assert ti.network_has_reach(target_lan, UNIVERSAL_ROLES) is True
 
 

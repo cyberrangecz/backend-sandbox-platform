@@ -31,7 +31,9 @@ from crczp.sandbox_instance_app.models import Pool, Sandbox, SandboxLock, Sandbo
 from crczp.topology_definition.models import DockerContainers, Host, Router, TopologyDefinition
 
 SANDBOX_CACHE_TIMEOUT = None  # Cache indefinitely
-SANDBOX_CACHE_PREFIX = 'terraformstack-{}'
+# The cache holds pickled TopologyInstances; the version changes with the layout of the
+# topology models they carry (v2: pydantic), so a pickle of an older layout is never read back.
+SANDBOX_CACHE_PREFIX = 'terraformstack-v2-{}'
 TEMPLATE_DIR_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets')
 HEADERS = {'accept': 'application/json', 'Content-Type': 'application/json'}
 LOG = structlog.getLogger()

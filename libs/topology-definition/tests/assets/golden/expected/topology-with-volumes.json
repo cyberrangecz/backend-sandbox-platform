@@ -1,0 +1,139 @@
+{
+  "definition": {
+    "groups": [
+      {
+        "name": "user-accessible",
+        "nodes": [
+          "server",
+          "home",
+          "home-router"
+        ]
+      }
+    ],
+    "hosts": [
+      {
+        "base_box": {
+          "image": "crczp/debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "block_internet": true,
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": true,
+        "managed": true,
+        "name": "server",
+        "visible_by_roles": null,
+        "volumes": [
+          {
+            "image": null,
+            "size": 20
+          },
+          {
+            "image": "crczp/data-disk-x86_64",
+            "size": 30
+          },
+          {
+            "image": null,
+            "size": 40
+          }
+        ]
+      },
+      {
+        "base_box": {
+          "image": "windows/windows-10-amd64",
+          "mgmt_password": null,
+          "mgmt_protocol": "winrm",
+          "mgmt_user": "debian"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": false,
+        "managed": true,
+        "name": "home",
+        "visible_by_roles": null,
+        "volumes": null
+      }
+    ],
+    "monitoring_targets": null,
+    "name": "small-sandbox",
+    "net_mappings": [
+      {
+        "host": "server",
+        "ip": "10.10.20.5",
+        "network": "server-switch"
+      },
+      {
+        "host": "home",
+        "ip": "10.10.30.5",
+        "network": "home-switch"
+      }
+    ],
+    "network_forwarding": null,
+    "networks": [
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": true,
+        "cidr": "10.10.20.0/24",
+        "hidden": false,
+        "name": "server-switch",
+        "visible_by_roles": null
+      },
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": false,
+        "cidr": "10.10.30.0/24",
+        "hidden": false,
+        "name": "home-switch",
+        "visible_by_roles": null
+      }
+    ],
+    "router_mappings": [
+      {
+        "ip": "10.10.20.1",
+        "network": "server-switch",
+        "router": "server-router"
+      },
+      {
+        "ip": "10.10.30.1",
+        "network": "home-switch",
+        "router": "home-router"
+      }
+    ],
+    "routers": [
+      {
+        "base_box": {
+          "image": "crczp/debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": false,
+        "name": "server-router",
+        "visible_by_roles": null
+      },
+      {
+        "base_box": {
+          "image": "debian/debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": false,
+        "name": "home-router",
+        "visible_by_roles": null
+      }
+    ],
+    "vpn": null,
+    "wan": {
+      "cidr": "100.100.100.0/29",
+      "name": "internet-connection"
+    }
+  }
+}

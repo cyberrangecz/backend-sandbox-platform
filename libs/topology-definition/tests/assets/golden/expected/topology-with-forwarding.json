@@ -1,0 +1,125 @@
+{
+  "definition": {
+    "groups": [],
+    "hosts": [
+      {
+        "base_box": {
+          "image": "crczp/debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": false,
+        "managed": true,
+        "name": "server",
+        "visible_by_roles": null,
+        "volumes": null
+      },
+      {
+        "base_box": {
+          "image": "crczp/debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "block_internet": false,
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": false,
+        "managed": true,
+        "name": "monitoring",
+        "visible_by_roles": null,
+        "volumes": null
+      }
+    ],
+    "monitoring_targets": null,
+    "name": "small-sandbox",
+    "net_mappings": [
+      {
+        "host": "server",
+        "ip": "10.10.20.5",
+        "network": "server-switch"
+      },
+      {
+        "host": "monitoring",
+        "ip": "10.10.20.6",
+        "network": "server-switch"
+      },
+      {
+        "host": "monitoring",
+        "ip": "10.10.40.5",
+        "network": "monitoring-switch"
+      }
+    ],
+    "network_forwarding": {
+      "destination": {
+        "network": "monitoring-switch",
+        "node": "monitoring"
+      },
+      "direction": "both",
+      "sources": [
+        {
+          "network": "server-switch",
+          "node": "server"
+        },
+        {
+          "network": "server-switch",
+          "node": "server-router"
+        }
+      ]
+    },
+    "networks": [
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": true,
+        "cidr": "10.10.20.0/24",
+        "hidden": false,
+        "name": "server-switch",
+        "visible_by_roles": null
+      },
+      {
+        "accessible_by_roles": null,
+        "accessible_by_user": true,
+        "cidr": "10.10.40.0/24",
+        "hidden": false,
+        "name": "monitoring-switch",
+        "visible_by_roles": null
+      }
+    ],
+    "router_mappings": [
+      {
+        "ip": "10.10.20.1",
+        "network": "server-switch",
+        "router": "server-router"
+      },
+      {
+        "ip": "10.10.40.1",
+        "network": "monitoring-switch",
+        "router": "server-router"
+      }
+    ],
+    "routers": [
+      {
+        "base_box": {
+          "image": "crczp/debian-12-x86_64",
+          "mgmt_password": null,
+          "mgmt_protocol": "ssh",
+          "mgmt_user": "debian"
+        },
+        "extra": null,
+        "flavor": "standard.small",
+        "hidden": false,
+        "name": "server-router",
+        "visible_by_roles": null
+      }
+    ],
+    "vpn": null,
+    "wan": {
+      "cidr": "100.100.100.0/29",
+      "name": "internet-connection"
+    }
+  }
+}

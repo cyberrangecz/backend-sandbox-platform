@@ -5,9 +5,9 @@ Tests for the network_forwarding block of a topology definition.
 import os
 
 import pytest
-from yamlize.yamlizing_error import YamlizingError
 
 from crczp.topology_definition.models import ForwardingDirection, TopologyDefinition
+from crczp.topology_definition.yaml_model import YamlModelError
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), 'assets')
 
@@ -114,7 +114,7 @@ class TestNetworkForwarding:
         An invalid direction is rejected at its key with the list of allowed values.
         """
         document = topology_definition_string + FORWARDING_RULE + '  direction: sideways\n'
-        with pytest.raises(YamlizingError, match=r"\['both', 'in', 'out'\]") as exc_info:
+        with pytest.raises(YamlModelError, match=r"\['both', 'in', 'out'\]") as exc_info:
             TopologyDefinition.load(document)
         assert f'line {len(document.splitlines())}, column' in str(exc_info.value)
 
@@ -122,7 +122,7 @@ class TestNetworkForwarding:
         """
         network_forwarding is a single mapping, so a YAML list is rejected.
         """
-        with pytest.raises(YamlizingError, match='Expected a mapping node'):
+        with pytest.raises(YamlModelError, match='Expected a mapping node'):
             TopologyDefinition.load(
                 topology_definition_string
                 + """
@@ -231,7 +231,7 @@ network_forwarding:
         """
         A malformed rule, or one referencing an interface the topology does not have, is rejected.
         """
-        with pytest.raises(YamlizingError, match=match):
+        with pytest.raises(YamlModelError, match=match):
             TopologyDefinition.load(
                 topology_definition_string + '\nnetwork_forwarding:' + rule_yaml
             )
@@ -273,7 +273,7 @@ network_forwarding:
         )
 
         with pytest.raises(
-            YamlizingError,
+            YamlModelError,
             match=f'source {interface} is ambiguous: "{node}" has several interfaces on network',
         ):
             TopologyDefinition.load(document)
