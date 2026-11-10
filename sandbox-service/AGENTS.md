@@ -1,191 +1,38 @@
-# AGENTS.md
+# AGENTS.md: sandbox-service
 
-This document defines how automated agents (CI systems, bots, or AI coding assistants)
-should interact with this repository.
+Workspace-wide rules (uv, tox, checks, branching, code rules) are in [../AGENTS.md](../AGENTS.md). This file covers only this package.
 
-## Project Overview
+**Distribution:** `crczp-sandbox-service` · **Import:** `crczp.sandbox_*` · **Depends on:** every library in `libs/`
 
-For a high-level description, usage examples, and API overview, see the main project documentation:
+The Django REST Framework service that simplifies manipulation of the OpenStack cloud platform for the CyberRangeCZ Platform. It manages sandbox definitions, pools of sandboxes, sandbox instances, and Ansible playbook execution on sandbox machines. The REST API is documented via OpenAPI (drf-spectacular). It is the only package that is versioned, tagged and shipped, as a Docker image.
 
-[README.md](README.md)
+## Package structure
 
-**Repository:** `backend-sandbox-platform`
+Shared code lives in `crczp/sandbox_common_lib` (config, exceptions, permissions, construction of the cloud client) and `crczp/sandbox_uag` (auth: OIDC/JWT, permissions).
 
-**Package:** `sandbox-service`
+Each of `sandbox_ansible_app`, `sandbox_cloud_app`, `sandbox_definition_app`, and `sandbox_instance_app` is a self-contained Django app with its own `lib/`, `migrations/`, and `tests/`. `sandbox_service_project` holds project-wide settings, root URLs, and WSGI.
 
-This repository hosts a Django REST Framework service that simplifies manipulation of the
-OpenStack cloud platform for the CyberRangeCZ Platform. It manages sandbox definitions,
-pools of sandboxes, sandbox instances, and Ansible playbook execution on sandbox machines.
-The REST API is documented via OpenAPI (drf-spectacular).
+`tofu/` holds the OpenTofu provider configuration the image mirrors at build time; it is not part of the Django app and is not covered by `tox`/`pytest`.
 
-  Core tooling: `uv` (packages), `pyproject.toml` (config), `tox` (task orchestration),
-  `pre-commit` / `ruff` / `ty` / `pylint` (quality), ruff `S` rules + dependency audit +
-  gitleaks (security),
-  `pytest` with Django test settings (testing).
+Keep this layout; do not introduce an alternative one without explicit approval.
 
----
+## Setup
 
-## Branching Model
+* A root `uv sync` also installs this package's `dev` group (type stubs for `ty`). The `test`, `lint` and `security` groups are for tox.
+* `manage.py` needs a `config.yml`: run `cp config.yml-template config.yml` before `python manage.py check` or any other management command outside tox. `config.yml` is git-ignored, because it is where local credentials go.
+* Build the image from the repository root: `docker build -f sandbox-service/Dockerfile .`
 
-* `master` is the protected, stable branch
-* All changes must be made via **feature branches**
-* Feature branches are merged into `master` only after all checks pass
+## Checks
 
-Agents **must not** push directly to `master`.
+`tox` here runs three environments:
 
----
+* `pylint` lints `crczp`, which already contains every app's `tests/` package, against the 9.5 floor.
+* `audit` is the dependency audit for the whole workspace (`audit.sh`). A plain `tox -e audit` fails on every known vulnerability, including ones already on `master`. CI fails a branch only on the ones it introduces, and so does `BASE=$(git merge-base origin/master HEAD) tox -e audit`. Inherited ones are fixed in their own PR to `master`, not in an unrelated change.
+* `pytest` runs the suite in two passes, `-m "not integration"` and then `-m integration`, and then `python manage.py check`. Marking a test `integration` moves it to the second pass; it does not exclude it from `tox`.
 
-## Project Structure
+## Testing notes
 
-Shared code lives in `crczp/sandbox_common_lib` (config, exceptions, permissions) and
-`crczp/sandbox_uag` (auth: OIDC/JWT, permissions).
-
-Each of `sandbox_ansible_app`, `sandbox_cloud_app`, `sandbox_definition_app`, and
-`sandbox_instance_app` is a self-contained Django app with its own `lib/`, `migrations/`,
-and `tests/`. `sandbox_service_project` holds project-wide settings, root URLs, and WSGI.
-
-`tofu/` contains OpenTofu/Terraform infrastructure definitions; these are not part of the
-Django app and are not covered by `tox`/`pytest`.
-
-Agents must respect this structure and must not introduce alternative layouts without
-explicit approval.
-
----
-
-## Environment Setup
-
-Agents must use **`uv`** for dependency management.
-
-```bash
-uv sync
-```
-
-Development dependencies are defined in the `dev` dependency group (type stubs for `ty`).
-Install them with:
-
-```bash
-uv sync --group dev
-```
-
-Python version must match the version specified in `pyproject.toml`.
-
----
-
-## Virtual Environments and Isolation
-
-Agents must not run tools using arbitrary or external virtual environments.
-
-- All tooling must be executed via `tox` or `uv run`
-- Agents must not invoke tools using:
-  - system Python
-  - manually created virtual environments
-  - virtual environments not managed by `uv` or `tox`
-
-Agents should rely on `uv` and `tox` for environment isolation and must not
-invoke tools using globally installed Python packages.
-
----
-
-## Running Checks
-
-Two different bars apply, and agents should not conflate them:
-
-* **While iterating on a change:** run the specific checks relevant to what you touched —
-  e.g. `ruff check`, `ruff format`, `ty check`, and the specific test file(s) for the code you
-  changed (`tox -e pytest -- path/to/test_file.py` or `pytest` directly inside `uv run`).
-* **Before considering a change complete / ready to merge:** run both halves of the suite —
-  `tox` for `pylint`, dependency audit, `pytest` and `python manage.py check`, and
-  `pre-commit` for ruff lint (including its `S` security rules), ruff format, `ty` and
-  gitleaks. Linting and type checking are workspace-level and run from the repository root,
-  not from this package.
-
-```bash
-tox                                    # from sandbox-service/
-pre-commit run --all-files             # from the repository root
-```
-
-Together these are the authoritative, CI-equivalent way to validate a change before merge.
-All tox environments and all pre-commit hooks must pass, with one exception: a plain
-`tox -e audit` fails on every known vulnerability, including ones already on `master`. CI
-fails a branch only on the ones it introduces, and so does
-`BASE=$(git merge-base origin/master HEAD) tox -e audit`. Inherited ones are fixed in
-their own PR to `master`, not in an unrelated change.
-
-Notes:
-
-* Ruff is the authoritative linter/formatter — rules are in `pyproject.toml`; no manual
-  formatting outside Ruff.
-* New/modified code must be type-annotated (`ty`); avoid `Any` unless necessary.
-  `ty` has no plugin system, so the Django ORM's dynamic attributes (reverse relations,
-  multi-table-inheritance accessors) are not inferred — declare them on the model.
-* Minimum Pylint score: `9.5`, run against both `crczp` and `tests`. Don't disable
-  warnings without justification.
-* Security lint (ruff `S` rules, its port of bandit): no `eval`/`exec` on untrusted input,
-  no hard-coded secrets, no insecure crypto patterns. Suppress a finding only on its own
-  line, with `# noqa: Sxxx` and the reason. No new dependencies with known
-  vulnerabilities; accepted ones go in `audit-ignore.txt` with a reason and a review date.
-
----
-
-## Testing
-
-### Pytest
-
-All changes must include appropriate test coverage.
-
-```bash
-tox -e pytest
-```
-
-Guidelines:
-
-* New features require new tests
-* Bug fixes must include regression tests
-* Tests must be deterministic and isolated
-* Integration tests must be marked with `@pytest.mark.integration`; they are excluded from
-  the default `tox` run (`-m "not integration"`)
-* Django settings for tests: `crczp.sandbox_service_project.tests.settings`
-* The tox `pytest` environment also runs `python manage.py check` after the test suite
-
-Test paths:
-
-* `crczp/sandbox_ansible_app/tests`
-* `crczp/sandbox_common_lib/tests`
-* `crczp/sandbox_definition_app/tests`
-* `crczp/sandbox_instance_app/tests`
-* `crczp/sandbox_service_project/tests`
-* `crczp/sandbox_uag/tests`
-
----
-
-## What Agents Must Not Do
-
-* Do not commit directly to `master`
-* Do not bypass or disable quality checks
-* Do not introduce new dependencies without justification
-* Do not modify tooling configuration unless requested
-* Do not commit generated or compiled artifacts
-
----
-
-## Recommended Agent Workflow
-
-1. Create a feature branch
-2. Make minimal, focused changes
-3. Run the relevant fast checks while iterating (see "Running Checks")
-4. Before finishing, run `tox` and ensure all environments pass
-
----
-
-## Handling Uncertainty
-
-If requirements are unclear:
-
-* Prefer conservative changes
-* Ask for clarification
-* Do not assume undocumented behaviour
-
----
-
-This repository prioritises **quality, security, and maintainability**.
-Agents are expected to follow these rules strictly.
+* Test settings: `crczp.sandbox_service_project.tests.settings`, set in both `[tool.pytest.ini_options]` and `tox.ini`.
+* `@pytest.mark.integration` marks tests that run the RQ job pipeline. The root `conftest.py` gives each of them a shared fakeredis server and the `default`, `openstack` and `ansible` queues, so no real Redis is needed.
+* Test paths are each app's `crczp/<app>/tests` (`testpaths` in `pyproject.toml`).
+* `ty` has no plugin system, so the Django ORM's dynamic attributes (reverse relations, multi-table-inheritance accessors) are not inferred: declare them on the model.
