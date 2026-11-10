@@ -28,8 +28,11 @@ sandbox-service depends on all of the above
 ## Development
 
 ```bash
-uv sync          # resolves the whole workspace, one lockfile
-uv run pytest    # or: cd <package> && tox -e pytest
+uv sync                                     # resolves the whole workspace, one lockfile
+cd <package> && tox -e pytest               # tests run per package, as in CI
+cd <package> && uv run --group test pytest  # the same suite without tox
 ```
+
+There is no workspace-wide test run from the repository root: test tooling lives in each package's `test` dependency group, which `uv sync` does not install, and each package's pytest configuration applies only from its own directory.
 
 Packages depend on each other via `[tool.uv.sources] ... = { workspace = true }`, so editing a library is immediately visible to `sandbox-service` — no version bump or publish step required.
