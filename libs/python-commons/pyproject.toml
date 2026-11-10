@@ -13,7 +13,7 @@ dependencies = [
     # arrives from nowhere, so a standalone install used to fail on
     # `import crczp.cloud_commons`.
     "pyyaml>=6.0.3",
-    "pydantic>=2.14.1"
+    "pydantic>=2.14.3"
 ]
 [project.optional-dependencies]
 dev = [
