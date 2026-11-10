@@ -38,7 +38,6 @@ class TryParser(TestCase):
 
     def test_return_is_valid(self) -> None:
         """Test that parser returns valid Variable objects."""
-        global PARSED_FILE
         self.assertTrue(PARSED_FILE)
         assert PARSED_FILE is not None
         self.assertTrue(len(PARSED_FILE) == 9)
@@ -136,12 +135,10 @@ class TryGenerator(TestCase):
 
     def test_generate(self) -> None:
         """Test that generator produces output."""
-        global GENERATED_VARIABLES
         self.assertTrue(GENERATED_VARIABLES)
 
     def test_generate_values(self) -> None:
         """Test that generator produces expected values."""
-        global GENERATED_VARIABLES
         assert GENERATED_VARIABLES is not None
         # Check that values are generated (non-empty)
         for var in GENERATED_VARIABLES:
@@ -153,7 +150,6 @@ class TryVariableObject(TestCase):
 
     def test_object_print(self) -> None:
         """Test Variable object string representation."""
-        global GENERATED_VARIABLES
         assert GENERATED_VARIABLES is not None
         # Check that string representation contains variable name
         for var in GENERATED_VARIABLES:

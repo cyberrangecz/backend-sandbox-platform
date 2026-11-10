@@ -15,10 +15,6 @@ dependencies = [
     "pyyaml>=6.0.3",
     "pydantic>=2.14.1"
 ]
-[project.optional-dependencies]
-dev = [
-    "types-pyyaml",
-]
 
 [dependency-groups]
 test = [

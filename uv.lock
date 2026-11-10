@@ -737,11 +737,6 @@ dependencies = [
     { name = "pyyaml" },
 ]
 
-[package.optional-dependencies]
-dev = [
-    { name = "types-pyyaml" },
-]
-
 [package.dev-dependencies]
 lint = [
     { name = "pylint" },
@@ -760,9 +755,7 @@ requires-dist = [
     { name = "crczp-topology-definition", editable = "libs/topology-definition" },
     { name = "pydantic", specifier = ">=2.14.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "types-pyyaml", marker = "extra == 'dev'" },
 ]
-provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 lint = [
