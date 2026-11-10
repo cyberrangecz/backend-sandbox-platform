@@ -23,14 +23,13 @@ from crczp.cloud_commons import (
 
 # Available cloud clients
 from crczp.openstack_driver import CrczpOpenStackClient
-from crczp.topology_definition.models import DockerContainers, TopologyDefinition
-
 from crczp.terraform_driver.terraform_backend import CrczpTerraformBackend
 from crczp.terraform_driver.terraform_client_elements import (
     CrczpTerraformBackendType,
     TerraformInstance,
 )
 from crczp.terraform_driver.terraform_client_manager import CrczpTerraformClientManager
+from crczp.topology_definition.models import DockerContainers, TopologyDefinition
 
 
 class AvailableCloudLibraries(Enum):  # pylint: disable=too-few-public-methods

@@ -1,10 +1,10 @@
 """Tests for TopologyInstance link resolution."""
 
 import yaml
-from crczp.topology_definition.models import TopologyDefinition
 
 from crczp.cloud_commons.topology_instance import TopologyInstance
 from crczp.cloud_commons.transformation_configuration import TransformationConfiguration
+from crczp.topology_definition.models import TopologyDefinition
 
 _BASE_TOPOLOGY = """
 name: small-sandbox

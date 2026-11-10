@@ -4,9 +4,9 @@ Tests for role-aware visibility and reach composition in TopologyInstance.
 
 # pylint: disable=redefined-outer-name
 import pytest
-from crczp.topology_definition.models import Network, TopologyDefinition
 
 from crczp.cloud_commons import UNIVERSAL_ROLES, TopologyInstance, TransformationConfiguration
+from crczp.topology_definition.models import Network, TopologyDefinition
 
 TRC_CONFIG = TransformationConfiguration(
     man_image='debian-12-x86_64', man_flavor='standard.small', man_user='debian'

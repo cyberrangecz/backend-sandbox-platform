@@ -20,3 +20,44 @@ allowed-unresolved-imports = [
     "fakeredis",
     "Crypto.*",
 ]
+
+# Shared by every member: each member's [tool.ruff] only `extend`s this file and adds its
+# real deviations. Ruff resolves config per file from the nearest pyproject.toml, so
+# without `extend` each member would silently fall back to ruff's defaults.
+[tool.ruff]
+line-length = 100
+preview = true
+
+[tool.ruff.lint]
+select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+    # flake8-bandit: the security lint that the bandit tox env used to run
+    "S",
+]
+# Carried over from the former [tool.bandit] skips: asserts are allowed (B101).
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+# Fixture credentials and scratch paths are expected in tests.
+"**/tests/**" = ["S105", "S106", "S108"]
+
+[tool.ruff.lint.isort]
+# pylint resolves `crczp` as first-party from the directory layout; without this ruff
+# could rank the installed crczp.* packages as third-party and the two disagree on order.
+known-first-party = ["crczp"]
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "space"
+docstring-code-format = true

@@ -1,9 +1,2 @@
-.idea
-__pycache__
+# Scratch script for running the driver by hand.
 main.py
-*.log
-crczp_openstack_lib.egg-info
-.tox
-
-build
-dist

@@ -2,9 +2,10 @@
 
 from typing import Any
 
+from pydantic import Field
+
 from crczp.topology_definition.models import StrList
 from crczp.topology_definition.yaml_model import YamlModel, YamlStr, positional_init
-from pydantic import Field
 
 BASE_NETWORK = 'crczp-network'
 MAN_OUT_PORT = 'man-out-port'

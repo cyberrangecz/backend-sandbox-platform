@@ -20,7 +20,6 @@ from crczp.cloud_commons import (
     TopologyInstance,
     TransformationConfiguration,
 )
-
 from crczp.terraform_driver.terraform_backend import (
     TERRAFORM_STATE_FILE_NAME,
     CrczpTerraformBackend,

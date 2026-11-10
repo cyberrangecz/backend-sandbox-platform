@@ -5,8 +5,8 @@ import subprocess  # noqa: S404
 from unittest.mock import MagicMock, patch
 
 import pytest
-from crczp.cloud_commons import CrczpException, StackNameScheme
 
+from crczp.cloud_commons import CrczpException, StackNameScheme
 from crczp.terraform_driver.terraform_client_elements import CrczpTerraformBackendType
 from crczp.terraform_driver.terraform_client_manager import CrczpTerraformClientManager
 from crczp.terraform_driver.terraform_exceptions import TerraformStateLocked, TerraformUnlockFailed

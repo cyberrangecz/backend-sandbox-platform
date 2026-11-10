@@ -88,7 +88,10 @@ class TryParser(TestCase):
         self.assertTrue(PARSED_FILE[5].min == '192.168.0.365')
         self.assertTrue(PARSED_FILE[5].max == '192.168.1.265')
         self.assertTrue(PARSED_FILE[5].length is None)
-        self.assertTrue(PARSED_FILE[5].prohibited == ['192.168.1.10', '192.168.1.1', '192.168.1.38', '192.168.1.37'])
+        self.assertTrue(
+            PARSED_FILE[5].prohibited
+            == ['192.168.1.10', '192.168.1.1', '192.168.1.38', '192.168.1.37']
+        )
         self.assertTrue(PARSED_FILE[5].generated_value == '')
 
         self.assertTrue(PARSED_FILE[6].type == 'ipv4')
