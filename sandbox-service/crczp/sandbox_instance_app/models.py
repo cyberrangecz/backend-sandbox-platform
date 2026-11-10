@@ -17,6 +17,11 @@ from crczp.sandbox_definition_app.models import Definition
 from crczp.sandbox_instance_app.lib.email_notifications import send_email, validate_emails_enabled
 
 if TYPE_CHECKING:
+    # RelatedManager exists only in django-stubs (Django builds the class per relation),
+    # so the reverse-accessor annotations using it are quoted. A plain models.Manager
+    # there is class-level only and its instance access is a type error.
+    from django.db.models.fields.related_descriptors import RelatedManager
+
     # Only for the reverse-accessor annotations below; importing at runtime would
     # be circular (sandbox_ansible_app.models imports from this module).
     from crczp.sandbox_ansible_app.models import (
@@ -81,7 +86,7 @@ class Pool(models.Model):
     # Bare annotations only: they declare types for the type checker and are
     # invisible to Django's model machinery, so they never affect the schema.
     id: int
-    allocation_units: models.Manager['SandboxAllocationUnit']
+    allocation_units: 'RelatedManager[SandboxAllocationUnit]'
     lock: 'PoolLock'
 
     definition = models.ForeignKey(
@@ -226,9 +231,9 @@ class Sandbox(models.Model):
 
     allocation_unit_id: int
     lock: 'SandboxLock'
-    netbird_access: models.Manager['SandboxNetbirdAccess']
-    netbird_resources: models.Manager['SandboxNetbirdResources']
-    role_keypairs: models.Manager['SandboxRoleKeypair']
+    netbird_access: 'RelatedManager[SandboxNetbirdAccess]'
+    netbird_resources: 'RelatedManager[SandboxNetbirdResources]'
+    role_keypairs: 'RelatedManager[SandboxRoleKeypair]'
 
     id = models.CharField(
         primary_key=True,
@@ -350,7 +355,7 @@ class SandboxRequest(models.Model):
 class AllocationRequest(SandboxRequest):
     """Represents a request to allocate a sandbox for an allocation unit."""
 
-    stages: models.Manager['AllocationStage']
+    stages: 'RelatedManager[AllocationStage]'
     stackallocationstage: 'StackAllocationStage'
     networkingansibleallocationstage: 'NetworkingAnsibleAllocationStage'
     useransibleallocationstage: 'UserAnsibleAllocationStage'
@@ -415,7 +420,7 @@ class AllocationRequest(SandboxRequest):
 class CleanupRequest(SandboxRequest):
     """Represents a request to clean up and delete a sandbox allocation unit."""
 
-    stages: models.Manager['CleanupStage']
+    stages: 'RelatedManager[CleanupStage]'
     stackcleanupstage: 'StackCleanupStage'
     networkingansiblecleanupstage: 'NetworkingAnsibleCleanupStage'
     useransiblecleanupstage: 'UserAnsibleCleanupStage'
@@ -526,8 +531,8 @@ class AllocationStage(Stage):
     """Concrete stage associated with an allocation request."""
 
     rq_job: 'AllocationRQJob'
-    terraform_outputs: models.Manager['AllocationTerraformOutput']
-    outputs: models.Manager['AllocationAnsibleOutput']
+    terraform_outputs: 'RelatedManager[AllocationTerraformOutput]'
+    outputs: 'RelatedManager[AllocationAnsibleOutput]'
     # Reverse OneToOne links of the multi-table-inheritance children.
     stackallocationstage: 'StackAllocationStage'
     networkingansibleallocationstage: 'NetworkingAnsibleAllocationStage'
@@ -546,8 +551,8 @@ class CleanupStage(Stage):
     """Concrete stage associated with a cleanup request."""
 
     rq_job: 'CleanupRQJob'
-    terraform_outputs: models.Manager['CleanupTerraformOutput']
-    outputs: models.Manager['CleanupAnsibleOutput']
+    terraform_outputs: 'RelatedManager[CleanupTerraformOutput]'
+    outputs: 'RelatedManager[CleanupAnsibleOutput]'
     # Reverse OneToOne links of the multi-table-inheritance children.
     stackcleanupstage: 'StackCleanupStage'
     networkingansiblecleanupstage: 'NetworkingAnsibleCleanupStage'

@@ -506,9 +506,7 @@ class AllocationRequestHandler(RequestHandler):
         """
         Simplifies stage creation in database.
         """
-        # Manager.create() is declared to return Self@Model, so ty cannot see that
-        # `type[StageT].objects.create()` yields a StageT.
-        return stage_class.objects.create(  # ty: ignore[invalid-return-type]
+        return stage_class.objects.create(
             *args,
             allocation_request=self.request,
             allocation_request_fk_many=self.request,
