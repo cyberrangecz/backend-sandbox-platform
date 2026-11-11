@@ -18,15 +18,19 @@ on:
 permissions:
   contents: read
 
+env:
+  # Same uv as github-actions.yml; see the note on PINNED_UV_VERSION there.
+  PINNED_UV_VERSION: "0.13.4"
+
 jobs:
   # Same tox env as the PR audit, without a BASE: every known vulnerability fails.
   audit:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
-          version: "0.13.4"
+          version: ${{ env.PINNED_UV_VERSION }}
           python-version: "3.12"
       - run: uv tool install tox --with tox-uv-bare==1.36.0
       - working-directory: sandbox-service
