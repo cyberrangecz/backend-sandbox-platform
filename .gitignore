@@ -1,14 +1,34 @@
-# Workspace-level artifacts. Each package carries its own .gitignore for
-# anything inside its own directory.
+# Patterns without a slash apply at every depth, so this one file covers every package.
+# A package's own .gitignore holds only what is specific to that package.
 
 # Shared workspace environment (uv also writes .venv/.gitignore, this is belt-and-braces).
 # No trailing slash: tox also writes a `.venv` file into each package, pointing editors
 # at one of its environments (PEP 832).
 .venv
+venv/
+.env
 
-# Tool caches at the workspace root
+# Byte-compiled files and build output
 __pycache__/
 *.py[cod]
+*.so
+build/
+dist/
+wheels/
+*.egg-info/
+.eggs/
+
+# Tool caches and reports
+.tox/
 .pytest_cache/
 .ruff_cache/
-.tox/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.log
+
+# IDEs
+.idea/
+*.iml

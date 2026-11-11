@@ -178,12 +178,17 @@ def get_random_ip(var_obj: Variable) -> str:
                 return int(IPv4Address(ip_str))
             except (AddressValueError, ValueError):
                 # Invalid IP format - this gets a warning
-                warnings.warn(f'Invalid IP address format: {ip_value!r}. Using default.', UserWarning, stacklevel=3)
+                warnings.warn(
+                    f'Invalid IP address format: {ip_value!r}. Using default.',
+                    UserWarning,
+                    stacklevel=3,
+                )
                 return default
 
         # Unexpected type - warn and use default
         warnings.warn(
-            f'Unexpected type {type(ip_value).__name__}: {ip_value!r}. Expected Optional[str]. Using default.',
+            f'Unexpected type {type(ip_value).__name__}: {ip_value!r}. '
+            'Expected Optional[str]. Using default.',
             UserWarning,
             stacklevel=3,
         )

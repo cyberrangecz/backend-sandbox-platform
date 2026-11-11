@@ -38,7 +38,6 @@ class TryParser(TestCase):
 
     def test_return_is_valid(self) -> None:
         """Test that parser returns valid Variable objects."""
-        global PARSED_FILE
         self.assertTrue(PARSED_FILE)
         assert PARSED_FILE is not None
         self.assertTrue(len(PARSED_FILE) == 9)
@@ -88,7 +87,10 @@ class TryParser(TestCase):
         self.assertTrue(PARSED_FILE[5].min == '192.168.0.365')
         self.assertTrue(PARSED_FILE[5].max == '192.168.1.265')
         self.assertTrue(PARSED_FILE[5].length is None)
-        self.assertTrue(PARSED_FILE[5].prohibited == ['192.168.1.10', '192.168.1.1', '192.168.1.38', '192.168.1.37'])
+        self.assertTrue(
+            PARSED_FILE[5].prohibited
+            == ['192.168.1.10', '192.168.1.1', '192.168.1.38', '192.168.1.37']
+        )
         self.assertTrue(PARSED_FILE[5].generated_value == '')
 
         self.assertTrue(PARSED_FILE[6].type == 'ipv4')
@@ -133,12 +135,10 @@ class TryGenerator(TestCase):
 
     def test_generate(self) -> None:
         """Test that generator produces output."""
-        global GENERATED_VARIABLES
         self.assertTrue(GENERATED_VARIABLES)
 
     def test_generate_values(self) -> None:
         """Test that generator produces expected values."""
-        global GENERATED_VARIABLES
         assert GENERATED_VARIABLES is not None
         # Check that values are generated (non-empty)
         for var in GENERATED_VARIABLES:
@@ -150,7 +150,6 @@ class TryVariableObject(TestCase):
 
     def test_object_print(self) -> None:
         """Test Variable object string representation."""
-        global GENERATED_VARIABLES
         assert GENERATED_VARIABLES is not None
         # Check that string representation contains variable name
         for var in GENERATED_VARIABLES:

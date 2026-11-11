@@ -44,42 +44,8 @@ build-backend = "hatchling.build"
 packages = ["crczp"]
 
 [tool.ruff]
-line-length = 100
-preview = true
-
-[tool.ruff.lint]
-select = [
-    # pycodestyle
-    "E",
-    # Pyflakes
-    "F",
-    # pyupgrade
-    "UP",
-    # flake8-bugbear
-    "B",
-    # flake8-simplify
-    "SIM",
-    # isort
-    "I",
-    # flake8-bandit: the security lint that the bandit tox env used to run
-    "S",
-]
-# Carried over from the former [tool.bandit] skips: asserts are allowed (B101).
-ignore = ["S101"]
-
-[tool.ruff.lint.per-file-ignores]
-# Fixture credentials and scratch paths are expected in tests.
-"tests/**" = ["S105", "S106", "S108"]
-
-[tool.ruff.lint.isort]
-# pylint resolves `crczp` as first-party from the directory layout; without this ruff
-# would rank the installed crczp.* packages as third-party and the two disagree on order.
-known-first-party = ["crczp"]
-
-[tool.ruff.format]
-quote-style = "single"
-indent-style = "space"
-docstring-code-format = true
+# Shared settings live in the workspace root pyproject.toml; only deviations go here.
+extend = "../../pyproject.toml"
 
 [tool.pylint]
 # You can add pylint configs here or in .pylintrc

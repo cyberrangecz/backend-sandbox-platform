@@ -101,41 +101,9 @@ exclude = ["/crczp/*/tests"]
 skip-excluded-dirs = true
 
 [tool.ruff]
-line-length = 100
-preview = true
+# Shared settings live in the workspace root pyproject.toml; only deviations go here.
+extend = "../pyproject.toml"
 src = ["crczp"]
-
-[tool.ruff.lint]
-select = [
-    # pycodestyle
-    "E",
-    # Pyflakes
-    "F",
-    # pyupgrade
-    "UP",
-    # flake8-bugbear
-    "B",
-    # flake8-simplify
-    "SIM",
-    # isort
-    "I",
-    # flake8-bandit: the security lint that the bandit tox env used to run
-    "S",
-]
-# Carried over from the former [tool.bandit] skips: asserts are allowed (B101).
-ignore = ["S101"]
-
-[tool.ruff.lint.per-file-ignores]
-# Fixture credentials and scratch paths are expected in tests.
-"crczp/*/tests/**" = ["S105", "S106", "S108"]
-
-[tool.ruff.lint.isort]
-known-first-party = ["crczp"]
-
-[tool.ruff.format]
-quote-style = "single"
-indent-style = "space"
-docstring-code-format = true
 
 [tool.pylint.main]
 ignore-paths = [".*/migrations/.*"]
@@ -147,7 +115,7 @@ disable = [
 ]
 
 [tool.pytest.ini_options]
-# Declared here as well as in tox.ini's setenv so `uv run pytest` works without tox.
+# Declared here as well as in tox.ini's setenv so `uv run --group test pytest` works without tox.
 DJANGO_SETTINGS_MODULE = "crczp.sandbox_service_project.tests.settings"
 minversion = "6.0"
 addopts = "-ra -q"

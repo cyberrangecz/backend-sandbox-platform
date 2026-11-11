@@ -11,8 +11,11 @@ version: 2
 updates:
   - package-ecosystem: uv
     directory: /
+    # Version updates twice a month, on the 1st and 15th at 03:00 UTC: each uv PR needs a
+    # sandbox-service version bump by hand. Security updates do not wait for this schedule.
     schedule:
-      interval: weekly
+      interval: cron
+      cronjob: "0 3 1,15 * *"
     # pyproject.toml declares lower bounds and uv.lock pins the exact versions, so an update
     # the bounds already allow only changes uv.lock. The default (`increase`) would rewrite
     # every bumped lower bound in pyproject.toml as well.
@@ -36,8 +39,10 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
+    # Same schedule as uv above.
     schedule:
-      interval: weekly
+      interval: cron
+      cronjob: "0 3 1,15 * *"
     groups:
       actions:
         patterns: ["*"]

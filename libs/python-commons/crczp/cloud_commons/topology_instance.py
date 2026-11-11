@@ -4,6 +4,17 @@ from collections.abc import Iterable
 from typing import cast, override
 
 import yaml
+
+from crczp.cloud_commons.exceptions import CrczpException, InvalidTopologyDefinition
+from crczp.cloud_commons.topology_elements import (
+    MAN,
+    Link,
+    NetworkForwarding,
+    Node,
+    NodeToNodeLinkPair,
+    SecurityGroups,
+)
+from crczp.cloud_commons.transformation_configuration import TransformationConfiguration
 from crczp.topology_definition.models import (
     DockerContainers,
     ForwardingInterface,
@@ -20,17 +31,6 @@ from crczp.topology_definition.models import (
     RouterMappingList,
     TopologyDefinition,
 )
-
-from crczp.cloud_commons.exceptions import CrczpException, InvalidTopologyDefinition
-from crczp.cloud_commons.topology_elements import (
-    MAN,
-    Link,
-    NetworkForwarding,
-    Node,
-    NodeToNodeLinkPair,
-    SecurityGroups,
-)
-from crczp.cloud_commons.transformation_configuration import TransformationConfiguration
 
 MAN_NAME = 'man'  # Management Node
 NAME_SEPARATOR = '-'
