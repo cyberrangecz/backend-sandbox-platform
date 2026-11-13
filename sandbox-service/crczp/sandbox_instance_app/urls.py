@@ -131,9 +131,14 @@ urlpatterns = [
         name='pool-sandbox-list',
     ),
     path(
-        'pools/<int:pool_id>/sandboxes/get-and-lock/<str:training_access_token>',
+        'pools/<int:pool_id>/sandboxes/get-and-lock',
         views.SandboxGetAndLockView.as_view(),
         name='pool-sandbox-get-and-lock',
+    ),
+    path(
+        'pools/<int:pool_id>/sandboxes/get-and-lock/<str:training_access_token>',
+        views.SandboxGetAndLockByPathView.as_view(),
+        name='pool-sandbox-get-and-lock-by-path',
     ),
     path(
         'pools/<int:pool_id>/management-ssh-access',

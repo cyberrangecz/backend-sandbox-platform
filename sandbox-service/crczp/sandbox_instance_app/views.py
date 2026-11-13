@@ -1009,6 +1009,15 @@ class PoolSandboxListView(SortableViewMixin, generics.ListAPIView[Any]):
         return Sandbox.objects.filter(allocation_unit_id__in=alloc_unit_ids, ready=True)
 
 
+GET_AND_LOCK_RESPONSES = {
+    status.HTTP_409_CONFLICT: OpenApiResponse(
+        description='No free sandboxes; all sandboxes are locked.',
+        response=utils.ErrorSerializer,
+    ),
+    **SANDBOX_RESPONSES,
+}
+
+
 class SandboxGetAndLockView(generics.RetrieveAPIView[Any]):
     """API view to retrieve an unlocked sandbox from a pool and lock it."""
 
@@ -1017,13 +1026,16 @@ class SandboxGetAndLockView(generics.RetrieveAPIView[Any]):
     lookup_url_kwarg = 'pool_id'
 
     @extend_schema(
-        responses={
-            status.HTTP_409_CONFLICT: OpenApiResponse(
-                description='No free sandboxes; all sandboxes are locked.',
-                response=utils.ErrorSerializer,
+        parameters=[
+            OpenApiParameter(
+                name=TRAINING_ACCESS_TOKEN_HEADER,
+                type=str,
+                location=OpenApiParameter.HEADER,
+                description='Access token of the training that holds the pool.',
+                required=True,
             ),
-            **SANDBOX_RESPONSES,
-        }
+        ],
+        responses=GET_AND_LOCK_RESPONSES,
     )
     @override
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1034,7 +1046,7 @@ class SandboxGetAndLockView(generics.RetrieveAPIView[Any]):
         """
         pool_id = self.kwargs.get('pool_id')
         pool = get_object_or_404(Pool, id=pool_id)
-        pools.validate_training_access_token(pool, self.kwargs.get('training_access_token'))
+        pools.validate_training_access_token(pool, self._training_access_token(request))
 
         created_by = request.user if isinstance(request.user, User) else None
         sandbox = pools.get_unlocked_sandbox(pool, created_by)
@@ -1043,6 +1055,36 @@ class SandboxGetAndLockView(generics.RetrieveAPIView[Any]):
                 {'detail': 'All sandboxes are already locked.'}, status=status.HTTP_409_CONFLICT
             )
         return Response(self.serializer_class(sandbox).data)
+
+    def _training_access_token(self, request: Request) -> str | None:
+        """Return the training access token the caller sent."""
+        return request.headers.get(TRAINING_ACCESS_TOKEN_HEADER)
+
+
+class SandboxGetAndLockByPathView(SandboxGetAndLockView):
+    """The get-and-lock endpoint taking the training access token in the URL path.
+
+    A token in the path ends up in access logs, so callers send it in the header instead.
+    Kept until backend-training has switched to the header.
+    """
+
+    @extend_schema(
+        operation_id='pools_sandboxes_get_and_lock_by_path_retrieve',
+        deprecated=True,
+        responses=GET_AND_LOCK_RESPONSES,
+    )
+    @override
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Deprecated: use the endpoint without the token in the path, sending the token in the
+        X-Training-Access-Token header.
+        """
+        return super().get(request, *args, **kwargs)
+
+    @override
+    def _training_access_token(self, request: Request) -> str | None:
+        """Return the training access token from the URL path."""
+        return self.kwargs.get('training_access_token')
 
 
 #######################################
