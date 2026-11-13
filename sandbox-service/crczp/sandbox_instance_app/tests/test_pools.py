@@ -25,6 +25,7 @@ from crczp.sandbox_instance_app.views import (
     PoolCleanupRequestsListCreateView,
     PoolCleanupRequestUnlockedCreateView,
     PoolListCreateView,
+    SandboxGetAndLockByPathView,
     SandboxGetAndLockView,
 )
 
@@ -521,17 +522,22 @@ class TestPoolLock:
         mocker.patch('crczp.sandbox_common_lib.utils.get_object_or_404', return_value=pool)
         yield
 
+    def get_and_lock_request(self, pool, training_access_token=None):
+        """Build a get-and-lock request carrying the token in the header, if given."""
+        headers = {}
+        if training_access_token is not None:
+            headers['HTTP_X_TRAINING_ACCESS_TOKEN'] = training_access_token
+        return self.factory.get(f'/pools/{pool.id}/sandboxes/get-and-lock', **headers)
+
     def test_sandbox_get_and_lock_view_correct_token_successful(  # pylint: disable=unused-argument
         self, pool, pool_lock, sandbox, training_access_token
     ):
         """Test that a correct training access token returns a locked sandbox."""
-        request = self.factory.get(
-            f'/pools/{pool.id}/sandboxes/get-and-lock/{training_access_token}'
-        )
+        request = self.get_and_lock_request(pool, training_access_token)
         request.user = AnonymousUser()
 
         view = SandboxGetAndLockView()
-        view.kwargs = {'training_access_token': training_access_token, 'pool_id': pool.id}
+        view.kwargs = {'pool_id': pool.id}
         response = view.get(request)
 
         assert response.status_code == 200
@@ -542,26 +548,44 @@ class TestPoolLock:
         self, pool, pool_lock, training_access_token
     ):
         """Test that an incorrect training access token returns 403."""
-        request = self.factory.get(
-            f'/pools/{pool.id}/sandboxes/get-and-lock/{self.wrong_training_access_token}'
-        )
+        request = self.get_and_lock_request(pool, self.wrong_training_access_token)
 
-        response = SandboxGetAndLockView.as_view()(
-            request, pool_id=pool.id, training_access_token=self.wrong_training_access_token
-        )
+        response = SandboxGetAndLockView.as_view()(request, pool_id=pool.id)
 
         assert response.status_code == 403
         assert response.data == {'detail': 'Provided training access token is not valid.'}
 
-    def test_sandbox_get_and_lock_view_unlocked_pool(self, pool, sandbox, training_access_token):  # pylint: disable=unused-argument
-        """Test that a pool no training holds answers 400."""
+    def test_sandbox_get_and_lock_view_missing_token_unsuccessful(  # pylint: disable=unused-argument
+        self, pool, pool_lock
+    ):
+        """Test that a request without the token header returns 403."""
+        request = self.get_and_lock_request(pool)
+
+        response = SandboxGetAndLockView.as_view()(request, pool_id=pool.id)
+
+        assert response.status_code == 403
+        assert response.data == {'detail': 'Provided training access token is not valid.'}
+
+    def test_sandbox_get_and_lock_by_path_view_successful(  # pylint: disable=unused-argument
+        self, pool, pool_lock, sandbox, training_access_token
+    ):
+        """Test that the deprecated endpoint still takes the token from the URL path."""
         request = self.factory.get(
             f'/pools/{pool.id}/sandboxes/get-and-lock/{training_access_token}'
         )
 
-        response = SandboxGetAndLockView.as_view()(
+        response = SandboxGetAndLockByPathView.as_view()(
             request, pool_id=pool.id, training_access_token=training_access_token
         )
+
+        assert response.status_code == 200
+        assert response.data['lock_id'] == sandbox.lock.id
+
+    def test_sandbox_get_and_lock_view_unlocked_pool(self, pool, sandbox, training_access_token):  # pylint: disable=unused-argument
+        """Test that a pool no training holds answers 400."""
+        request = self.get_and_lock_request(pool, training_access_token)
+
+        response = SandboxGetAndLockView.as_view()(request, pool_id=pool.id)
 
         assert response.status_code == 400
         assert response.data == {'detail': 'The pool is not locked.'}
@@ -578,12 +602,10 @@ class TestPoolLock:
             'crczp.sandbox_instance_app.lib.pools.get_unlocked_sandbox', side_effect=responses_list
         )
 
-        request = self.factory.get(
-            f'/pools/{pool.id}/sandboxes/get-and-lock/{training_access_token}'
-        )
+        request = self.get_and_lock_request(pool, training_access_token)
         request.user = AnonymousUser()
         view = SandboxGetAndLockView()
-        view.kwargs = {'training_access_token': training_access_token, 'pool_id': pool.id}
+        view.kwargs = {'pool_id': pool.id}
 
         for _ in range(pool.max_size):
             response = view.get(request)

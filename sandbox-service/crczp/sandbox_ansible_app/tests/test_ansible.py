@@ -1,11 +1,15 @@
 """Tests for the Ansible runner utilities."""
 
+import os
+
 import pytest
 from django.conf import settings
 
 from crczp.sandbox_ansible_app.lib.ansible import AllocationAnsibleRunner
+from crczp.sandbox_common_lib import exceptions
 from crczp.sandbox_instance_app.lib import sandboxes
 from crczp.sandbox_instance_app.models import Sandbox, SandboxNetbirdResources, SandboxRoleKeypair
+from crczp.topology_definition.models import Container, ContainerMapping, DockerContainers
 
 pytestmark = pytest.mark.django_db
 
@@ -170,4 +174,51 @@ class TestGenerateDockerfiles:
 
         mock_get_dockerfile.assert_called_once_with(
             'test-def-url', 'resolved-sha-123', settings.CRCZP_CONFIG, 'docker2/'
+        )
+
+
+class TestContainerPathContainment:
+    """containers.yml values cannot place files outside the containers directory."""
+
+    @staticmethod
+    def _prepare(mocker, tmp_path, host: str, container: str) -> AllocationAnsibleRunner:
+        containers = DockerContainers(
+            containers=[Container(name=container, image='debian:bookworm-slim')],
+            container_mappings=[ContainerMapping(container=container, host=host, port=22)],
+        )
+        mocker.patch.object(
+            sandboxes, 'get_topology_instance', return_value=mocker.Mock(containers=containers)
+        )
+        runner = AllocationAnsibleRunner(str(tmp_path / 'runner'))
+        runner.prepare_containers_directory(mocker.Mock())
+        return runner
+
+    def test_files_are_written_inside_containers_directory(self, mocker, tmp_path):
+        """A plain host and container name write the compose file and Dockerfile in place."""
+        runner = self._prepare(mocker, tmp_path, 'home', 'docker2')
+
+        host_dir = os.path.join(runner.containers_path, 'home')
+        assert os.path.isfile(os.path.join(host_dir, 'docker-compose.yml'))
+        assert os.path.isfile(os.path.join(host_dir, 'docker2', 'Dockerfile'))
+
+    @pytest.mark.parametrize(
+        ('host', 'container'),
+        [
+            ('../../escaped', 'docker2'),
+            ('{tmp_path}/escaped', 'docker2'),
+            ('home', '../../escaped'),
+        ],
+        ids=['relative-host', 'absolute-host', 'relative-container'],
+    )
+    def test_path_leading_outside_is_rejected(self, mocker, tmp_path, host, container):
+        """A `..` or absolute path is rejected before anything is written outside."""
+        host = host.format(tmp_path=tmp_path)
+        containers_dir = tmp_path / 'runner' / 'containers'
+
+        with pytest.raises(exceptions.ValidationError):
+            self._prepare(mocker, tmp_path, host, container)
+
+        assert all(
+            path == tmp_path / 'runner' or path.is_relative_to(containers_dir)
+            for path in tmp_path.rglob('*')
         )

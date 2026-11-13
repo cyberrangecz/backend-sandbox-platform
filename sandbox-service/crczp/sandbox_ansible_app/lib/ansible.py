@@ -204,12 +204,29 @@ class AllocationAnsibleRunner(AnsibleRunner):
         inventory_object = self.create_inventory(sandbox)
         self.save_file(self.inventory_path, inventory_object.serialize())
 
+    def _container_path(self, *segments: str) -> str:
+        """Join segments of a containers.yml onto the containers directory.
+
+        The segments come from the definition repository, so a `..` or an absolute path
+        in them must not lead outside the containers directory.
+
+        :raises ValidationError: The resulting path is outside the containers directory.
+        """
+        base = os.path.realpath(self.containers_path)
+        path = os.path.realpath(os.path.join(base, *segments))
+        if path != base and not path.startswith(base + os.sep):
+            raise exceptions.ValidationError(
+                f'Container path {os.path.join(*segments)!r} leads outside the containers '
+                'directory.'
+            )
+        return path
+
     def _generate_docker_composes(self, containers: DockerContainers) -> None:
         """Generate docker-compose files for each host in the topology."""
         parsed_docker_hosts = []
         for container_mapping in containers.container_mappings:
             if container_mapping.host not in parsed_docker_hosts:
-                containers_host_path = os.path.join(self.containers_path, container_mapping.host)
+                containers_host_path = self._container_path(container_mapping.host)
                 self.make_dir(containers_host_path)
                 current_container_mappings = [
                     mapping
@@ -237,8 +254,9 @@ class AllocationAnsibleRunner(AnsibleRunner):
         if not containers:
             return
         for container_mapping in containers.container_mappings:
-            host_path = os.path.join(self.containers_path, container_mapping.host)
-            host_container_path = os.path.join(host_path, container_mapping.container)
+            host_container_path = self._container_path(
+                container_mapping.host, container_mapping.container
+            )
             self.make_dir(host_container_path)
             container_definition = [
                 cont for cont in containers.containers if cont.name == container_mapping.container
