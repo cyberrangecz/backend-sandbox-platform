@@ -1,9 +1,16 @@
 """Django models for the sandbox definition app."""
 
-from typing import Any, override
+from typing import TYPE_CHECKING, override
 
 from django.contrib.auth.models import User
 from django.db import models
+
+if TYPE_CHECKING:
+    # RelatedManager exists only in django-stubs, so the reverse-accessor annotation is quoted.
+    from django.db.models.fields.related_descriptors import RelatedManager
+
+    # Importing at runtime would be circular (sandbox_instance_app.models imports this module).
+    from crczp.sandbox_instance_app.models import Pool
 
 
 class Definition(models.Model):
@@ -12,7 +19,7 @@ class Definition(models.Model):
     # Implicit primary key Django adds; a bare annotation is invisible to Django.
     id: int
     # Reverse relation of Pool.definition, likewise invisible to Django.
-    pool_set: models.Manager[Any]
+    pool_set: 'RelatedManager[Pool]'
 
     name = models.CharField(max_length=100, help_text='Name of the definition.')
     url = models.TextField(help_text='URL of the definition.')
