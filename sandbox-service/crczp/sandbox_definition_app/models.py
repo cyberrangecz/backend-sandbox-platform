@@ -1,6 +1,6 @@
 """Django models for the sandbox definition app."""
 
-from typing import override
+from typing import Any, override
 
 from django.contrib.auth.models import User
 from django.db import models
@@ -11,6 +11,8 @@ class Definition(models.Model):
 
     # Implicit primary key Django adds; a bare annotation is invisible to Django.
     id: int
+    # Reverse relation of Pool.definition, likewise invisible to Django.
+    pool_set: models.Manager[Any]
 
     name = models.CharField(max_length=100, help_text='Name of the definition.')
     url = models.TextField(help_text='URL of the definition.')

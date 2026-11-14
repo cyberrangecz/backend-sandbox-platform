@@ -5,6 +5,7 @@ from typing import Any, override
 import structlog
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.db.models import Count, ProtectedError
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiRequest,
@@ -61,7 +62,7 @@ class DefinitionListCreateView(SortableViewMixin, generics.ListCreateAPIView[Def
     get: Retrieve a list of sandbox definitions.
     """
 
-    queryset = Definition.objects.all()
+    queryset = Definition.objects.annotate(pool_count=Count('pool'))
     serializer_class = serializers.DefinitionSerializer
     sortable_fields = ('id', 'name', 'url', 'rev', 'created_by_id')
 
@@ -88,7 +89,13 @@ class DefinitionListCreateView(SortableViewMixin, generics.ListCreateAPIView[Def
 @extend_schema(
     methods=['GET'], responses={200: SandboxDefinitionSerializer, **COMMON_RESPONSE_PATTERNS}
 )
-@extend_schema(methods=['DELETE'], responses={**COMMON_RESPONSE_PATTERNS})
+@extend_schema(
+    methods=['DELETE'],
+    responses={
+        status.HTTP_409_CONFLICT: utils.ERROR_RESPONSES[status.HTTP_409_CONFLICT],
+        **COMMON_RESPONSE_PATTERNS,
+    },
+)
 class DefinitionDetailDeleteView(generics.RetrieveDestroyAPIView[Definition]):
     """
     get: Retrieve the definition.
@@ -96,9 +103,19 @@ class DefinitionDetailDeleteView(generics.RetrieveDestroyAPIView[Definition]):
     There can't exist a pool associated with this definition or delete fails.
     """
 
-    queryset = Definition.objects.all()
+    queryset = Definition.objects.annotate(pool_count=Count('pool'))
     serializer_class = serializers.DefinitionSerializer
     lookup_url_kwarg = 'definition_id'
+
+    @override
+    def perform_destroy(self, instance: Definition) -> None:
+        try:
+            instance.delete()
+        except ProtectedError as exc:
+            raise exceptions.ConflictError(
+                f'Cannot delete definition (ID="{instance.id}"): '
+                f'{instance.pool_set.count()} pool(s) still use it. Delete those pools first.'
+            ) from exc
 
 
 @extend_schema(

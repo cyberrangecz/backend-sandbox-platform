@@ -148,3 +148,11 @@ def test_no_repair_or_maintenance_endpoint_is_documented(document):
     removed = ('/repair', '/reconcile', '/maintenance-runs')
 
     assert [path for path in document['paths'] if any(part in path for part in removed)] == []
+
+
+def test_definition_exposes_pool_count_and_delete_answers_conflict(document, components):
+    operations = document['paths'][f'{API_PREFIX}/definitions/{{definition_id}}']
+
+    assert components['SandboxDefinition']['properties']['pool_count']['type'] == 'integer'
+    assert 'pool_count' in components['SandboxDefinition']['required']
+    assert '409' in operations['delete']['responses']
