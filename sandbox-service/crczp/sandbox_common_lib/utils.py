@@ -178,6 +178,9 @@ ERROR_RESPONSES = {
     status.HTTP_404_NOT_FOUND: OpenApiResponse(
         ErrorSerializer(), description='Resource not found.'
     ),
+    status.HTTP_409_CONFLICT: OpenApiResponse(
+        ErrorSerializer(), description='The request conflicts with the current state.'
+    ),
     status.HTTP_422_UNPROCESSABLE_ENTITY: OpenApiResponse(
         ErrorSerializer(), description='The sandbox definition Git repository cannot be read.'
     ),
