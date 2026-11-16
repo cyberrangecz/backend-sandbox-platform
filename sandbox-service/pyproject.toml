@@ -1,6 +1,6 @@
 [project]
 name = "crczp-sandbox-service"
-version = "4.3.2"
+version = "4.3.3"
 description = "simplifies manipulation of OpenStack cloud platform for CyberRangeCZ Platform purposes"
 readme = "README.md"
 license = "MIT"
@@ -38,7 +38,7 @@ dependencies = [
     "kubernetes>=36.0.3,<37",
     "paramiko>=5.0.0",
     "pygithub>=2.10.0",
-    "gunicorn>=26.2.0"
+    "gunicorn>=27.0.0"
 ]
 
 [project.urls]
