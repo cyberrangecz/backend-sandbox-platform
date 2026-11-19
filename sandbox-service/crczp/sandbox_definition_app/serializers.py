@@ -22,13 +22,14 @@ class DefinitionSerializer(serializers.ModelSerializer['models.Definition']):
     """Serializer for the Definition model."""
 
     created_by = serializers.SerializerMethodField()
+    pool_count = serializers.SerializerMethodField()
 
     class Meta:  # pylint: disable=too-few-public-methods
         """Meta options for DefinitionSerializer."""
 
         model = models.Definition
-        fields = ('id', 'name', 'url', 'rev', 'created_by')
-        read_only_fields: tuple[str, ...] = ('id', 'name', 'created_by')
+        fields = ('id', 'name', 'url', 'rev', 'created_by', 'pool_count')
+        read_only_fields: tuple[str, ...] = ('id', 'name', 'created_by', 'pool_count')
         validators = [
             UniqueTogetherValidator(queryset=models.Definition.objects.all(), fields=['url', 'rev'])
         ]
@@ -38,6 +39,16 @@ class DefinitionSerializer(serializers.ModelSerializer['models.Definition']):
     def get_created_by(obj: models.Definition) -> Any:
         """Return the serialized user who created this definition."""
         return UserSerializer(obj.created_by).data
+
+    @extend_schema_field(field=serializers.IntegerField())
+    @staticmethod
+    def get_pool_count(obj: models.Definition) -> int:
+        """Return the number of pools using the definition.
+
+        Reads the `pool_count` queryset annotation when present, else counts the pools.
+        """
+        annotated: int | None = getattr(obj, 'pool_count', None)
+        return obj.pool_set.count() if annotated is None else annotated
 
 
 class DefinitionSerializerCreate(DefinitionSerializer):
