@@ -806,11 +806,14 @@ class AllocationAnsibleStageHandler(AnsibleStageHandler):
         The container is recorded under its generated name before it starts, so that
           cancellation finds it whenever it runs; the record is dropped once the container is
           gone.
+
+        :raise NetworkError: The networking stage found part of the sandbox's VPN missing.
         """
         if self.sandbox is None:
             raise exceptions.AnsibleError('Sandbox was not provided')
 
         if isinstance(self.stage, NetworkingAnsibleAllocationStage):
+            self._ensure_vpn_complete(self.sandbox)
             # Runs before the inventory/SSH dir below read sandbox.role_keypairs,
             # so every row they need already exists; a failure here fails this
             # stage, tracked and reported like any other stage failure.
@@ -837,6 +840,27 @@ class AllocationAnsibleStageHandler(AnsibleStageHandler):
                 container.delete()
         finally:
             container_record.delete()
+
+    def _ensure_vpn_complete(self, sandbox: Sandbox) -> None:
+        """
+        Fail the stage when NetBird provisioning left part of the sandbox's VPN out, quoting
+        why its NetBird job failed. A restart provisions what is missing.
+
+        :raise NetworkError: A part of the VPN is missing.
+        """
+        missing = netbird.missing_vpn_parts(sandbox)
+        if not missing:
+            return
+        cause = (
+            AllocationRequest.objects
+            .filter(allocation_unit=self.allocation_unit)
+            .values_list('netbird_error', flat=True)
+            .first()
+        )
+        raise exceptions.NetworkError(
+            f'NetBird VPN is incomplete: {"; ".join(missing)}. '
+            f'Cause: {cause or "unknown, see the sandbox-service worker log"}.'
+        )
 
     @override
     def _finalize(self) -> None:

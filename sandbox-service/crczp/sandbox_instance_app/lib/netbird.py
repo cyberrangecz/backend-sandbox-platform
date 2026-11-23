@@ -54,6 +54,9 @@ _PENDING_JOB_STATUSES = frozenset({
 NETBIRD_JOB_KEY = 'netbird-job:{}'
 NETBIRD_JOB_KEY_TTL_SECONDS = 7 * 24 * 3600
 
+# How many of a NetBird job's failures its allocation request keeps; the rest are counted.
+_MAX_RECORDED_FAILURES = 5
+
 # Netbird's route `network_id` accepts at most 40 characters.
 _NETBIRD_NETWORK_ID_MAX_LEN = 40
 # Number of leading characters of the entrypoint host name kept in a network id.
@@ -156,11 +159,19 @@ def _host_key_name(stack_name: str, host_name: str) -> str:
     return f'{stack_name}-{host_name}-host'
 
 
+def _role_text(role: str) -> str:
+    """How a failure or a missing part names a role's (or the flat) VPN access."""
+    return 'every player' if role == FLAT_ROLE else f"role '{role}'"
+
+
+def _describe(exc: Exception) -> str:
+    return str(exc).strip() or type(exc).__name__
+
+
 def _provision_access(
     client: NetbirdClient,
     access: SandboxNetbirdAccess,
     access_name: str,
-    key_expiry_seconds: int,
     flat_group_id: str | None = None,
 ) -> None:
     """Populate one role's (or the sandbox's flat) access group and setup key onto ``access``.
@@ -171,19 +182,22 @@ def _provision_access(
     when given, is also named on the key so its holder stays able to reach
     entrypoints sourced from the flat role alone, homologous to a Network's
     accessible_by_user: True fallback.
-    """
-    access_group_id = client.create_group(access_name)
-    access.access_group_id = access_group_id
-    access.save()
 
-    access_key_id, access_key_value = client.create_setup_key(
-        name=access_name,
-        auto_group_ids=_access_key_group_ids(access_group_id, flat_group_id),
-        expires_in_seconds=key_expiry_seconds,
-    )
-    access.access_setup_key_id = access_key_id
-    access.access_setup_key_value = access_key_value
-    access.save()
+    A group an earlier attempt created is kept, and a key it created is replaced,
+    so the key names the flat group even when that group is new.
+    """
+    if not access.access_group_id:
+        access.access_group_id = client.create_group(access_name)
+        access.save()
+
+    if not _replace_setup_key(
+        client,
+        access,
+        'access',
+        access_name,
+        _access_key_group_ids(access.access_group_id, flat_group_id),
+    ):
+        raise RuntimeError('its access row changed while its setup key was created')
 
 
 def _provision_dns(
@@ -321,29 +335,39 @@ def _provision_role_access(
     sandbox: Sandbox,
     stack_name: str,
     declared_roles: set[str],
-    key_expiry_seconds: int,
+    failures: list[str],
 ) -> dict[str, SandboxNetbirdAccess]:
     """Provision the sandbox's flat access group/key (role='') and one per declared role.
 
-    A failure on one role is caught and logged: the row is kept in the returned
-    mapping (for the end guard or a later teardown to find) even without a Netbird
-    group, and that role is simply absent from what an entrypoint can source from.
+    A failure on one role is caught, logged and appended to ``failures``: the row is
+    kept in the returned mapping (for the end guard or a later teardown to find) even
+    without a Netbird group, and that role is simply absent from what an entrypoint
+    can source from.
 
     Every role's key also names the flat access group (provisioned first, role=''),
     so a role holder stays able to reach entrypoints sourced from the flat role alone.
+    A role key that predates the flat group cannot name it, so when its replacement
+    fails, its value is dropped and the role stays incomplete until one succeeds.
     """
+    # Read before any cloud call: once the sandbox is deleted, its rows no longer name it.
+    existing = {
+        access.role: access for access in SandboxNetbirdAccess.objects.filter(sandbox=sandbox)
+    }
+    flat_group_existed = bool(existing.get(FLAT_ROLE) and existing[FLAT_ROLE].access_group_id)
     access_rows: dict[str, SandboxNetbirdAccess] = {}
     flat_group_id: str | None = None
     for role in [FLAT_ROLE, *sorted(declared_roles)]:
         access_name = _access_name(stack_name, role)
         try:
-            access, _ = SandboxNetbirdAccess.objects.get_or_create(
-                sandbox=sandbox,
-                role=role,
-                defaults={'allocation_unit_id': sandbox.allocation_unit_id},
-            )
+            access = existing.get(role)
+            if access is None:
+                access, _ = SandboxNetbirdAccess.objects.get_or_create(
+                    sandbox=sandbox,
+                    role=role,
+                    defaults={'allocation_unit_id': sandbox.allocation_unit_id},
+                )
             access_rows[role] = access
-            _provision_access(client, access, access_name, key_expiry_seconds, flat_group_id)
+            _provision_access(client, access, access_name, flat_group_id)
             LOG.info(
                 'netbird_access_provisioned',
                 sandbox_id=sandbox.id,
@@ -357,11 +381,30 @@ def _provision_role_access(
                 else 'netbird_provision_access_error'
             )
             LOG.warning(event, sandbox_id=sandbox.id, role=role, error=str(exc))
+            failures.append(f'VPN access for {_role_text(role)}: {_describe(exc)}')
+            if flat_group_id and not flat_group_existed and role in access_rows:
+                _drop_stale_access_key(access_rows[role])
         # Outside the try: unscoped entrypoints source from the flat group whenever
         # it exists, so role keys must name it even if the flat key itself failed.
         if role == FLAT_ROLE and role in access_rows:
             flat_group_id = access_rows[role].access_group_id
     return access_rows
+
+
+def _drop_stale_access_key(access: SandboxNetbirdAccess) -> None:
+    """Drop the value of a role key that lacks the flat group, keeping its id for the teardown."""
+    if not access.access_setup_key_value:
+        return
+    SandboxNetbirdAccess.objects.filter(
+        pk=access.pk, access_setup_key_id=access.access_setup_key_id
+    ).update(access_setup_key_value=None)
+    access.access_setup_key_value = None
+    LOG.warning(
+        'netbird_access_key_stale',
+        sandbox_id=access.sandbox_id,
+        role=access.role,
+        key_id=access.access_setup_key_id,
+    )
 
 
 def _provision_role_dns(
@@ -370,14 +413,15 @@ def _provision_role_dns(
     stack_name: str,
     access_rows: dict[str, SandboxNetbirdAccess],
     dns: Any,
+    failures: list[str],
 ) -> None:
-    """Provision a DNS nameserver group for every role with a provisioned access group.
+    """Provision a DNS nameserver group for every role with an access group but none yet.
 
-    Best-effort per role: a failure is caught and logged so the remaining roles
-    still get DNS distributed.
+    Best-effort per role: a failure is caught, logged and appended to ``failures`` so
+    the remaining roles still get DNS distributed.
     """
     for role, access in access_rows.items():
-        if not access.access_group_id:
+        if not access.access_group_id or access.dns_nameserver_group_id:
             continue
         try:
             _provision_dns(client, sandbox, stack_name, access, dns)
@@ -394,6 +438,7 @@ def _provision_role_dns(
                 else 'netbird_provision_dns_error'
             )
             LOG.warning(event, sandbox_id=sandbox.id, role=role, error=str(exc))
+            failures.append(f'DNS for {_role_text(role)}: {_describe(exc)}')
 
 
 def _source_roles(
@@ -420,6 +465,78 @@ def _source_group_ids(
 ) -> list[str]:
     """Resolve the access group ids backing an already-resolved set of source roles."""
     return [access_rows[role].access_group_id for role in source_roles]
+
+
+def _intended_source_roles(ep: Any) -> list[str]:
+    """The declared roles an entrypoint is to be sourced from, sorted, as its row stores them.
+
+    The row leaves out the flat role, so an entrypoint that names no role intends none.
+    """
+    ep_roles = getattr(ep, 'accessible_by_roles', None)
+    return sorted(ep_roles) if ep_roles is not None else []
+
+
+def _entrypoint_complete(nbr: SandboxNetbirdResources, ep: Any) -> bool:
+    """Whether the row holds every object the entrypoint declares, sourced from all its roles.
+
+    An entrypoint is sourced from at least one role, the flat one when it names none, so a
+    complete one always has a policy. A row an attempt left without a policy, its roles'
+    groups missing, or with its key value dropped by a failed discard, is incomplete.
+    """
+    return (
+        bool(
+            nbr.host_group_id
+            and nbr.host_setup_key_id
+            and nbr.host_setup_key_value
+            and nbr.policy_id
+        )
+        and nbr.get_route_cidr_list() == list(ep.routes)
+        and sorted(nbr.get_source_role_list() or []) == _intended_source_roles(ep)
+    )
+
+
+def _access_complete(access: SandboxNetbirdAccess | None) -> bool:
+    """Whether the row holds its role's access group and a setup key into it."""
+    return access is not None and bool(
+        access.access_group_id and access.access_setup_key_id and access.access_setup_key_value
+    )
+
+
+def missing_vpn_parts(sandbox: Sandbox) -> list[str]:
+    """
+    List the parts of the sandbox's declared VPN that NetBird provisioning left out.
+
+    Every role's access, flat included, needs its group and setup key, and its DNS when the
+    topology declares DNS servers; every entrypoint needs its objects sourced from all its
+    roles. Nothing is missing when NetBird is not configured or the topology declares no VPN;
+    the configuration is checked before the definition is fetched.
+    """
+    if not is_netbird_configured():
+        return []
+    entrypoints = _get_vpn_entrypoints(sandbox)
+    dns = _get_vpn_dns(sandbox)
+    if not entrypoints and dns is None:
+        return []
+    needs_dns = dns is not None and bool(getattr(dns, 'servers', None))
+    accesses = {
+        access.role: access for access in SandboxNetbirdAccess.objects.filter(sandbox=sandbox)
+    }
+    missing: list[str] = []
+    for role in [FLAT_ROLE, *sorted(_get_declared_roles(sandbox))]:
+        access = accesses.get(role)
+        if not _access_complete(access):
+            missing.append(f'VPN access for {_role_text(role)}')
+        elif needs_dns and access is not None and not access.dns_nameserver_group_id:
+            missing.append(f'DNS for {_role_text(role)}')
+    nbrs = {
+        nbr.entrypoint_host_name: nbr
+        for nbr in SandboxNetbirdResources.objects.filter(sandbox=sandbox)
+    }
+    for ep in entrypoints:
+        nbr = nbrs.get(ep.name)
+        if nbr is None or not _entrypoint_complete(nbr, ep):
+            missing.append(f"entrypoint '{ep.name}'")
+    return missing
 
 
 def _teardown_provisioned_resources(
@@ -462,18 +579,21 @@ def provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
     This is the target of the provisioning RQ job that the networking stage
     depends on. If the job ended FAILED, RQ would defer the networking stage
     forever and wedge the allocation, so every escaping exception is caught here
-    and the job is allowed to finish (degraded). The realistic failure modes
-    (missing PAT, unreachable NetBird, definition-fetch error) are already
-    handled inside the implementation; this outer guard only backstops
-    unexpected errors (e.g. a transient DB error in a guard query).
+    and the job is allowed to finish. The realistic failure modes (missing PAT,
+    unreachable NetBird, definition-fetch error) are already handled inside the
+    implementation; this outer guard only backstops unexpected errors (e.g. a
+    transient DB error in a guard query). The networking stage instead fails when
+    the job left part of the VPN out, quoting why.
 
     Run as an RQ job, it does nothing once its allocation request no longer tracks the
-    job, and clears the tracked job id when it ends, whatever the outcome.
+    job, and when it ends, whatever the outcome, clears the tracked job id and records
+    why it left part of the VPN out.
     """
     job = get_current_job()
+    failures: list[str] = []
     try:
         if job is None or _is_tracked_by_allocation_request(sandbox, job.id):
-            _provision_netbird_for_sandbox(sandbox)
+            failures = _provision_netbird_for_sandbox(sandbox)
         else:
             LOG.info(
                 'netbird_provision_skipped', sandbox_id=sandbox.id, reason='job_no_longer_tracked'
@@ -484,8 +604,9 @@ def provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
             sandbox_id=getattr(sandbox, 'id', None),
             error=str(exc),
         )
+        failures.append(f'unexpected error: {_describe(exc)}')
     if job is not None:
-        _forget_job(sandbox, job.id)
+        _forget_job(sandbox, job.id, failures)
 
 
 def _is_tracked_by_allocation_request(sandbox: Sandbox, job_id: str) -> bool:
@@ -495,12 +616,22 @@ def _is_tracked_by_allocation_request(sandbox: Sandbox, job_id: str) -> bool:
     ).exists()
 
 
-def _forget_job(sandbox: Sandbox, job_id: str) -> None:
-    """Clear the NetBird job id of the sandbox's allocation request when it is the given job."""
+def _summarize_failures(failures: list[str]) -> str | None:
+    """Join the first failures for the allocation request to keep; None when there are none."""
+    if not failures:
+        return None
+    shown = '; '.join(failures[:_MAX_RECORDED_FAILURES])
+    hidden = len(failures) - _MAX_RECORDED_FAILURES
+    return f'{shown} (+{hidden} more)' if hidden > 0 else shown
+
+
+def _forget_job(sandbox: Sandbox, job_id: str, failures: list[str]) -> None:
+    """Clear the NetBird job id of the sandbox's allocation request when it is the given job,
+    recording the job's failures on it."""
     try:
         AllocationRequest.objects.filter(
             allocation_unit_id=sandbox.allocation_unit_id, netbird_job_id=job_id
-        ).update(netbird_job_id=None)
+        ).update(netbird_job_id=None, netbird_error=_summarize_failures(failures))
     except Exception as exc:  # pylint: disable=broad-exception-caught
         LOG.warning(
             'netbird_job_forget_failed',
@@ -524,13 +655,20 @@ def _start_guard_blocks(sandbox: Sandbox) -> bool:
     return True
 
 
-def _provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
-    """Provision the shared access resources and per-entrypoint NetBird objects.
+def _provision_netbird_for_sandbox(sandbox: Sandbox) -> list[str]:
+    """Bring the sandbox's NetBird objects to what its topology's VPN declares.
+
+    On a first run nothing exists and everything is created. A rerun, the restart of
+    an allocation whose networking re-runs, keeps every access group and complete
+    entrypoint, replaces their setup keys, and creates or rebuilds what an earlier
+    attempt left out.
 
     Provisioning is best-effort: a misconfigured PAT file or a transient
     definition-fetch error for one sandbox is caught and logged rather than
     propagated (it would otherwise fail the provisioning job and, via the
     networking-stage dependency, wedge the allocation).
+
+    :returns: Why each part of the VPN failed to be provisioned; empty once nothing failed.
     """
     try:
         client = get_netbird_client()
@@ -541,14 +679,18 @@ def _provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
             reason='config_error',
             error=str(exc),
         )
-        return
+        return [f'NetBird client unavailable: {_describe(exc)}']
     if client is None:
         LOG.debug('netbird_provision_skipped', sandbox_id=sandbox.id, reason='no_config')
-        return
+        return []
 
     try:
         entrypoints = _get_vpn_entrypoints(sandbox)
         dns = _get_vpn_dns(sandbox)
+        if not entrypoints and dns is None:
+            LOG.debug('netbird_provision_skipped', sandbox_id=sandbox.id, reason='no_vpn_settings')
+            return []
+        declared_roles = _get_declared_roles(sandbox)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         # The topology definition is fetched from git here; any failure must not
         # break allocation, so we skip provisioning rather than crash the worker.
@@ -558,28 +700,13 @@ def _provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
             reason='vpn_settings_lookup_failed',
             error=str(exc),
         )
-        return
-    if not entrypoints and dns is None:
-        LOG.debug('netbird_provision_skipped', sandbox_id=sandbox.id, reason='no_vpn_settings')
-        return
-
-    try:
-        declared_roles = _get_declared_roles(sandbox)
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        LOG.warning(
-            'netbird_provision_skipped',
-            sandbox_id=sandbox.id,
-            reason='vpn_settings_lookup_failed',
-            error=str(exc),
-        )
-        return
+        return [f'VPN settings lookup failed: {_describe(exc)}']
 
     # Start guard: bail out before making any cloud calls.
     if _start_guard_blocks(sandbox):
-        return
+        return []
 
     stack_name = _short_stack_name(sandbox.allocation_unit.get_stack_name())
-    key_expiry_seconds = settings.CRCZP_CONFIG.netbird.key_expiry_seconds
 
     LOG.info(
         'netbird_provision_start',
@@ -588,76 +715,130 @@ def _provision_netbird_for_sandbox(sandbox: Sandbox) -> None:
         entrypoint_count=len(entrypoints),
     )
 
-    created: list[SandboxNetbirdResources] = []
+    failures: list[str] = []
+    # Read before any cloud call: once the sandbox is deleted, its rows no longer
+    # name it, and the end guard must still find every one this run holds.
+    entrypoint_rows = {
+        nbr.entrypoint_host_name: nbr
+        for nbr in SandboxNetbirdResources.objects.filter(sandbox=sandbox)
+    }
 
     # Both the flat access group + key (role='') and one further group + key per
     # declared role must exist before the entrypoint loop, which sources each
     # entrypoint's policy from one or more of them and distributes its routes to them.
-    access_rows = _provision_role_access(
-        client, sandbox, stack_name, declared_roles, key_expiry_seconds
-    )
+    access_rows = _provision_role_access(client, sandbox, stack_name, declared_roles, failures)
 
     if any(access.access_group_id for access in access_rows.values()):
         # DNS rides on each access group like the policies/routes, so it is
         # torn down by _destroy_access via the persisted group ID.
         if dns is not None:
-            _provision_role_dns(client, sandbox, stack_name, access_rows, dns)
+            _provision_role_dns(client, sandbox, stack_name, access_rows, dns, failures)
 
         for ep in entrypoints:
-            host_name = ep.name
-            routes = list(ep.routes)
-            log = LOG.bind(sandbox_id=sandbox.id, stack_name=stack_name, host=host_name)
-
-            ep_roles = getattr(ep, 'accessible_by_roles', None)
-            source_roles = _source_roles(ep_roles, access_rows)
-            access_group_ids = _source_group_ids(source_roles, access_rows)
-
-            nbr: SandboxNetbirdResources | None = None
-            try:
-                nbr, _ = SandboxNetbirdResources.objects.get_or_create(
-                    sandbox=sandbox,
-                    entrypoint_host_name=host_name,
-                    defaults={'allocation_unit_id': sandbox.allocation_unit_id},
-                )
-                _provision_single_entrypoint(
-                    client,
-                    nbr,
-                    stack_name,
-                    routes,
-                    key_expiry_seconds,
-                    access_group_ids,
-                    source_roles,
-                )
-                created.append(nbr)
-                log.info('netbird_provisioned', policy_id=nbr.policy_id)
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                # NetbirdApiError is the expected failure; any other exception
-                # (e.g. an IntegrityError from a concurrent sandbox.delete() cascade)
-                # is also caught so the loop continues to the end guard instead of
-                # crashing the worker.
-                event = (
-                    'netbird_provision_failed'
-                    if isinstance(exc, NetbirdApiError)
-                    else 'netbird_provision_entrypoint_error'
-                )
-                log.warning(event, error=str(exc))
-                # The in-memory handle still holds every ID created so far, even
-                # if a cascade has already deleted the row.
-                if nbr is not None and _discard_failed_entrypoint(client, nbr, log):
-                    created.append(nbr)
+            nbr = _provision_entrypoint(
+                client, sandbox, stack_name, ep, access_rows, entrypoint_rows.get(ep.name), failures
+            )
+            if nbr is None:
+                entrypoint_rows.pop(ep.name, None)
+            else:
+                entrypoint_rows[ep.name] = nbr
 
     # End guard: if the sandbox was deleted while we were provisioning, tear down
     # every cloud object we already created so we don't leave orphans behind.
     # The teardown issues slow HTTP calls, so it deliberately runs outside any DB
     # transaction — holding one open across network I/O would pin a connection.
     if Sandbox.objects.filter(pk=sandbox.pk).exists():
-        return
+        return failures
     # Same order as destroy_netbird_for_unit: role keys name the flat group,
     # so the flat row ('', sorting last) goes after every role row.
     _teardown_provisioned_resources(
-        client, sandbox, created, sorted(access_rows.values(), key=lambda a: a.role, reverse=True)
+        client,
+        sandbox,
+        list(entrypoint_rows.values()),
+        sorted(access_rows.values(), key=lambda a: a.role, reverse=True),
     )
     LOG.warning('netbird_provision_aborted_sandbox_deleted', sandbox_id=sandbox.id)
+    return failures
+
+
+def _provision_entrypoint(
+    client: NetbirdClient,
+    sandbox: Sandbox,
+    stack_name: str,
+    ep: Any,
+    access_rows: dict[str, SandboxNetbirdAccess],
+    nbr: SandboxNetbirdResources | None,
+    failures: list[str],
+) -> SandboxNetbirdResources | None:
+    """Bring one entrypoint to what it declares; return the row that holds its objects, if any.
+
+    ``nbr`` is the entrypoint's row an earlier attempt left. A complete one keeps its
+    objects and gets a new host setup key; an incomplete one is torn down, peers
+    included, and provisioned afresh, as is an entrypoint with no row. A failure is
+    logged and appended to ``failures``.
+    """
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
+    label = f"entrypoint '{ep.name}'"
+    log = LOG.bind(sandbox_id=sandbox.id, stack_name=stack_name, host=ep.name)
+    if nbr is not None:
+        if _entrypoint_complete(nbr, ep):
+            try:
+                _replace_setup_key(
+                    client,
+                    nbr,
+                    'host',
+                    _host_key_name(stack_name, ep.name),
+                    [nbr.host_group_id],
+                )
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                log.warning('netbird_setup_key_renewal_failed', error=str(exc))
+                failures.append(f'{label}: {_describe(exc)}')
+            return nbr
+        try:
+            leftovers = _destroy_single_entrypoint(client, nbr)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            leftovers = [_describe(exc)]
+        if leftovers:
+            log.warning('netbird_rebuild_teardown_failed', error='; '.join(leftovers))
+            failures.append(f'{label}: {"; ".join(leftovers)}')
+            return nbr
+
+    source_roles = _source_roles(getattr(ep, 'accessible_by_roles', None), access_rows)
+    nbr = None
+    try:
+        nbr, _ = SandboxNetbirdResources.objects.get_or_create(
+            sandbox=sandbox,
+            entrypoint_host_name=ep.name,
+            defaults={'allocation_unit_id': sandbox.allocation_unit_id},
+        )
+        _provision_single_entrypoint(
+            client,
+            nbr,
+            stack_name,
+            list(ep.routes),
+            settings.CRCZP_CONFIG.netbird.key_expiry_seconds,
+            _source_group_ids(source_roles, access_rows),
+            source_roles,
+        )
+        log.info('netbird_provisioned', policy_id=nbr.policy_id)
+        return nbr
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        # NetbirdApiError is the expected failure; any other exception
+        # (e.g. an IntegrityError from a concurrent sandbox.delete() cascade)
+        # is also caught so the loop continues to the end guard instead of
+        # crashing the worker.
+        event = (
+            'netbird_provision_failed'
+            if isinstance(exc, NetbirdApiError)
+            else 'netbird_provision_entrypoint_error'
+        )
+        log.warning(event, error=str(exc))
+        failures.append(f'{label}: {_describe(exc)}')
+        # The in-memory handle still holds every ID created so far, even
+        # if a cascade has already deleted the row.
+        if nbr is not None and _discard_failed_entrypoint(client, nbr, log):
+            return nbr
+        return None
 
 
 def restart_netbird_for_sandbox(
@@ -674,9 +855,11 @@ def restart_netbird_for_sandbox(
     NetBird job takes over from this one.
 
     Run as an RQ job, it does nothing once its allocation request no longer tracks the
-    job, and clears the tracked job id when it ends, whatever the outcome.
+    job, and when it ends, whatever the outcome, clears the tracked job id and records
+    why it left part of the VPN out.
     """
     job = get_current_job()
+    failures: list[str] = []
     previous_job_running = False
     if previous_job_id is not None:
         try:
@@ -697,15 +880,16 @@ def restart_netbird_for_sandbox(
         elif _superseded(sandbox):
             LOG.info('netbird_restart_skipped', sandbox_id=sandbox.id, reason='superseded')
         else:
-            _restart_netbird_for_sandbox(sandbox, rerun_networking, previous_job_running)
+            failures = _restart_netbird_for_sandbox(sandbox, rerun_networking, previous_job_running)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         LOG.warning(
             'netbird_restart_unexpected_error',
             sandbox_id=getattr(sandbox, 'id', None),
             error=str(exc),
         )
+        failures.append(f'unexpected error: {_describe(exc)}')
     if job is not None:
-        _forget_job(sandbox, job.id)
+        _forget_job(sandbox, job.id, failures)
 
 
 def _wait_for_netbird_job(job_id: str) -> bool:
@@ -778,30 +962,31 @@ def _has_netbird_objects(sandbox: Sandbox) -> bool:
 
 def _restart_netbird_for_sandbox(
     sandbox: Sandbox, rerun_networking: bool, previous_job_running: bool = False
-) -> None:
+) -> list[str]:
     """Bring the sandbox's NetBird resources up to date for the re-run stages.
 
-    A sandbox whose first provisioning created nothing is provisioned afresh,
-    but only when networking re-runs: no other stage joins the entrypoints.
-    Otherwise its groups, policies, routes and peers are kept and its setup keys
-    are replaced, because they may have expired since the first attempt and
-    NetBird cannot extend a key's lifetime: every access key, created where the
-    first attempt failed to, and, when networking re-runs, the host keys it
-    joins with. A restartable sandbox was never ready, so none of the keys was
-    handed out, and a peer that already joined logs in by its WireGuard key,
-    not by the setup key. The keys are kept while the previous NetBird job still
-    runs: it made them within its own timeout, or is making them, and its saves
-    would undo the renewal.
+    When networking re-runs, the sandbox is provisioned again: what the first attempt
+    made is kept and its setup keys are replaced, and what it left out is created or
+    rebuilt, since the networking stage fails on a VPN with parts missing. Otherwise
+    networking found the VPN complete, so only the access keys are replaced. Keys are
+    replaced because they may have expired since the first attempt and NetBird cannot
+    extend a key's lifetime. A restartable sandbox was never ready, so none of the keys
+    was handed out, and a peer that already joined logs in by its WireGuard key, not by
+    the setup key. Everything is kept while the previous NetBird job still runs: it made
+    the objects within its own timeout, or is making them, and its saves would undo the
+    renewal; a sandbox it recorded nothing for yet is still provisioned.
+
+    :returns: Why each part of the VPN failed to be provisioned or renewed.
     """
-    if not _has_netbird_objects(sandbox):
-        if rerun_networking:
-            _provision_netbird_for_sandbox(sandbox)
-        else:
-            LOG.info('netbird_restart_skipped', sandbox_id=sandbox.id, reason='not_provisioned')
-        return
-    if previous_job_running:
+    has_objects = _has_netbird_objects(sandbox)
+    if has_objects and previous_job_running:
         LOG.warning('netbird_restart_skipped', sandbox_id=sandbox.id, reason='previous_job_running')
-        return
+        return ['the previous NetBird job of the sandbox was still running']
+    if rerun_networking:
+        return _provision_netbird_for_sandbox(sandbox)
+    if not has_objects:
+        LOG.info('netbird_restart_skipped', sandbox_id=sandbox.id, reason='not_provisioned')
+        return []
 
     try:
         client = get_netbird_client()
@@ -809,48 +994,37 @@ def _restart_netbird_for_sandbox(
         LOG.warning(
             'netbird_restart_skipped', sandbox_id=sandbox.id, reason='config_error', error=str(exc)
         )
-        return
+        return [f'NetBird client unavailable: {_describe(exc)}']
     if client is None:
         LOG.debug('netbird_restart_skipped', sandbox_id=sandbox.id, reason='no_config')
-        return
-    _renew_setup_keys(client, sandbox, rerun_networking)
+        return []
+    return _renew_access_keys(client, sandbox)
 
 
-def _renew_setup_keys(client: NetbirdClient, sandbox: Sandbox, rerun_networking: bool) -> None:
-    """Replace the sandbox's access keys and, when networking re-runs, its host keys."""
+def _renew_access_keys(client: NetbirdClient, sandbox: Sandbox) -> list[str]:
+    """Replace the sandbox's access keys, creating those the first attempt failed to.
+
+    :returns: Why each renewal failed.
+    """
     stack_name = _short_stack_name(sandbox.allocation_unit.get_stack_name())
-    nbr_rows = (
-        list(
-            SandboxNetbirdResources.objects.filter(
-                sandbox=sandbox, host_setup_key_value__isnull=False
-            )
-        )
-        if rerun_networking
-        else []
-    )
     # Descending by role, the order the end guard's teardown needs.
     access_rows = list(SandboxNetbirdAccess.objects.filter(sandbox=sandbox).order_by('-role'))
     flat_access = _flat_access_row(sandbox)
     flat_group_id = flat_access.access_group_id if flat_access else None
 
-    renewals: list[tuple[SandboxNetbirdResources | SandboxNetbirdAccess, str, str, list[str]]] = [
-        (nbr, 'host', _host_key_name(stack_name, nbr.entrypoint_host_name), [nbr.host_group_id])
-        for nbr in nbr_rows
-        if nbr.host_group_id
-    ]
-    renewals.extend(
-        (
-            access,
-            'access',
-            _access_name(stack_name, access.role),
-            _access_key_group_ids(access.access_group_id, flat_group_id),
-        )
-        for access in access_rows
-        if access.access_group_id
-    )
-    for row, prefix, name, auto_group_ids in renewals:
+    failures: list[str] = []
+    for access in access_rows:
+        if not access.access_group_id:
+            continue
+        name = _access_name(stack_name, access.role)
         try:
-            if _replace_setup_key(client, row, prefix, name, auto_group_ids):
+            if _replace_setup_key(
+                client,
+                access,
+                'access',
+                name,
+                _access_key_group_ids(access.access_group_id, flat_group_id),
+            ):
                 LOG.info('netbird_setup_key_renewed', sandbox_id=sandbox.id, key_name=name)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             event = (
@@ -859,13 +1033,15 @@ def _renew_setup_keys(client: NetbirdClient, sandbox: Sandbox, rerun_networking:
                 else 'netbird_setup_key_renewal_error'
             )
             LOG.warning(event, sandbox_id=sandbox.id, key_name=name, error=str(exc))
+            failures.append(f'VPN access for {_role_text(access.role)}: {_describe(exc)}')
 
     # End guard, as in provisioning: a forced cleanup that ran meanwhile could not
     # delete the groups a renewed key names, so tear down what the rows now hold.
     if Sandbox.objects.filter(pk=sandbox.pk).exists():
-        return
-    _teardown_provisioned_resources(client, sandbox, nbr_rows, access_rows)
+        return failures
+    _teardown_provisioned_resources(client, sandbox, [], access_rows)
     LOG.warning('netbird_restart_aborted_sandbox_deleted', sandbox_id=sandbox.id)
+    return failures
 
 
 def _replace_setup_key(

@@ -511,6 +511,50 @@ class TestAllocationAnsibleStageHandler:
 
         self.generate_role_keypairs.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ('recorded', 'cause'),
+        [
+            ("entrypoint 'gw': down", "entrypoint 'gw': down"),
+            (None, 'unknown, see the sandbox-service worker log'),
+        ],
+    )
+    def test_the_networking_stage_fails_on_an_incomplete_vpn(
+        self, mocker, allocation_stage_networking, sandbox, recorded, cause
+    ):
+        """It fails before Ansible runs, quoting what is missing and why; a restart repairs it."""
+        missing = mocker.patch(
+            'crczp.sandbox_instance_app.lib.stage_handlers.netbird.missing_vpn_parts',
+            return_value=["VPN access for role 'red'", "entrypoint 'gw'"],
+        )
+        AllocationRequest.objects.filter(
+            pk=allocation_stage_networking.allocation_request_fk_many.pk
+        ).update(netbird_error=recorded)
+        handler = stage_handlers.AllocationAnsibleStageHandler(allocation_stage_networking, sandbox)
+
+        with pytest.raises(api_exceptions.NetworkError):
+            handler.execute()
+
+        missing.assert_called_once_with(sandbox)
+        allocation_stage_networking.refresh_from_db()
+        assert allocation_stage_networking.failed
+        assert allocation_stage_networking.error_message == (
+            "NetBird VPN is incomplete: VPN access for role 'red'; entrypoint 'gw'. "
+            f'Cause: {cause}.'
+        )
+        self.runner.run_ansible_playbook.assert_not_called()
+
+    def test_the_user_stage_does_not_check_the_vpn(self, mocker, allocation_stage_user, sandbox):
+        """Networking found the VPN complete before the user stage could run."""
+        missing = mocker.patch(
+            'crczp.sandbox_instance_app.lib.stage_handlers.netbird.missing_vpn_parts',
+            return_value=["entrypoint 'gw'"],
+        )
+        handler = stage_handlers.AllocationAnsibleStageHandler(allocation_stage_user, sandbox)
+
+        handler.execute()
+
+        missing.assert_not_called()
+
     def test_the_user_stage_marks_the_sandbox_ready_once_it_succeeded(
         self, allocation_stage_user, sandbox
     ):

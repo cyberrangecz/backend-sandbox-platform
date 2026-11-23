@@ -370,6 +370,12 @@ class AllocationRequest(SandboxRequest):
         blank=True,
         help_text='The RQ job that provisions NetBird for the sandbox; null once it is settled.',
     )
+    netbird_error = models.TextField(
+        null=True,
+        blank=True,
+        help_text='Why the latest NetBird job left the VPN incomplete; null when it '
+        'completed or none ran.',
+    )
     request_group = models.ForeignKey(
         'SandboxRequestGroup',
         null=True,

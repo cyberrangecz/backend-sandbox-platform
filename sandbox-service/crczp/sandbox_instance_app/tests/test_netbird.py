@@ -345,12 +345,118 @@ class TestProvision:  # pylint: disable=too-many-public-methods
         mocker.patch(
             f'{NETBIRD_MODULE}.get_current_job', return_value=SimpleNamespace(id='netbird')
         )
-        mocker.patch(f'{NETBIRD_MODULE}._provision_netbird_for_sandbox', side_effect=failure)
+        mocker.patch(
+            f'{NETBIRD_MODULE}._provision_netbird_for_sandbox', side_effect=failure, return_value=[]
+        )
 
         netbird.provision_netbird_for_sandbox(sandbox)
 
         tracked_request.refresh_from_db()
         assert tracked_request.netbird_job_id is None
+
+    @pytest.mark.parametrize(
+        ('outcome', 'recorded'),
+        [
+            ([], None),
+            (["entrypoint 'gw': down"], "entrypoint 'gw': down"),
+        ],
+    )
+    def test_the_job_records_why_it_left_part_of_the_vpn_out(
+        self, mocker, sandbox, tracked_request, outcome, recorded
+    ):
+        """The networking stage quotes what the job recorded; one that failed nothing clears it."""
+        tracked_request.netbird_error = 'from an earlier job'
+        tracked_request.save()
+        mocker.patch(
+            f'{NETBIRD_MODULE}.get_current_job', return_value=SimpleNamespace(id='netbird')
+        )
+        mocker.patch(f'{NETBIRD_MODULE}._provision_netbird_for_sandbox', return_value=outcome)
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        tracked_request.refresh_from_db()
+        assert tracked_request.netbird_error == recorded
+
+    def test_the_job_records_an_unexpected_error(self, mocker, sandbox, tracked_request):
+        mocker.patch(
+            f'{NETBIRD_MODULE}.get_current_job', return_value=SimpleNamespace(id='netbird')
+        )
+        mocker.patch(
+            f'{NETBIRD_MODULE}._provision_netbird_for_sandbox',
+            side_effect=RuntimeError('unexpected db error'),
+        )
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        tracked_request.refresh_from_db()
+        assert tracked_request.netbird_error == 'unexpected error: unexpected db error'
+
+    def test_a_job_no_longer_tracked_records_nothing(self, mocker, sandbox, tracked_request):
+        """A later job owns the request's record, which an earlier one must not overwrite."""
+        mocker.patch(f'{NETBIRD_MODULE}.get_current_job', return_value=SimpleNamespace(id='old'))
+        mocker.patch(f'{NETBIRD_MODULE}._provision_netbird_for_sandbox', return_value=['failure'])
+
+        netbird.provision_netbird_for_sandbox(sandbox)
+
+        tracked_request.refresh_from_db()
+        assert tracked_request.netbird_error is None
+
+    @pytest.mark.parametrize(
+        ('failures', 'summary'),
+        [
+            ([], None),
+            (['a', 'b'], 'a; b'),
+            ([f'f{n}' for n in range(7)], 'f0; f1; f2; f3; f4 (+2 more)'),
+        ],
+    )
+    def test_keeps_the_first_failures(self, failures, summary):
+        assert netbird._summarize_failures(failures) == summary
+
+    def test_reports_a_config_error(self, mocker, sandbox):
+        mocker.patch(
+            f'{NETBIRD_MODULE}.get_netbird_client',
+            side_effect=NetbirdConfigError('missing pat file'),
+        )
+
+        assert netbird._provision_netbird_for_sandbox(sandbox) == [
+            'NetBird client unavailable: missing pat file'
+        ]
+
+    def test_reports_a_failed_settings_lookup(self, mocker, sandbox):
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=MagicMock())
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_vpn_entrypoints', side_effect=RuntimeError('git fetch failed')
+        )
+
+        assert netbird._provision_netbird_for_sandbox(sandbox) == [
+            'VPN settings lookup failed: git fetch failed'
+        ]
+
+    def test_reports_each_failed_part(self, mocker, sandbox, netbird_cfg):
+        """A role's access and an entrypoint fail apart; each failure is reported."""
+        mocker.patch(f'{NETBIRD_MODULE}._get_declared_roles', return_value={'red'})
+        client = MagicMock()
+        client.create_group.side_effect = [
+            'flat-grp',
+            NetbirdApiError('POST', 'groups', 500, 'down\n'),
+            'host-grp',
+        ]
+        client.create_setup_key.side_effect = [
+            ('flat-key-id', 'flat-key'),
+            ('host-key-id', 'host-key'),
+        ]
+        client.create_policy.side_effect = NetbirdApiError('POST', 'policies', 502, 'bad gateway')
+        client.list_group_peer_ids.return_value = []
+        mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_vpn_entrypoints',
+            return_value=[FakeEntrypoint('server', ['10.0.0.0/24'])],
+        )
+
+        assert netbird._provision_netbird_for_sandbox(sandbox) == [
+            "VPN access for role 'red': Netbird API POST groups returned 500: down",
+            "entrypoint 'server': Netbird API POST policies returned 502: bad gateway",
+        ]
 
     def test_the_job_does_nothing_once_its_request_no_longer_tracks_it(
         self, mocker, sandbox, tracked_request
@@ -366,7 +472,7 @@ class TestProvision:  # pylint: disable=too-many-public-methods
         assert tracked_request.netbird_job_id == 'netbird'
 
     def test_outside_a_job_the_tracked_id_is_left_alone(self, mocker, sandbox, tracked_request):
-        mocker.patch(f'{NETBIRD_MODULE}._provision_netbird_for_sandbox')
+        mocker.patch(f'{NETBIRD_MODULE}._provision_netbird_for_sandbox', return_value=[])
 
         netbird.provision_netbird_for_sandbox(sandbox)
 
@@ -1092,6 +1198,16 @@ class TestRestart:  # pylint: disable=too-many-public-methods
         mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=client)
         return client
 
+    @pytest.fixture(autouse=True)
+    def _topology(self, mocker, netbird_cfg):
+        """The VPN that _provisioned records in full: the 'router' entrypoint and a 'red' role."""
+        mocker.patch(
+            f'{NETBIRD_MODULE}._get_vpn_entrypoints',
+            return_value=[FakeEntrypoint('router', ['10.0.0.0/24'])],
+        )
+        mocker.patch(f'{NETBIRD_MODULE}._get_vpn_dns', return_value=None)
+        mocker.patch(f'{NETBIRD_MODULE}._get_declared_roles', return_value={'red'})
+
     @staticmethod
     def _provisioned(
         sandbox: Sandbox,
@@ -1144,8 +1260,8 @@ class TestRestart:  # pylint: disable=too-many-public-methods
         stack_name = netbird._short_stack_name(sandbox.allocation_unit.get_stack_name())
         assert client.create_setup_key.call_args_list == [
             call(
-                name=f'{stack_name}-router-host',
-                auto_group_ids=['host-grp'],
+                name=f'{stack_name}-access',
+                auto_group_ids=['flat-grp'],
                 expires_in_seconds=1209600,
             ),
             call(
@@ -1154,19 +1270,19 @@ class TestRestart:  # pylint: disable=too-many-public-methods
                 expires_in_seconds=1209600,
             ),
             call(
-                name=f'{stack_name}-access',
-                auto_group_ids=['flat-grp'],
+                name=f'{stack_name}-router-host',
+                auto_group_ids=['host-grp'],
                 expires_in_seconds=1209600,
             ),
         ]
         assert client.delete_setup_key.call_args_list == [
-            call('host-key-id'),
-            call('red-key-id'),
             call('flat-key-id'),
+            call('red-key-id'),
+            call('host-key-id'),
         ]
-        assert self._key(nbr) == ('new-key-id-1', 'new-key-1')
+        assert self._key(flat) == ('new-key-id-1', 'new-key-1')
         assert self._key(red) == ('new-key-id-2', 'new-key-2')
-        assert self._key(flat) == ('new-key-id-3', 'new-key-3')
+        assert self._key(nbr) == ('new-key-id-3', 'new-key-3')
         assert (nbr.host_group_id, nbr.policy_id, nbr.get_route_id_list()) == (
             'host-grp',
             'pol-1',
@@ -1176,6 +1292,7 @@ class TestRestart:  # pylint: disable=too-many-public-methods
         for untouched in ('create_group', 'create_policy', 'create_route', 'delete_group'):
             getattr(client, untouched).assert_not_called()
         client.delete_peer.assert_not_called()
+        assert netbird.missing_vpn_parts(sandbox) == []
 
     def test_keeps_host_keys_when_networking_does_not_rerun(self, mocker, sandbox, netbird_cfg):
         """Only networking joins the entrypoints, so only the access keys are renewed."""
@@ -1189,32 +1306,175 @@ class TestRestart:  # pylint: disable=too-many-public-methods
         assert self._key(flat) == ('new-key-id-2', 'new-key-2')
         assert call('host-key-id') not in client.delete_setup_key.call_args_list
 
-    def test_skips_an_entrypoint_without_a_key(self, mocker, sandbox, netbird_cfg):
-        """A discarded entrypoint kept for its teardown stays out of networking."""
+    @pytest.mark.parametrize(
+        'left',
+        [
+            # A failed discard keeps the row for its teardown, its key value dropped.
+            {'host_setup_key_value': None},
+            # None of its roles' access groups existed, so it got no policy or route.
+            {'policy_id': None, 'route_ids': None, 'route_cidrs': None},
+            # The topology's routes are not all recorded.
+            {'route_cidrs': ''},
+        ],
+    )
+    def test_rebuilds_an_entrypoint_an_earlier_attempt_left_incomplete(
+        self, mocker, sandbox, netbird_cfg, left
+    ):
+        """Its objects are torn down, peers included, and it is provisioned afresh."""
         client = self._client(mocker)
-        provision = mocker.patch(f'{NETBIRD_MODULE}._provision_netbird_for_sandbox')
-        nbr = SandboxNetbirdResources.objects.create(
-            sandbox=sandbox,
-            entrypoint_host_name='router',
-            host_group_id='host-grp',
-            host_setup_key_id='host-key-id',
+        client.list_group_peer_ids.return_value = ['peer-1']
+        client.create_group.return_value = 'new-host-grp'
+        client.create_policy.return_value = 'new-pol'
+        client.create_route.return_value = 'new-route'
+        nbr, _, _ = self._provisioned(sandbox)
+        SandboxNetbirdResources.objects.filter(pk=nbr.pk).update(**left)
+
+        self._restart(sandbox)
+
+        assert not SandboxNetbirdResources.objects.filter(pk=nbr.pk).exists()
+        client.delete_peer.assert_called_once_with('peer-1')
+        client.delete_group.assert_called_once_with('host-grp')
+        rebuilt = SandboxNetbirdResources.objects.get(sandbox=sandbox)
+        assert (
+            rebuilt.host_group_id,
+            rebuilt.host_setup_key_id,
+            rebuilt.policy_id,
+            rebuilt.get_route_id_list(),
+            rebuilt.get_route_cidr_list(),
+        ) == ('new-host-grp', 'new-key-id-3', 'new-pol', ['new-route'], ['10.0.0.0/24'])
+        client.create_policy.assert_called_once_with(
+            name=mocker.ANY, source_group_ids=['flat-grp'], destination_group_ids=['new-host-grp']
+        )
+        assert netbird.missing_vpn_parts(sandbox) == []
+
+    def test_provisions_what_the_first_attempt_left_out(self, mocker, sandbox, netbird_cfg):
+        """A role whose group failed and a discarded entrypoint are created; kept keys renewed."""
+        client = self._client(mocker)
+        client.create_group.side_effect = ['red-grp', 'host-grp']
+        client.create_policy.return_value = 'pol-1'
+        client.create_route.return_value = 'route-1'
+        nbr, flat, red = self._provisioned(sandbox)
+        nbr.delete()
+        SandboxNetbirdAccess.objects.filter(pk=red.pk).update(
+            access_group_id=None, access_setup_key_id=None, access_setup_key_value=None
         )
 
         self._restart(sandbox)
 
-        client.create_setup_key.assert_not_called()
-        provision.assert_not_called()
-        assert self._key(nbr) == ('host-key-id', None)
+        stack_name = netbird._short_stack_name(sandbox.allocation_unit.get_stack_name())
+        assert client.create_group.call_args_list == [
+            call(f'{stack_name}-access_red'),
+            call(f'{stack_name}-router'),
+        ]
+        assert client.create_setup_key.call_args_list[1] == call(
+            name=f'{stack_name}-access_red',
+            auto_group_ids=['red-grp', 'flat-grp'],
+            expires_in_seconds=1209600,
+        )
+        client.delete_setup_key.assert_called_once_with('flat-key-id')
+        assert self._key(flat) == ('new-key-id-1', 'new-key-1')
+        assert self._key(red) == ('new-key-id-2', 'new-key-2')
+        assert netbird.missing_vpn_parts(sandbox) == []
 
-    @pytest.mark.parametrize('rerun_networking', [True, False])
+    @pytest.mark.parametrize('failing', ['create', 'delete'])
+    def test_a_role_key_older_than_the_flat_group_stays_incomplete_until_replaced(
+        self, mocker, sandbox, netbird_cfg, failing
+    ):
+        """The kept key cannot name the new flat group, so the role is reported missing."""
+        client = self._client(mocker)
+        client.create_group.side_effect = ['flat-grp', 'host-grp']
+        client.create_policy.return_value = 'pol-1'
+        client.create_route.return_value = 'route-1'
+        error = NetbirdApiError('POST', 'setup-keys', 500, 'down')
+        if failing == 'create':
+            client.create_setup_key.side_effect = [
+                ('new-key-id-1', 'new-key-1'),
+                error,
+                ('new-key-id-3', 'new-key-3'),
+            ]
+        else:
+
+            def delete_setup_key(key_id: str) -> None:
+                if key_id == 'red-key-id':
+                    raise error
+
+            client.delete_setup_key.side_effect = delete_setup_key
+        nbr, flat, red = self._provisioned(sandbox)
+        nbr.delete()
+        SandboxNetbirdAccess.objects.filter(pk=flat.pk).update(
+            access_group_id=None, access_setup_key_id=None, access_setup_key_value=None
+        )
+
+        failures = netbird._restart_netbird_for_sandbox(sandbox, rerun_networking=True)
+
+        assert failures == [f"VPN access for role 'red': {error}"]
+        assert self._key(red) == ('red-key-id', None)
+        assert self._key(flat) == ('new-key-id-1', 'new-key-1')
+        assert netbird.missing_vpn_parts(sandbox) == ["VPN access for role 'red'"]
+
+        client.create_setup_key.reset_mock()
+        client.create_setup_key.side_effect = [
+            (f'new-key-id-{n}', f'new-key-{n}') for n in (4, 5, 6)
+        ]
+        client.delete_setup_key.side_effect = None
+
+        assert netbird._restart_netbird_for_sandbox(sandbox, rerun_networking=True) == []
+        stack_name = netbird._short_stack_name(sandbox.allocation_unit.get_stack_name())
+        assert client.create_setup_key.call_args_list[1] == call(
+            name=f'{stack_name}-access_red',
+            auto_group_ids=['red-grp', 'flat-grp'],
+            expires_in_seconds=1209600,
+        )
+        client.delete_setup_key.assert_any_call('red-key-id')
+        assert self._key(red) == ('new-key-id-5', 'new-key-5')
+        assert netbird.missing_vpn_parts(sandbox) == []
+
+    def test_keeps_a_role_key_that_names_the_flat_group_when_its_renewal_fails(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """A flat group older than this run is named by the kept key, so the role stays complete."""
+        client = self._client(mocker)
+        client.create_setup_key.side_effect = [
+            ('new-key-id-1', 'new-key-1'),
+            NetbirdApiError('POST', 'setup-keys', 500, 'down'),
+            ('new-key-id-3', 'new-key-3'),
+        ]
+        _, _, red = self._provisioned(sandbox)
+
+        failures = netbird._restart_netbird_for_sandbox(sandbox, rerun_networking=True)
+
+        assert failures == [
+            "VPN access for role 'red': Netbird API POST setup-keys returned 500: down"
+        ]
+        assert self._key(red) == ('red-key-id', 'red-key')
+        assert netbird.missing_vpn_parts(sandbox) == []
+
+    def test_reports_an_incomplete_entrypoint_it_cannot_tear_down(
+        self, mocker, sandbox, netbird_cfg
+    ):
+        """Its row is kept for the unit teardown, and nothing is provisioned over it."""
+        client = self._client(mocker)
+        client.delete_group.side_effect = NetbirdApiError('DELETE', 'groups', 503, 'down')
+        nbr, _, _ = self._provisioned(sandbox)
+        SandboxNetbirdResources.objects.filter(pk=nbr.pk).update(policy_id=None)
+
+        failures = netbird._restart_netbird_for_sandbox(sandbox, rerun_networking=True)
+
+        assert failures == [
+            "entrypoint 'router': group host-grp: Netbird API DELETE groups returned 503: down"
+        ]
+        assert SandboxNetbirdResources.objects.filter(pk=nbr.pk).exists()
+        client.create_policy.assert_not_called()
+        assert netbird.missing_vpn_parts(sandbox) == ["entrypoint 'router'"]
+
     def test_creates_an_access_key_the_first_attempt_failed_to_create(
-        self, mocker, sandbox, netbird_cfg, rerun_networking
+        self, mocker, sandbox, netbird_cfg
     ):
         """Users get the access key once the sandbox is ready, so a missing one is created."""
         client = self._client(mocker)
         flat = SandboxNetbirdAccess.objects.create(sandbox=sandbox, access_group_id='flat-grp')
 
-        self._restart(sandbox, rerun_networking=rerun_networking)
+        self._restart(sandbox, rerun_networking=False)
 
         stack_name = netbird._short_stack_name(sandbox.allocation_unit.get_stack_name())
         client.create_setup_key.assert_called_once_with(
@@ -1223,17 +1483,14 @@ class TestRestart:  # pylint: disable=too-many-public-methods
         client.delete_setup_key.assert_not_called()
         assert self._key(flat) == ('new-key-id-1', 'new-key-1')
 
-    @pytest.mark.parametrize('rerun_networking', [True, False])
-    def test_renews_when_no_entrypoint_was_provisioned(
-        self, mocker, sandbox, netbird_cfg, rerun_networking
-    ):
-        """Access groups without an entrypoint row (all discarded, or a DNS-only VPN) are kept."""
+    def test_renews_when_no_entrypoint_was_provisioned(self, mocker, sandbox, netbird_cfg):
+        """Without networking, access groups without an entrypoint row only get new keys."""
         self._client(mocker)
         provision = mocker.patch(f'{NETBIRD_MODULE}._provision_netbird_for_sandbox')
         nbr, flat, red = self._provisioned(sandbox)
         nbr.delete()
 
-        self._restart(sandbox, rerun_networking=rerun_networking)
+        self._restart(sandbox, rerun_networking=False)
 
         provision.assert_not_called()
         assert self._key(red) == ('new-key-id-1', 'new-key-1')
@@ -1258,31 +1515,41 @@ class TestRestart:  # pylint: disable=too-many-public-methods
         get_client.assert_not_called()
 
     @pytest.mark.parametrize(
-        ('error', 'event'),
+        ('rerun_networking', 'error', 'event'),
         [
-            (NetbirdApiError('POST', 'url', 500, 'fail'), 'netbird_setup_key_renewal_failed'),
-            (ValueError('malformed response'), 'netbird_setup_key_renewal_error'),
+            (True, NetbirdApiError('POST', 'url', 500, 'fail'), 'netbird_provision_failed'),
+            (True, ValueError('malformed response'), 'netbird_provision_access_error'),
+            (
+                False,
+                NetbirdApiError('POST', 'url', 500, 'fail'),
+                'netbird_setup_key_renewal_failed',
+            ),
+            (False, ValueError('malformed response'), 'netbird_setup_key_renewal_error'),
         ],
     )
     def test_keeps_the_old_key_when_creating_a_new_one_fails(
-        self, mocker, sandbox, netbird_cfg, error, event
+        self, mocker, sandbox, netbird_cfg, rerun_networking, error, event
     ):
-        """A failed key is logged and the next one is still renewed."""
+        """A failed key is logged and reported, and the next one is still renewed."""
         client = self._client(mocker)
         client.create_setup_key.side_effect = [
             error,
             ('new-key-id-2', 'new-key-2'),
             ('new-key-id-3', 'new-key-3'),
         ]
-        nbr, flat, red = self._provisioned(sandbox)
+        _, flat, red = self._provisioned(sandbox)
+        # Provisioning renews the flat key first, the renewal alone the role keys first.
+        failed, renewed = (flat, red) if rerun_networking else (red, flat)
 
-        self._restart(sandbox)
+        failures = netbird._restart_netbird_for_sandbox(sandbox, rerun_networking)
 
-        assert self._key(nbr) == ('host-key-id', 'host-key')
-        assert self._key(red) == ('new-key-id-2', 'new-key-2')
-        assert self._key(flat) == ('new-key-id-3', 'new-key-3')
-        assert call('host-key-id') not in client.delete_setup_key.call_args_list
+        old_key_id = 'flat-key-id' if rerun_networking else 'red-key-id'
+        assert self._key(failed) == (old_key_id, old_key_id.removesuffix('-id'))
+        assert self._key(renewed) == ('new-key-id-2', 'new-key-2')
+        assert call(old_key_id) not in client.delete_setup_key.call_args_list
         assert netbird.LOG.warning.call_args_list[0].args == (event,)
+        role = 'every player' if rerun_networking else "role 'red'"
+        assert failures == [f'VPN access for {role}: {error}']
 
     def test_drops_the_new_key_when_storing_it_fails(self, mocker, sandbox, netbird_cfg):
         """A key no row records would keep NetBird from deleting the groups it names."""
@@ -1309,16 +1576,16 @@ class TestRestart:  # pylint: disable=too-many-public-methods
 
         def delete_setup_key(key_id: str) -> None:
             deleted.append(key_id)
-            if deleted == ['host-key-id']:
+            if deleted == ['flat-key-id']:
                 raise NetbirdApiError('DELETE', 'url', 0, 'connection reset')
 
         client.delete_setup_key.side_effect = delete_setup_key
-        nbr, _, _ = self._provisioned(sandbox)
+        _, flat, _ = self._provisioned(sandbox)
 
         self._restart(sandbox)
 
-        assert self._key(nbr) == ('new-key-id-1', 'new-key-1')
-        assert deleted[:2] == ['host-key-id', 'host-key-id']
+        assert self._key(flat) == ('new-key-id-1', 'new-key-1')
+        assert deleted[:2] == ['flat-key-id', 'flat-key-id']
         assert 'new-key-id-1' not in deleted
 
     def test_goes_back_to_the_old_key_when_it_cannot_be_deleted(self, mocker, sandbox, netbird_cfg):
@@ -1335,8 +1602,8 @@ class TestRestart:  # pylint: disable=too-many-public-methods
         self._restart(sandbox)
 
         assert self._key(nbr) == ('host-key-id', 'host-key')
-        assert call('new-key-id-1') in client.delete_setup_key.call_args_list
-        assert self._key(flat) == ('new-key-id-3', 'new-key-3')
+        assert call('new-key-id-3') in client.delete_setup_key.call_args_list
+        assert self._key(flat) == ('new-key-id-1', 'new-key-1')
 
     def test_drops_the_new_key_when_the_row_changed_meanwhile(self, mocker, sandbox, netbird_cfg):
         """The new key is stored only while the row still holds the old one."""
@@ -1375,7 +1642,7 @@ class TestRestart:  # pylint: disable=too-many-public-methods
         self._restart(sandbox)
 
         deleted_keys = [c.args[0] for c in client.delete_setup_key.call_args_list]
-        assert deleted_keys[-3:] == ['new-key-id-1', 'new-key-id-2', 'new-key-id-3']
+        assert deleted_keys[-3:] == ['new-key-id-3', 'new-key-id-2', 'new-key-id-1']
         assert client.delete_group.call_args_list == [
             call('host-grp'),
             call('red-grp'),
@@ -1398,37 +1665,46 @@ class TestRestart:  # pylint: disable=too-many-public-methods
         self._restart(sandbox)
 
         deleted_keys = [c.args[0] for c in client.delete_setup_key.call_args_list]
-        assert deleted_keys.count('new-key-id-3') == 1
+        assert deleted_keys.count('new-key-id-1') == 1
         assert deleted_keys[-1] == 'flat-key-id'
 
-    def test_skipped_on_config_error(self, mocker, sandbox, netbird_cfg):
-        """A config error building the client leaves every key as it was."""
+    @pytest.mark.parametrize(
+        ('rerun_networking', 'event'),
+        [(True, 'netbird_provision_skipped'), (False, 'netbird_restart_skipped')],
+    )
+    def test_skipped_on_config_error(self, mocker, sandbox, netbird_cfg, rerun_networking, event):
+        """A config error building the client leaves every key as it was, and is reported."""
         mocker.patch(
             f'{NETBIRD_MODULE}.get_netbird_client', side_effect=NetbirdConfigError('missing pat')
         )
-        nbr, _, _ = self._provisioned(sandbox)
+        nbr, flat, _ = self._provisioned(sandbox)
 
-        self._restart(sandbox)
+        failures = netbird._restart_netbird_for_sandbox(sandbox, rerun_networking)
 
         assert self._key(nbr) == ('host-key-id', 'host-key')
+        assert self._key(flat) == ('flat-key-id', 'flat-key')
         netbird.LOG.warning.assert_called_once_with(
-            'netbird_restart_skipped',
+            event,
             sandbox_id=sandbox.id,
             reason='config_error',
             error='missing pat',
         )
+        assert failures == ['NetBird client unavailable: missing pat']
 
-    def test_skipped_without_a_client(self, mocker, sandbox, netbird_cfg):
+    @pytest.mark.parametrize(
+        ('rerun_networking', 'event'),
+        [(True, 'netbird_provision_skipped'), (False, 'netbird_restart_skipped')],
+    )
+    def test_skipped_without_a_client(self, mocker, sandbox, netbird_cfg, rerun_networking, event):
         """A worker without the NetBird config renews nothing."""
         mocker.patch(f'{NETBIRD_MODULE}.get_netbird_client', return_value=None)
         nbr, _, _ = self._provisioned(sandbox)
 
-        self._restart(sandbox)
+        failures = netbird._restart_netbird_for_sandbox(sandbox, rerun_networking)
 
         assert self._key(nbr) == ('host-key-id', 'host-key')
-        netbird.LOG.debug.assert_called_once_with(
-            'netbird_restart_skipped', sandbox_id=sandbox.id, reason='no_config'
-        )
+        netbird.LOG.debug.assert_called_once_with(event, sandbox_id=sandbox.id, reason='no_config')
+        assert not failures
 
     @pytest.mark.parametrize('previous_job_id', ['job-1', None])
     def test_waits_for_the_previous_netbird_job_first(self, mocker, sandbox, previous_job_id):
@@ -1478,6 +1754,9 @@ class TestRestart:  # pylint: disable=too-many-public-methods
         netbird.LOG.warning.assert_called_once_with(
             'netbird_restart_skipped', sandbox_id=sandbox.id, reason='previous_job_running'
         )
+        assert netbird._restart_netbird_for_sandbox(sandbox, True, previous_job_running=True) == [
+            'the previous NetBird job of the sandbox was still running'
+        ]
 
     def test_provisions_while_the_previous_job_still_runs_but_recorded_nothing(
         self, mocker, sandbox, netbird_cfg
@@ -1514,6 +1793,125 @@ class TestRestart:  # pylint: disable=too-many-public-methods
         netbird.LOG.warning.assert_called_once_with(
             'netbird_restart_unexpected_error', sandbox_id=sandbox.id, error='unexpected db error'
         )
+
+
+class TestMissingVpnParts:
+    """Tests for missing_vpn_parts, which the networking stage fails on."""
+
+    @pytest.fixture(autouse=True)
+    def _topology(self, mocker, netbird_cfg):
+        """A 'red' role, DNS servers, a 'router' that only red reaches and a 'gw' all reach."""
+        self.entrypoints = mocker.patch(
+            f'{NETBIRD_MODULE}._get_vpn_entrypoints',
+            return_value=[
+                FakeEntrypoint('router', ['10.0.0.0/24'], ['red']),
+                FakeEntrypoint('gw', ['10.0.1.0/24', '10.0.2.0/24']),
+            ],
+        )
+        self.dns = mocker.patch(
+            f'{NETBIRD_MODULE}._get_vpn_dns', return_value=FakeDns(['10.0.0.53'])
+        )
+        mocker.patch(f'{NETBIRD_MODULE}._get_declared_roles', return_value={'red'})
+
+    @staticmethod
+    def _complete(sandbox: Sandbox) -> None:
+        for role in ('', 'red'):
+            SandboxNetbirdAccess.objects.create(
+                sandbox=sandbox,
+                role=role,
+                access_group_id=f'{role or "flat"}-grp',
+                access_setup_key_id='key-id',
+                access_setup_key_value='key',
+                dns_nameserver_group_id='dns',
+            )
+        for name, routes, roles in (
+            ('router', '10.0.0.0/24', 'red'),
+            ('gw', '10.0.1.0/24,10.0.2.0/24', ''),
+        ):
+            SandboxNetbirdResources.objects.create(
+                sandbox=sandbox,
+                entrypoint_host_name=name,
+                host_group_id='host-grp',
+                host_setup_key_id='key-id',
+                host_setup_key_value='key',
+                policy_id='pol',
+                route_ids='route',
+                route_cidrs=routes,
+                source_roles=roles,
+            )
+
+    def test_nothing_is_missing_once_complete(self, sandbox):
+        self._complete(sandbox)
+
+        assert netbird.missing_vpn_parts(sandbox) == []
+
+    def test_nothing_is_missing_without_netbird(self, mocker, sandbox):
+        """A deployment without NetBird never fetches the definition for the check."""
+        mocker.patch(f'{NETBIRD_MODULE}.settings.CRCZP_CONFIG', new=SimpleNamespace(netbird=None))
+
+        assert netbird.missing_vpn_parts(sandbox) == []
+        self.entrypoints.assert_not_called()
+
+    def test_nothing_is_missing_without_a_vpn(self, sandbox):
+        self.entrypoints.return_value = []
+        self.dns.return_value = None
+
+        assert netbird.missing_vpn_parts(sandbox) == []
+
+    def test_lists_every_part_when_nothing_was_provisioned(self, sandbox):
+        assert netbird.missing_vpn_parts(sandbox) == [
+            'VPN access for every player',
+            "VPN access for role 'red'",
+            "entrypoint 'router'",
+            "entrypoint 'gw'",
+        ]
+
+    @pytest.mark.parametrize(
+        ('field', 'part'),
+        [
+            ('access_group_id', "VPN access for role 'red'"),
+            ('access_setup_key_id', "VPN access for role 'red'"),
+            ('access_setup_key_value', "VPN access for role 'red'"),
+            ('dns_nameserver_group_id', "DNS for role 'red'"),
+        ],
+    )
+    def test_an_access_without_one_of_its_objects(self, sandbox, field, part):
+        self._complete(sandbox)
+        SandboxNetbirdAccess.objects.filter(sandbox=sandbox, role='red').update(**{field: None})
+
+        assert netbird.missing_vpn_parts(sandbox) == [part]
+
+    def test_dns_is_needed_only_when_declared(self, sandbox):
+        self._complete(sandbox)
+        SandboxNetbirdAccess.objects.filter(sandbox=sandbox).update(dns_nameserver_group_id=None)
+        self.dns.return_value = None
+
+        assert netbird.missing_vpn_parts(sandbox) == []
+
+    @pytest.mark.parametrize(
+        'left',
+        [
+            {'host_group_id': None},
+            {'host_setup_key_value': None},
+            {'policy_id': None},
+            {'route_cidrs': ''},
+            # Sourced from the flat role, though only 'red' is to reach it.
+            {'source_roles': ''},
+        ],
+    )
+    def test_an_incomplete_entrypoint(self, sandbox, left):
+        self._complete(sandbox)
+        SandboxNetbirdResources.objects.filter(
+            sandbox=sandbox, entrypoint_host_name='router'
+        ).update(**left)
+
+        assert netbird.missing_vpn_parts(sandbox) == ["entrypoint 'router'"]
+
+    def test_an_entrypoint_without_a_row(self, sandbox):
+        self._complete(sandbox)
+        SandboxNetbirdResources.objects.filter(sandbox=sandbox, entrypoint_host_name='gw').delete()
+
+        assert netbird.missing_vpn_parts(sandbox) == ["entrypoint 'gw'"]
 
 
 @pytest.mark.integration
