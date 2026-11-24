@@ -263,9 +263,10 @@ class AllocationRequestHandler(RequestHandler):
         with transaction.atomic():
             self._store_stage_job_ids(stage_handlers, stage_job_ids)
             AllocationRequest.objects.filter(pk=allocation_request.pk).update(
-                netbird_job_id=netbird_job_id
+                netbird_job_id=netbird_job_id, netbird_error=None
             )
         allocation_request.netbird_job_id = netbird_job_id
+        allocation_request.netbird_error = None
         if netbird_job_id is not None:
             if restart:
                 self._enqueue_netbird_restart(sandbox, stage_handlers, netbird_job_id)
@@ -487,7 +488,8 @@ class AllocationRequestHandler(RequestHandler):
         are: only the networking stage installs them on the hosts, and it re-runs
         only when it or the stack failed. Its NetBird resources are kept too, but
         the restart's NetBird job replaces their setup keys, which may have
-        expired since the first attempt.
+        expired since the first attempt, and, when networking re-runs, provisions
+        what the first attempt left out.
         """
         LOG.info('Restarting sandbox allocation unit: %s', unit.id)
         self.request = unit.allocation_request

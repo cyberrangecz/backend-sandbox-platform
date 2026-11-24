@@ -157,6 +157,25 @@ class TestAllocationRequestHandlerUnit:
             on_failure=request_handlers.fail_abandoned_allocation_job,
         )
 
+    @pytest.mark.parametrize('restart', [False, True])
+    def test_enqueue_clears_what_the_previous_netbird_job_recorded(
+        self, mocker, sandbox, allocation_request, restart
+    ):
+        """The networking stage must quote only what the new NetBird job records."""
+        AllocationRequest.objects.filter(pk=allocation_request.pk).update(
+            netbird_error='from an earlier attempt'
+        )
+        mocker.patch.object(request_handlers.netbird, 'is_netbird_configured', return_value=True)
+        mocker.patch.object(self.handler, 'queue_default')
+        mocker.patch.object(self.handler, 'queue_ansible')
+
+        self.handler._enqueue_allocation_request(
+            sandbox, [MagicMock()], allocation_request, restart=restart
+        )
+
+        allocation_request.refresh_from_db()
+        assert allocation_request.netbird_error is None
+
     @pytest.mark.parametrize('configured', [True, False])
     def test_enqueue_stores_the_stage_and_netbird_job_ids_before_any_job_is_queued(
         self, mocker, sandbox, allocation_request, configured
