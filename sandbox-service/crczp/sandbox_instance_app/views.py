@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.http import Http404, HttpResponse
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import (
@@ -34,6 +34,7 @@ from crczp.sandbox_common_lib.swagger_typing import (
 )
 from crczp.sandbox_common_lib.utils import get_object_or_404
 from crczp.sandbox_definition_app.lib import definitions
+from crczp.sandbox_definition_app.models import Definition
 from crczp.sandbox_definition_app.serializers import DefinitionSerializer
 from crczp.sandbox_instance_app import serializers
 from crczp.sandbox_instance_app.lib import (
@@ -116,7 +117,10 @@ class PoolListCreateView(SortableViewMixin, generics.ListCreateAPIView[Any]):
     get: Get a list of pools.
     """
 
-    queryset = Pool.objects.all()
+    # Annotated definitions in one query, rather than a fetch and a pool count per pool.
+    queryset = Pool.objects.prefetch_related(
+        Prefetch('definition', queryset=Definition.with_pool_count())
+    )
     serializer_class = serializers.PoolSerializer
     sortable_fields = (
         'id',

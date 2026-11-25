@@ -6,7 +6,9 @@ import pytest
 from botocore.exceptions import ClientError
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
+from django.db import connection
 from django.http import Http404
+from django.test.utils import CaptureQueriesContext
 from rest_framework.exceptions import ValidationError
 from rest_framework.reverse import reverse
 from rest_framework.test import APIRequestFactory
@@ -229,6 +231,44 @@ class TestCreatePool:
         request = self.arf.get(reverse('pool-list'))
         response = PoolListCreateView.as_view()(request)
         assert len(response.data['results']) == 2
+
+
+class TestPoolList:  # pylint: disable=too-few-public-methods
+    """The pool list carries each pool's definition with its pool count."""
+
+    def test_definition_pool_counts_take_no_query_per_pool(self, mocker, definition, created_by):
+        mocker.patch(
+            'crczp.sandbox_instance_app.lib.pools.get_hardware_usage_of_sandbox',
+            return_value=None,
+        )
+
+        def make_pool() -> None:
+            # A non-zero size keeps the serializer from recounting the pool's units.
+            Pool.objects.create(
+                definition=definition,
+                size=1,
+                max_size=1,
+                private_management_key='-----RSA PRIVATE KEY-----',
+                public_management_key='ssh-rsa',
+                created_by=created_by,
+            )
+
+        def list_pools() -> tuple[dict[int, int], int]:
+            request = APIRequestFactory().get(reverse('pool-list'))
+            with CaptureQueriesContext(connection) as captured:
+                results = PoolListCreateView.as_view()(request).data['results']
+            counts = {item['id']: item['definition']['pool_count'] for item in results}
+            return counts, sum(f'"{Pool._meta.db_table}"' in q['sql'] for q in captured)
+
+        make_pool()
+        list_pools()  # The first listing stores the sizes of the pools the test database loads.
+        _, pool_queries_with_one = list_pools()
+        make_pool()
+        make_pool()
+        counts, pool_queries_with_three = list_pools()
+
+        assert [counts[pool.id] for pool in Pool.objects.filter(definition=definition)] == [3, 3, 3]
+        assert pool_queries_with_three == pool_queries_with_one
 
 
 class TestSandboxAllocationUnit:  # pylint: disable=too-few-public-methods

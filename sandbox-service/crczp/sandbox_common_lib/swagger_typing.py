@@ -35,6 +35,7 @@ class SandboxDefinitionSerializer(serializers.Serializer[Any]):
     url = serializers.CharField(help_text='SSH git URL of the definition')
     rev = serializers.CharField(help_text='Git revision used')
     created_by = UserSerializer()
+    pool_count = serializers.IntegerField(help_text='Number of pools using the definition')
 
 
 class DefinitionRequestSerializer(serializers.Serializer[Any]):
