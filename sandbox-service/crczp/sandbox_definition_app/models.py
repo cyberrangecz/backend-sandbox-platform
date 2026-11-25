@@ -39,3 +39,8 @@ class Definition(models.Model):
     @override
     def __str__(self) -> str:
         return f'ID: {self.id}, NAME: {self.name}, URL: {self.url}, REV: {self.rev}'
+
+    @classmethod
+    def with_pool_count(cls) -> 'models.QuerySet[Definition]':
+        """Definitions annotated with `pool_count`, the number of pools using each."""
+        return cls.objects.annotate(pool_count=models.Count('pool'))

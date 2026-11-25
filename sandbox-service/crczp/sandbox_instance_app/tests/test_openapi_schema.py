@@ -155,4 +155,4 @@ def test_definition_exposes_pool_count_and_delete_answers_conflict(document, com
 
     assert components['SandboxDefinition']['properties']['pool_count']['type'] == 'integer'
     assert 'pool_count' in components['SandboxDefinition']['required']
-    assert '409' in operations['delete']['responses']
+    assert {'204', '409'} <= operations['delete']['responses'].keys()

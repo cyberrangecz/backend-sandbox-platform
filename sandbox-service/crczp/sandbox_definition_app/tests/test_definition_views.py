@@ -59,23 +59,27 @@ class TestPoolCount:
     def test_list_reads_the_pool_table_in_a_constant_number_of_queries(
         self, definition, created_by
     ):
-        for index in range(5):
-            make_pool(definition, created_by, f'uuid-{index}')
-            Definition.objects.create(name='d', url=f'u{index}', rev='r', created_by=created_by)
+        def pool_queries() -> int:
+            with CaptureQueriesContext(connection) as captured:
+                APIClient().get(reverse('definition-list'))
+            return sum(f'"{Pool._meta.db_table}"' in q['sql'] for q in captured)
 
-        with CaptureQueriesContext(connection) as captured:
-            APIClient().get(reverse('definition-list'))
+        make_pool(definition, created_by, 'uuid-first')
+        with_one = pool_queries()
+        for index in range(4):
+            other = Definition.objects.create(
+                name='d', url=f'u{index}', rev='r', created_by=created_by
+            )
+            make_pool(other, created_by, f'uuid-{index}')
 
-        pool_queries = [q for q in captured if Pool._meta.db_table in q['sql']]
-        assert len(pool_queries) == 2  # the page count and the page itself
+        assert pool_queries() == with_one
 
 
 class TestDeleteDefinition:
     """Deleting a definition a pool still uses is refused."""
 
     def test_in_use_definition_answers_409_naming_the_pools(self, definition, created_by):
-        make_pool(definition, created_by, 'uuid')
-        make_pool(definition, created_by, 'uuid-2')
+        first, second = (make_pool(definition, created_by, uuid) for uuid in ('uuid', 'uuid-2'))
 
         response = APIClient().delete(
             reverse('definition-detail', kwargs={'definition_id': definition.id})
@@ -84,7 +88,7 @@ class TestDeleteDefinition:
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.data == {
             'detail': f'Cannot delete definition (ID="{definition.id}"): '
-            '2 pool(s) still use it. Delete those pools first.'
+            f'2 pool(s) still use it (IDs: {first.id}, {second.id}). Delete those pools first.'
         }
         assert Definition.objects.filter(pk=definition.pk).exists()
 
