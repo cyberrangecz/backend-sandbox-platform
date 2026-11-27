@@ -301,6 +301,7 @@ jobs:
           provenance: mode=max
     outputs:
       image: ghcr.io/${{ github.repository }}/sandbox-service@${{ steps.push.outputs.digest }}
+      digest: ${{ steps.push.outputs.digest }}
 
   # grype over the digest `build` pushed. pip-audit (the `audit` job) sees only the Python
   # set; this also covers the Debian base, the apt packages and the OpenTofu and provider
@@ -373,6 +374,7 @@ jobs:
       IMAGE: ${{ needs.build.outputs.image }}
     outputs:
       release: ${{ steps.tag.outputs.release }}
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
@@ -399,6 +401,31 @@ jobs:
           fi
           docker buildx imagetools create --tag "ghcr.io/${GITHUB_REPOSITORY}/sandbox-service:${tag}" "$IMAGE"
           echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  # Manual deploy-to-stage button for the tag publish pushed: waits for a reviewer to
+  # approve the stage environment, then sends it to tf-crczp-kubernetes; a -dev or -staging
+  # tag goes pinned to the digest. Checks publish itself, not success(): that also looks at
+  # the audit, and a -staging build is meant to be deployable for testing. The App
+  # credentials are the stage environment's DEPLOY_APP_CLIENT_ID variable and
+  # DEPLOY_APP_PRIVATE_KEY secret.
+  deploy_stage:
+    needs: [build, publish]
+    if: >-
+      !cancelled()
+      && needs.publish.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions: {}
+    environment: stage
+    steps:
+      - name: Deploy to stage
+        uses: cyberrangecz/actions-templates/.github/actions/deploy-dispatch@master
+        with:
+          component: sandbox
+          tag: ${{ needs.publish.outputs.tag }}
+          digest: ${{ needs.build.outputs.digest }}
+          client-id: ${{ vars.DEPLOY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DEPLOY_APP_PRIVATE_KEY }}
 
   generate_docs:
     permissions:
