@@ -16,7 +16,7 @@ def set_pool_size_to_allocation_unit_count(
 
 class Migration(migrations.Migration):
     dependencies = [
-        ('sandbox_instance_app', '0027_request_group_backfill'),
+        ('sandbox_instance_app', '0028_allocationrequest_netbird_error'),
     ]
 
     operations = [
