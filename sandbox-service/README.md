@@ -123,7 +123,7 @@ Nothing in the image cleans up the sandboxes trainees allocate for themselves. S
 
 A sandbox build or cleanup stops moving when its RQ job is lost: Redis is flushed or restarted, or a worker dies and RQ does not collect its job. `python manage.py observe_lost_jobs` finds such work and hands it to the normal failure path: the stage is marked failed and, for an allocation, its cleanup is queued; a failed cleanup is retried as described in [Cleanup](#cleanup). It handles
 
-* the first unfinished stage of an allocation or cleanup request whose job is missing from Redis, or is dead (failed, stopped, or started on a worker that no longer exists) for longer than `lost_job_observer.grace_seconds` (60 by default; a dead worker's key expires at most `--worker-ttl` seconds after its last heartbeat, 120 in the deployment, and the callback of a failed allocation job handles that case first),
+* the first unfinished stage of an allocation or cleanup request whose job is missing from Redis, or is dead (failed, stopped, or started on a worker that no longer exists) once `lost_job_observer.grace_seconds` (60 by default) have passed since its last heartbeat; a dead worker's key outlives that heartbeat by ~90 s, so a grace below that adds no wait, and the callback RQ later runs for an abandoned allocation job finds the stage already failed and changes nothing,
 * an Ansible stage waiting for a NetBird job that died,
 * an allocation or cleanup request without stages whose stage-creating job is gone: the unit of such an allocation is removed like a cancelled queued one, the stages of such a cleanup are created failed and the cleanup is retried,
 * an allocation that failed with a lost or abandoned job and got no cleanup.
@@ -159,7 +159,7 @@ spec:
                 secretName: <the secret holding the service configuration>
 ```
 
-The worst-case time from a stale sandbox to its recovery is ~4 minutes: worker TTL (120 s, with `--worker-ttl 120` on every worker) + `grace_seconds` (60 s) + cron spacing (60 s). The worker of the default queue also runs with `--with-scheduler`, which the delayed cleanup retries of [Cleanup](#cleanup) need.
+The worst-case time from a stale sandbox to its recovery is ~2.5 minutes: the worker key of a running job expires ~90 s after the last heartbeat of the job (RQ's 30 s job monitoring interval + 60 s), `grace_seconds` counts from that same heartbeat, and the cron spacing adds up to 60 s. Every worker runs with `--worker-ttl 120`. The worker of the default queue also runs with `--with-scheduler`, which the delayed cleanup retries of [Cleanup](#cleanup) need.
 
 ### Leftover stacks
 

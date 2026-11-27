@@ -162,12 +162,13 @@ class LostJobObserverConfiguration(YamlModel):
 
     The observe_lost_jobs management command does the detection whenever it is started. The
     deployment schedules it as a Kubernetes CronJob every minute. A stale sandbox is recovered
-    within ~4 minutes at worst: worker TTL (120 s, workers run with --worker-ttl 120) +
-    grace_seconds + the 60 s cron spacing.
+    within ~2.5 minutes at worst: the worker key of a running job expires ~90 s after the last
+    heartbeat of the job (RQ's 30 s job monitoring interval + 60 s), grace_seconds counts from
+    that same heartbeat, and the cron spacing adds up to 60 s.
     The worker of the default queue needs --with-scheduler for the delayed cleanup retries.
     """
 
-    # How long a job that is dead but still in Redis may wait for RQ to collect it.
+    # How long after its last heartbeat a job that is dead but still in Redis is recovered.
     grace_seconds: YamlInt = LOST_JOB_OBSERVER_GRACE_SECONDS
 
     @field_validator('grace_seconds')

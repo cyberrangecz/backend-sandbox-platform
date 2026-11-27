@@ -213,14 +213,15 @@ application_configuration:
 
     # Detection of sandbox work whose job was lost, done by the
     # `python manage.py observe_lost_jobs` command. The deployment runs it as a Kubernetes
-    # CronJob every minute. A stale sandbox is detected and recovered within ~4 minutes at worst:
-    # worker TTL (120 s, workers run with --worker-ttl 120) + grace_seconds (60 s) + cron
-    # spacing (60 s). The worker of the default queue needs --with-scheduler for the delayed
-    # cleanup retries.
+    # CronJob every minute. A stale sandbox is detected and recovered within ~2.5 minutes at worst:
+    # the worker key of a running job expires ~90 s after the last heartbeat of the job (RQ's
+    # 30 s job monitoring interval + 60 s), grace_seconds counts from that same heartbeat, and
+    # the cron spacing adds up to 60 s. The worker of the default queue needs --with-scheduler
+    # for the delayed cleanup retries.
     # lost_job_observer:
-        # How many seconds a stage job that Redis still holds must be dead before the command
-        # fails the stage. A dead worker's key expires at most --worker-ttl seconds (120) after
-        # its last heartbeat. A job that Redis lost is recovered at once.
+        # How many seconds after its last heartbeat a stage job that Redis still holds and that
+        # is dead is failed by the command. A dead worker's key outlives that heartbeat by
+        # ~90 s, so a grace below that adds no wait. A job that Redis lost is recovered at once.
         #grace_seconds: 60
 
     # Configuration for Terraform client
