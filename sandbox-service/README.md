@@ -38,7 +38,7 @@ Trainings that do not pre-allocate a pool can let each trainee allocate a sandbo
 * `POST /pools/{pool_id}/sandbox-allocation-units` with the header `X-Training-Access-Token: <access token of the training holding the pool>` builds one sandbox for the caller (`count` must be 1 or left out). A caller may hold one active sandbox per pool; another request answers 409.
 * The owner may `GET` the unit (`/sandbox-allocation-units/{id}`), `GET` and `POST` its `cleanup-request`, `DELETE` its `lock`, and list their units with `GET /sandbox-allocation-units/by-creator?created_by_sub=<own sub>`, adding `&state=ACTIVE` for the ones that hold or are building a sandbox. Everything else still needs the organizer's model permissions.
 * `get-and-lock` and "delete unlocked" (`cleanup-unlocked`) leave trainee-owned sandboxes alone.
-* `python manage.py cleanup_trainee_sandboxes` cleans up trainee sandboxes older than `trainee_sandbox_cleanup.max_age_hours` (24 by default). It does nothing unless `trainee_sandbox_cleanup.enabled` is set, and runs only when the deployment schedules it (see [Deployment](#deployment)).
+* `python manage.py cleanup_trainee_sandboxes` cleans up trainee sandboxes older than `trainee_sandbox_cleanup.max_age_hours` (24 by default). It runs only when the deployment schedules it (see [Deployment](#deployment)).
 
 When a pool's units get stuck, an organizer or admin can cancel them:
 
@@ -117,26 +117,26 @@ CI/CD runs via GitHub Actions (`.github/workflows/github-actions.yml`):
 
 At container startup (`bin/run-sandbox-service.sh`), the service applies database migrations, creates the cache table, creates/refreshes a Django admin account from the `DJANGO_ADMIN_USER`, `DJANGO_ADMIN_EMAIL`, and `DJANGO_ADMIN_PASSWORD` environment variables, registers roles, and starts `gunicorn`.
 
-Nothing in the image cleans up the sandboxes trainees allocate for themselves. To clean them up, set `trainee_sandbox_cleanup.enabled: true` and schedule `python manage.py cleanup_trainee_sandboxes` with the service's image and configuration, e.g. as an hourly Kubernetes CronJob. The command exits non-zero when a sandbox could not be cleaned up.
+Nothing in the image cleans up the sandboxes trainees allocate for themselves. Scheduling `python manage.py cleanup_trainee_sandboxes` is what enables the cleanup: run it with the service's image and configuration, e.g. as an hourly Kubernetes CronJob. The command exits non-zero when a sandbox could not be cleaned up.
 
 ### Lost jobs
 
 A sandbox build or cleanup stops moving when its RQ job is lost: Redis is flushed or restarted, or a worker dies and RQ does not collect its job. `python manage.py observe_lost_jobs` finds such work and hands it to the normal failure path: the stage is marked failed and, for an allocation, its cleanup is queued; a failed cleanup is retried as described in [Cleanup](#cleanup). It handles
 
-* the first unfinished stage of an allocation or cleanup request whose job is missing from Redis, or is dead (failed, stopped, or started on a worker that no longer exists) for longer than `lost_job_observer.grace_seconds` (900 by default; RQ collects the job of a dead worker within ~11.5 minutes, and the callback of a failed allocation job handles that case first),
+* the first unfinished stage of an allocation or cleanup request whose job is missing from Redis, or is dead (failed, stopped, or started on a worker that no longer exists) for longer than `lost_job_observer.grace_seconds` (60 by default; a dead worker's key expires at most `--worker-ttl` seconds after its last heartbeat, 120 in the deployment, and the callback of a failed allocation job handles that case first),
 * an Ansible stage waiting for a NetBird job that died,
 * an allocation or cleanup request without stages whose stage-creating job is gone: the unit of such an allocation is removed like a cancelled queued one, the stages of such a cleanup are created failed and the cleanup is retried,
 * an allocation that failed with a lost or abandoned job and got no cleanup.
 
-Stages with a pending stop request are left to the Cancel that requested it. `--dry-run` only logs what would be recovered. The command does nothing while `lost_job_observer.enabled` is false and exits non-zero when a recovery failed. Run it every few minutes, for example as a Kubernetes CronJob with the service's image and configuration; the placeholders below are to be replaced:
+Stages with a pending stop request are left to the Cancel that requested it. `--dry-run` only logs what would be recovered. The command exits non-zero when a recovery failed. The deployment runs it as a Kubernetes CronJob every minute, with the service's image and configuration; the placeholders below are to be replaced:
 
 ```yaml
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: sandbox-service-observe-lost-jobs
+  name: sandbox-service-recover-stalled-sandboxes
 spec:
-  schedule: "*/5 * * * *"
+  schedule: "* * * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 3
@@ -147,7 +147,7 @@ spec:
         spec:
           restartPolicy: Never
           containers:
-            - name: observe-lost-jobs
+            - name: recover-stalled-sandboxes
               image: ghcr.io/cyberrangecz/backend-sandbox-platform/sandbox-service:v<version>
               command: ["python", "manage.py", "observe_lost_jobs"]
               volumeMounts:
@@ -159,6 +159,8 @@ spec:
                 secretName: <the secret holding the service configuration>
 ```
 
+The worst-case time from a stale sandbox to its recovery is ~4 minutes: worker TTL (120 s, with `--worker-ttl 120` on every worker) + `grace_seconds` (60 s) + cron spacing (60 s). The worker of the default queue also runs with `--with-scheduler`, which the delayed cleanup retries of [Cleanup](#cleanup) need.
+
 ### Leftover stacks
 
-`python manage.py remove_leftover_stacks` is a command to run by hand, once. It lists the stacks of the deployment's `stack_name_prefix` that cloud resources, OpenTofu workspaces, NetBird objects or jump host homes still hold, and removes every one that no allocation unit owns, the way the cleanup does. The owner is checked again right before each removal. `--dry-run` lists the stacks and where each was found, and removes nothing. It exits non-zero when a listing or a removal failed.
+`python manage.py remove_leftover_stacks` is run by the deployment as a Kubernetes CronJob every 15 minutes by default, with the service's image and configuration like the commands above. It lists the stacks of the deployment's `stack_name_prefix` that cloud resources, OpenTofu workspaces, NetBird objects or jump host homes still hold, and removes every one that no allocation unit owns, the way the cleanup does. The owner is checked again right before each removal. `--dry-run` lists the stacks and where each was found, and removes nothing. It exits non-zero when a listing or a removal failed.

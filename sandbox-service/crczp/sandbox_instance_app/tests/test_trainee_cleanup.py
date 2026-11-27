@@ -146,10 +146,9 @@ class TestCleanupTraineeSandboxesCommand:
     def configure(self, mocker):
         """Return a function that sets trainee_sandbox_cleanup on a copy of the app config."""
 
-        def set_cleanup(*, enabled: bool, max_age_hours: int = 24) -> None:
+        def set_cleanup(*, max_age_hours: int = 24) -> None:
             config = copy.copy(settings.CRCZP_CONFIG)
             cleanup = copy.copy(config.trainee_sandbox_cleanup)
-            cleanup.enabled = enabled
             cleanup.max_age_hours = max_age_hours
             config.trainee_sandbox_cleanup = cleanup
             mocker.patch.object(settings, 'CRCZP_CONFIG', config)
@@ -164,20 +163,10 @@ class TestCleanupTraineeSandboxesCommand:
             return_value=requests.TraineeCleanupReport(cleaned=[1], skipped=[2]),
         )
 
-    def test_does_nothing_while_disabled(self, configure, cleanup):
-        """The cleanup is off unless the deployment enables it."""
-        configure(enabled=False)
-        out = StringIO()
-
-        call_command('cleanup_trainee_sandboxes', stdout=out)
-
-        cleanup.assert_not_called()
-        assert 'disabled' in out.getvalue()
-
     @pytest.mark.parametrize('dry_run', [False, True])
     def test_cleans_up_sandboxes_older_than_the_configured_age(self, configure, cleanup, dry_run):
         """Sandboxes older than max_age_hours are cleaned up, or only listed in a dry run."""
-        configure(enabled=True, max_age_hours=6)
+        configure(max_age_hours=6)
         out = StringIO()
 
         call_command('cleanup_trainee_sandboxes', *(['--dry-run'] if dry_run else []), stdout=out)
@@ -190,7 +179,7 @@ class TestCleanupTraineeSandboxesCommand:
 
     def test_fails_when_a_unit_could_not_be_cleaned_up(self, configure, cleanup):
         """A failed unit fails the run, so the scheduler shows it."""
-        configure(enabled=True)
+        configure()
         cleanup.return_value = requests.TraineeCleanupReport(cleaned=[1], failed=[3])
 
         with pytest.raises(CommandError, match=r'\[3\]'):

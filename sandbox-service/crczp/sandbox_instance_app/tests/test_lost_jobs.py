@@ -1,8 +1,8 @@
 """Tests of the detection and recovery of work whose RQ job was lost."""
 
 # pylint: disable=missing-function-docstring,redefined-outer-name
-import copy
 from datetime import timedelta
+from io import StringIO
 
 import django_rq
 import fakeredis
@@ -410,18 +410,6 @@ class TestRecovery:
 
 
 class TestObserveLostJobsCommand:
-    def test_it_does_nothing_while_disabled(self, mocker, allocation_stage_stack):
-        attach_job(allocation_stage_stack, 'vanished')
-        config = copy.copy(settings.CRCZP_CONFIG)
-        config.lost_job_observer = copy.copy(config.lost_job_observer)
-        config.lost_job_observer.enabled = False
-        mocker.patch.object(settings, 'CRCZP_CONFIG', config)
-        fail = mocker.patch.object(request_handlers.AllocationRequestHandler, 'fail_lost_stage')
-
-        call_command('observe_lost_jobs')
-
-        fail.assert_not_called()
-
     def test_it_recovers_the_lost_work(self, mocker, allocation_stage_stack):
         attach_job(allocation_stage_stack, 'vanished')
         fail = mocker.patch.object(request_handlers.AllocationRequestHandler, 'fail_lost_stage')
@@ -449,9 +437,50 @@ class TestObserveLostJobsCommand:
         with pytest.raises(CommandError):
             call_command('observe_lost_jobs')
 
-    def test_the_configuration_defaults_to_enabled_with_the_documented_grace(self):
-        assert settings.CRCZP_CONFIG.lost_job_observer.enabled
-        assert settings.CRCZP_CONFIG.lost_job_observer.grace_seconds == 900
+    def test_it_prints_a_line_per_recovered_item(self, mocker, allocation_stage_stack):
+        attach_job(allocation_stage_stack, 'vanished')
+        mocker.patch.object(request_handlers.AllocationRequestHandler, 'fail_lost_stage')
+        output = StringIO()
+
+        call_command('observe_lost_jobs', stdout=output)
+
+        unit_id = allocation_stage_stack.allocation_request_fk_many.allocation_unit.pk
+        assert (
+            f'Recovered allocation-stage of unit {unit_id}: {JOB_LOST_MESSAGE}' in output.getvalue()
+        )
+
+    def test_it_prints_a_line_per_failed_item(self, mocker, allocation_stage_stack):
+        attach_job(allocation_stage_stack, 'vanished')
+        mocker.patch.object(
+            request_handlers.AllocationRequestHandler,
+            'fail_lost_stage',
+            side_effect=RuntimeError('boom'),
+        )
+        output = StringIO()
+
+        with pytest.raises(CommandError):
+            call_command('observe_lost_jobs', stdout=output)
+
+        unit_id = allocation_stage_stack.allocation_request_fk_many.allocation_unit.pk
+        assert (
+            f'Failed to recover allocation-stage of unit {unit_id}: {JOB_LOST_MESSAGE}'
+            in output.getvalue()
+        )
+
+    def test_dry_run_prints_a_line_per_item_that_would_be_recovered(self, allocation_stage_stack):
+        attach_job(allocation_stage_stack, 'vanished')
+        output = StringIO()
+
+        call_command('observe_lost_jobs', '--dry-run', stdout=output)
+
+        unit_id = allocation_stage_stack.allocation_request_fk_many.allocation_unit.pk
+        assert (
+            f'Would recover allocation-stage of unit {unit_id}: {JOB_LOST_MESSAGE}'
+            in output.getvalue()
+        )
+
+    def test_the_configuration_defaults_to_the_documented_grace(self):
+        assert settings.CRCZP_CONFIG.lost_job_observer.grace_seconds == 60
 
 
 class TestStopThatNeverLanded:
