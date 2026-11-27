@@ -10,11 +10,14 @@ import os
 import signal
 import sys
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from types import FrameType
 from typing import NoReturn, override
 
 import structlog
+from django.db import connections
+from rq.job import Job
+from rq.queue import Queue
 from rq.worker import SHUTDOWN_SIGNAL, Worker
 
 LOG = structlog.get_logger()
@@ -47,6 +50,23 @@ class GracefulStopWorker(Worker):
         signal.signal(STOP_SIGNAL, _stop_work_horse)
 
     @override
+    def fork_work_horse(self, job: Job, queue: Queue) -> None:
+        """
+        Close every Django database connection of this process, then fork the work horse.
+
+        A connection left open here would be shared by the horse and every later horse; a
+        failing close is logged and does not stop the fork.
+        """
+        for connection in connections.all(initialized_only=True):
+            try:
+                connection.close()
+            except Exception:  # noqa: BLE001  # the fork must go ahead whatever the close raises
+                LOG.exception(
+                    'Closing a database connection before the fork failed', alias=connection.alias
+                )
+        super().fork_work_horse(job, queue)
+
+    @override
     def kill_horse(self, sig: signal.Signals = SHUTDOWN_SIGNAL) -> None:
         horse_pid = self.horse_pid
         if not horse_pid:
@@ -64,7 +84,7 @@ class GracefulStopWorker(Worker):
 
 
 @contextlib.contextmanager
-def interruptible_process(pid: int, end: Callable[[], None]) -> Iterator[None]:
+def interruptible_process(pid: int, end: Callable[[], None]) -> Generator[None]:
     """
     Run the block that waits for the process, and end on leaving it however it is left.
 

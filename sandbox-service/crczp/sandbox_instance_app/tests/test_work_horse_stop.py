@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, call, patch
 
 import fakeredis
 import pytest
+from rq.worker import Worker
 
 from crczp.sandbox_instance_app.lib import work_horse_stop
 from crczp.sandbox_instance_app.lib.work_horse_stop import (
@@ -184,6 +185,39 @@ class TestGracefulStopWorker:
         worker.kill_horse()
 
         timer.assert_not_called()
+
+    def test_fork_work_horse_closes_every_connection_before_the_fork(self, worker):
+        """The parent holds no open database connection when the horse is forked."""
+        calls = MagicMock()
+        first, second = MagicMock(), MagicMock()
+        calls.attach_mock(first.close, 'close_first')
+        calls.attach_mock(second.close, 'close_second')
+        with (
+            patch.object(work_horse_stop.connections, 'all', return_value=[first, second]),
+            patch.object(Worker, 'fork_work_horse') as fork,
+        ):
+            calls.attach_mock(fork, 'fork')
+            worker.fork_work_horse(MagicMock(), MagicMock())
+
+        assert [name for name, _, _ in calls.mock_calls] == [
+            'close_first',
+            'close_second',
+            'fork',
+        ]
+
+    def test_fork_work_horse_forks_and_closes_the_rest_when_a_close_fails(self, worker):
+        """A connection that cannot be closed neither stops the fork nor the other closes."""
+        failing, healthy = MagicMock(), MagicMock()
+        failing.close.side_effect = RuntimeError('broken socket')
+        job, queue = MagicMock(), MagicMock()
+        with (
+            patch.object(work_horse_stop.connections, 'all', return_value=[failing, healthy]),
+            patch.object(Worker, 'fork_work_horse') as fork,
+        ):
+            worker.fork_work_horse(job, queue)
+
+        healthy.close.assert_called_once_with()
+        fork.assert_called_once_with(job, queue)
 
     def test_the_horse_handles_the_stop_signal(self, worker):
         """The work horse handles the stop signal instead of dying by it."""
