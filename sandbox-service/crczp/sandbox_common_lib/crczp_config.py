@@ -44,7 +44,7 @@ ANSIBLE_DOCKER_NETWORK = 'bridge'
 ANSWERS_STORAGE_API = 'http://answers-storage:8087/answers-storage/api/v1'
 SSL_CA_CERTIFICATE_VERIFY = '/etc/ssl/certs'
 TRAINEE_SANDBOX_CLEANUP_MAX_AGE_HOURS = 24
-LOST_JOB_OBSERVER_GRACE_SECONDS = 900
+LOST_JOB_OBSERVER_GRACE_SECONDS = 60
 DATABASE_ENGINE = 'django.db.backends.postgresql'
 DATABASE_HOST = 'localhost'
 DATABASE_NAME = 'postgres'
@@ -143,11 +143,10 @@ class AnsibleRunnerSettings(YamlModel):
 class TraineeSandboxCleanupConfiguration(YamlModel):
     """Cleanup of the sandboxes trainees allocated for themselves.
 
-    The cleanup_trainee_sandboxes management command does the cleanup; the deployment runs
-    it periodically, e.g. as a Kubernetes CronJob.
+    The cleanup_trainee_sandboxes management command does the cleanup whenever it is started;
+    the deployment schedules it, e.g. as a Kubernetes CronJob.
     """
 
-    enabled: YamlBool = False
     # How long a trainee keeps their sandbox before the cleanup removes it.
     max_age_hours: YamlInt = TRAINEE_SANDBOX_CLEANUP_MAX_AGE_HOURS
 
@@ -161,12 +160,15 @@ class TraineeSandboxCleanupConfiguration(YamlModel):
 class LostJobObserverConfiguration(YamlModel):
     """Detection of sandbox work whose RQ job was lost.
 
-    The observe_lost_jobs management command does the detection; the deployment runs it
-    periodically, e.g. as a Kubernetes CronJob.
+    The observe_lost_jobs management command does the detection whenever it is started. The
+    deployment schedules it as a Kubernetes CronJob every minute. A stale sandbox is recovered
+    within ~2.5 minutes at worst: the worker key of a running job expires ~90 s after the last
+    heartbeat of the job (RQ's 30 s job monitoring interval + 60 s), grace_seconds counts from
+    that same heartbeat, and the cron spacing adds up to 60 s.
+    The worker of the default queue needs --with-scheduler for the delayed cleanup retries.
     """
 
-    enabled: YamlBool = True
-    # How long a job that is dead but still in Redis may wait for RQ to collect it.
+    # How long after its last heartbeat a job that is dead but still in Redis is recovered.
     grace_seconds: YamlInt = LOST_JOB_OBSERVER_GRACE_SECONDS
 
     @field_validator('grace_seconds')

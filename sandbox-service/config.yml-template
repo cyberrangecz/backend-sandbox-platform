@@ -206,26 +206,23 @@ application_configuration:
 
     # Cleanup of the sandboxes trainees allocate for themselves, done by the
     # `python manage.py cleanup_trainee_sandboxes` command. Schedule the command in the
-    # deployment, e.g. as a Kubernetes CronJob running hourly.
+    # deployment, e.g. as a Kubernetes CronJob running hourly; without a schedule nothing is cleaned up.
     # trainee_sandbox_cleanup:
-        # Whether the command removes anything; while false it only logs that it is disabled.
-        #enabled: false
-
         # How many hours a trainee keeps their sandbox before the cleanup removes it.
         #max_age_hours: 24
 
     # Detection of sandbox work whose job was lost, done by the
-    # `python manage.py observe_lost_jobs` command. Schedule the command in the
-    # deployment, e.g. as a Kubernetes CronJob running every few minutes.
+    # `python manage.py observe_lost_jobs` command. The deployment runs it as a Kubernetes
+    # CronJob every minute. A stale sandbox is detected and recovered within ~2.5 minutes at worst:
+    # the worker key of a running job expires ~90 s after the last heartbeat of the job (RQ's
+    # 30 s job monitoring interval + 60 s), grace_seconds counts from that same heartbeat, and
+    # the cron spacing adds up to 60 s. The worker of the default queue needs --with-scheduler
+    # for the delayed cleanup retries.
     # lost_job_observer:
-        # Whether the command recovers anything; while false it only logs that it is disabled.
-        #enabled: true
-
-        # How many seconds a stage job that Redis still holds must be dead before the command
-        # fails the stage. Keep it above the time RQ needs to collect a job of a dead worker
-        # itself (up to 11.5 minutes after its last heartbeat). A job that Redis lost is
-        # recovered at once.
-        #grace_seconds: 900
+        # How many seconds after its last heartbeat a stage job that Redis still holds and that
+        # is dead is failed by the command. A dead worker's key outlives that heartbeat by
+        # ~90 s, so a grace below that adds no wait. A job that Redis lost is recovered at once.
+        #grace_seconds: 60
 
     # Configuration for Terraform client
     terraform_configuration:

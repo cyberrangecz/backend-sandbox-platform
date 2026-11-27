@@ -17,9 +17,8 @@ class Command(BaseCommand):
 
     help = (
         'Hand stages whose job is lost from Redis or dead past lost_job_observer.grace_seconds, '
-        'and requests whose stage creation was lost, to the normal failure path. Does nothing '
-        'when lost_job_observer.enabled is off. Meant to run periodically, e.g. as a '
-        'Kubernetes CronJob; it fails when a recovery failed.'
+        'and requests whose stage creation was lost, to the normal failure path. The deployment '
+        'runs it as a Kubernetes CronJob every minute; it fails when a recovery failed.'
     )
     requires_migrations_checks = True
 
@@ -34,12 +33,16 @@ class Command(BaseCommand):
     @override
     def handle(self, *args: Any, **options: Any) -> None:
         config = settings.CRCZP_CONFIG.lost_job_observer
-        if not config.enabled:
-            self.stdout.write('The lost job observer is disabled (lost_job_observer).')
-            return
 
         lost_work = lost_jobs.find_lost_work(timedelta(seconds=config.grace_seconds))
         failed = lost_jobs.recover_lost_work(lost_work, dry_run=options['dry_run'])
+        failed_ids = {id(work) for work in failed}
+        for work in lost_work:
+            if id(work) in failed_ids:
+                outcome = 'Failed to recover'
+            else:
+                outcome = 'Would recover' if options['dry_run'] else 'Recovered'
+            self.stdout.write(self._describe(outcome, work))
         verb = 'Would recover' if options['dry_run'] else 'Recovered'
         self.stdout.write(
             f'{verb} {len(lost_work) - len(failed)} lost work item(s), {len(failed)} failed.'
@@ -47,3 +50,8 @@ class Command(BaseCommand):
         if failed:
             units = sorted({work.unit_id for work in failed})
             raise CommandError(f'Recovering the lost work of allocation units {units} failed.')
+
+    @staticmethod
+    def _describe(outcome: str, work: lost_jobs.LostWork) -> str:
+        kind = work.kind.value.replace('_', '-')
+        return f'{outcome} {kind} of unit {work.unit_id}: {work.reason}'

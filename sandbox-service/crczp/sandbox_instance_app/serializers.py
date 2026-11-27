@@ -13,7 +13,6 @@ from __future__ import annotations
 import re
 from typing import Any, ClassVar, override
 
-from django.db import transaction
 from drf_spectacular.extensions import OpenApiSerializerExtension, OpenApiSerializerFieldExtension
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.plumbing import build_choice_field
@@ -33,8 +32,8 @@ from crczp.topology_definition.validators import ROLE_NAME_REGEX
 class PoolSerializer(serializers.ModelSerializer[models.Pool]):
     """Serializer for Pool model."""
 
-    size = serializers.SerializerMethodField(
-        help_text='Number of allocation units associated with this pool.'
+    size = serializers.IntegerField(
+        read_only=True, help_text='Number of allocation units associated with this pool.'
     )
     lock_id = serializers.SerializerMethodField()
     definition = serializers.SerializerMethodField()
@@ -93,20 +92,6 @@ class PoolSerializer(serializers.ModelSerializer[models.Pool]):
                 f'Pool max_size value must be greater than 0. Your value: {value}.'
             )
         return value
-
-    @staticmethod
-    def get_size(pool: models.Pool) -> int:
-        """Return pool size, recalculating from allocation units if currently zero."""
-        # Required only because of the migration from older versions.
-        # For the release after 23.12 remove this method and set size attribute of serialize to
-        # IntegerField
-        if pool.size == 0:
-            with transaction.atomic():
-                pool = models.Pool.objects.select_for_update().get(id=pool.id)
-                pool.size = pool.allocation_units.count()
-                pool.save()
-
-        return pool.size
 
     @staticmethod
     def get_lock_id(obj: models.Pool) -> int | None:

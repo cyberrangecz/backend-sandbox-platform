@@ -12,8 +12,9 @@ class Command(BaseCommand):
 
     help = (
         'Remove every stack that no allocation unit owns, the way the cleanup does: its cloud '
-        'resources, terraform workspace, NetBird objects and jump host home. Meant to run once '
-        'by hand; it fails when a listing or a removal failed.'
+        'resources, terraform workspace, NetBird objects and jump host home. The deployment runs '
+        'it periodically (a Kubernetes CronJob every 15 minutes by default); it fails when a '
+        'listing or a removal failed.'
     )
     requires_migrations_checks = True
 

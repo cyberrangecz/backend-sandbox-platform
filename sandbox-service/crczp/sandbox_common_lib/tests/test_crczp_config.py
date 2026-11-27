@@ -167,25 +167,31 @@ class TestServiceConfigLoad:
         assert _load(text).app_config.proxy_jump_to_man.IdentityFile == ''
 
 
+class TestLostJobObserverConfiguration:
+    """Tests for the lost_job_observer section."""
+
+    def test_defaults(self):
+        """Without the section, the observer has a grace of 60 seconds."""
+        observer = _load(TEST_CONFIG).app_config.lost_job_observer
+
+        assert observer.grace_seconds == 60
+
+
 class TestTraineeSandboxCleanupConfiguration:
     """Tests for the trainee_sandbox_cleanup section."""
 
-    def test_defaults_to_disabled(self):
-        """Without the section, the cleanup is off and keeps sandboxes for a day."""
+    def test_defaults(self):
+        """Without the section, the cleanup keeps sandboxes for a day."""
         cleanup = _load(TEST_CONFIG).app_config.trainee_sandbox_cleanup
 
-        assert cleanup.enabled is False
         assert cleanup.max_age_hours == 24
 
     def test_reads_the_section(self):
-        """The section turns the cleanup on and sets the age."""
-        text = _with_app_setting(
-            'trainee_sandbox_cleanup:\n        enabled: true\n        max_age_hours: 6'
-        )
+        """The section sets the age."""
+        text = _with_app_setting('trainee_sandbox_cleanup:\n        max_age_hours: 6')
 
         cleanup = _load(text).app_config.trainee_sandbox_cleanup
 
-        assert cleanup.enabled is True
         assert cleanup.max_age_hours == 6
 
     def test_rejects_an_age_below_one_hour(self):
