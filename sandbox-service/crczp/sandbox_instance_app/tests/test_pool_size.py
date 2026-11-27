@@ -9,8 +9,10 @@ pytestmark = pytest.mark.django_db
 
 def serialized_size(pool) -> int:
     """Return the size the pool serializer gives for the pool."""
-    return PoolSerializer().fields['size'].to_representation(
-        PoolSerializer().fields['size'].get_attribute(pool)
+    return (
+        PoolSerializer()
+        .fields['size']
+        .to_representation(PoolSerializer().fields['size'].get_attribute(pool))
     )
 
 
